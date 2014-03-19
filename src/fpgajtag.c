@@ -62,6 +62,7 @@
 
 static libusb_device_handle *usbhandle = NULL;
 static FILE *logfile;
+static int logging = 0;
 static int logall = 1;
 static int datafile_fd = -1;
 static void openlogfile(void)
@@ -103,7 +104,8 @@ static unsigned char usbreadbuffer[USB_CHUNKSIZE];
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
 {
     int actual_length;
-formatwrite(1, buf, size, "WRITE");
+    if (logging)
+        formatwrite(1, buf, size, "WRITE");
     if (libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT) < 0)
         printf( "usb bulk write failed");
     return actual_length;
@@ -122,13 +124,15 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
         printf("[%s:%d] bozo actual_length %d size %d\n", __FUNCTION__, __LINE__, actual_length, size);
         //exit(-1);
         }
-memdumpfile(buf, actual_length, "READ");
+    if (logging)
+        memdumpfile(buf, actual_length, "READ");
     return actual_length;
 }
 static struct ftdi_context *ftdi_new(void)
 {
 static struct ftdi_context foo;
-printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
+    if (logging)
+        printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
     return &foo;
 }
 #endif
@@ -1190,7 +1194,7 @@ logfile = stdout;
     const char *serialno = NULL;
 
     if (argc < 2) {
-        printf("tester <filename>\n");
+        printf("%s: [ -s <serialno> ] <filename>\n", argv[0]);
         exit(1);
     }
     if (!strcmp(argv[i], "-s")) {
@@ -1363,6 +1367,6 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     libusb_close (usbhandle);
     libusb_exit(usb_context);
 #endif
-    //execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+    execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

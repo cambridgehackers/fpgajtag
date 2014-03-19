@@ -504,7 +504,9 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 #define RET_PATTERNC 0x12, 0x02, 0x00, 0x04, 0x01, 0x00
 #define RET_PATTERND 0x12, 0x02, 0x00, 0x1c, 0x87, 0x10
 
-#define CORTEX_RESET RESET_TO_IDLE, TMSW, 0x01, 0x00
+#define CORTEX_RESET   RESET_TO_IDLE, TMSW, 0x01, 0x00
+
+#define CORTEX_WAIT    RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00
 
 #define CORTEX_PAIR \
           LOADDR(DREAD, 0x18060016), LOADDR(DREAD, 0x18860016)
@@ -648,7 +650,7 @@ if (extra)
 else {
 //01
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x01), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
+                      LOADIRDR(IRREGA_APACC, DREAD, 0x01), CORTEX_WAIT,
                       LOADIRDR_3_7(IRREGA_DPACC),);
     dresp = DITEM( RET_PATTERN3, RET_PATTERND, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
@@ -659,7 +661,7 @@ else {
 WRITE_READ(__LINE__, senddata, dresp);
 //10
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x10), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00, 
+                      LOADIRDR(IRREGA_APACC, DREAD, 0x10), CORTEX_WAIT, 
                      LOADIRDR_3_7(IRREGA_DPACC),);
     dresp = DITEM( RET_PATTERN3, RET_PATTERN2, RET_PATTERN1,);
     WRITE_READ(__LINE__, senddata, dresp);
@@ -672,10 +674,8 @@ WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(
            LOADIRDR(IRREGA_DPACC, 0, 0x04),
            LOADIR(IRREGA_APACC),
-           LOADDR(DREAD, 0x87c0000802LL), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
-                      LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
-           LOADDR(DREAD, 0x87c0000902LL), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
-                      LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
+           LOADDR(DREAD, 0x87c0000802LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
+           LOADDR(DREAD, 0x87c0000902LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
            LOADIRDR_3_7(IRREGA_DPACC),);
     dresp = DITEM( RET_PATTERN3, RET_PATTERN2, RET_PATTERN9, RET_PATTERN9, RET_PATTERN8, RET_PATTERN1,);
     WRITE_READ(__LINE__, senddata, dresp);
@@ -708,7 +708,7 @@ WRITE_READ(__LINE__, senddata, dresp);
     write_data(ftdi, senddata23, sizeof(senddata23));
     check_read_data(__LINE__, ftdi, dresp);
 }
-    while (count--) {
+    while (count-- > 0) {
             senddata = DITEM(
                      LOADIRDR(IRREGA_ABORT, 0, 0x08), /* Clear WDATAERR write data error flag */
                      LOADIRDR(IRREGA_DPACC, 0, 0x028000019aLL),

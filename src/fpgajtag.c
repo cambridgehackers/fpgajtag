@@ -33,7 +33,7 @@
 
 // for using libftdi.so
 //#define USE_LIBFTDI
-#define USE_CORTEX_ADI
+//#define USE_CORTEX_ADI
 
 #include <stdio.h>
 #include <string.h>

@@ -502,6 +502,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 #define RET_PATTERNA 0x02, 0x00, 0x00, 0x08, 0x02, 0x00
 #define RET_PATTERNB 0x12, 0x00, 0x04, 0x18, 0x06, 0x00
 #define RET_PATTERNC 0x12, 0x02, 0x00, 0x04, 0x01, 0x00
+#define RET_PATTERND 0x12, 0x02, 0x00, 0x1c, 0x87, 0x10
 
 #define CORTEX_RESET RESET_TO_IDLE, TMSW, 0x01, 0x00
 
@@ -518,6 +519,19 @@ static void clear_cortex(struct ftdi_context *ftdi)
     uint8_t *dresp = DITEM( RET_PATTERN1, RET_PATTERN1,);
     WRITE_READ(__LINE__, senddata, dresp);
 }
+static void cortex_firstreq(struct ftdi_context *ftdi)
+{
+    uint8_t *senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
+                     LOADIRDR(IRREGA_APACC, DREAD, 0x01),
+                     LOADIRDR_3_7(IRREGA_DPACC),);
+    uint8_t *dresp = DITEM( RET_PATTERN3, RET_PATTERNC, RET_PATTERN1,);
+    WRITE_READ(__LINE__, senddata, dresp);
+    senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
+                     LOADIRDR(IRREGA_APACC, DREAD, 0x01),
+                     LOADIRDR_3_7(IRREGA_DPACC),);
+    dresp = DITEM( RET_PATTERNA, RET_PATTERN2, RET_PATTERN1,);
+    WRITE_READ(__LINE__, senddata, dresp);
+}
 static void cortex_test(struct ftdi_context *ftdi, int count, int extra)
 {
 int i, j;
@@ -525,16 +539,7 @@ uint8_t *senddata, *dresp;
 
     clear_cortex(ftdi);
 if (extra == 2) {
-    senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
-                     LOADIRDR(IRREGA_APACC, DREAD, 0x01),
-                     LOADIRDR_3_7(IRREGA_DPACC),);
-    dresp = DITEM( RET_PATTERN3, RET_PATTERNC, RET_PATTERN1,);
-    WRITE_READ(__LINE__, senddata, dresp);
-    senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-                     LOADIRDR(IRREGA_APACC, DREAD, 0x01),
-                     LOADIRDR_3_7(IRREGA_DPACC),);
-    dresp = DITEM( RET_PATTERNA, RET_PATTERN2, RET_PATTERN1,);
-    WRITE_READ(__LINE__, senddata, dresp);
+    cortex_firstreq(ftdi);
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
                      LOADIRDR(IRREGA_APACC, DREAD, 0x10),
                      LOADIRDR_3_7(IRREGA_DPACC));
@@ -603,10 +608,7 @@ if (extra == 2) {
     WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(
           IDLE_TO_RESET, TMS_RESET_WEIRD,
-          RESET_TO_SHIFT_DR,
-          DATAW(DREAD, 0x3f), PATTERN1, 0xff, 0x00, 0x00,
-          DATARWBIT, 0x06, 0x00,
-          SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0),
+          RESET_TO_SHIFT_DR, DATAW(DREAD, 0x3f), PATTERN1, 0xff, 0x00, 0x00, DATARWBIT, 0x06, 0x00, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0),
           SEND_IMMEDIATE);
     dresp = DITEM( 0x93, 0x70, 0x72, 0x03, 0x77, 0x04, 0xa0, 0x4b,
              INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff),
@@ -641,24 +643,14 @@ if (extra == 2) {
     }
     clear_cortex(ftdi);
 }
-if (extra) {
-    senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x01),
-                      LOADIRDR_3_7(IRREGA_DPACC),);
-    dresp = DITEM( RET_PATTERN3, RET_PATTERNC, RET_PATTERN1,);
-    WRITE_READ(__LINE__, senddata, dresp);
-    senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x01),
-                      LOADIRDR_3_7(IRREGA_DPACC),);
-    dresp = DITEM( RET_PATTERNA, RET_PATTERN2, RET_PATTERN1,);
-    WRITE_READ(__LINE__, senddata, dresp);
-}
+if (extra)
+    cortex_firstreq(ftdi);
 else {
 //01
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
                       LOADIRDR(IRREGA_APACC, DREAD, 0x01), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
                       LOADIRDR_3_7(IRREGA_DPACC),);
-    dresp = DITEM( RET_PATTERN3, 0x12, 0x02, 0x00, 0x1c, 0x87, 0x10, RET_PATTERN1);
+    dresp = DITEM( RET_PATTERN3, RET_PATTERND, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
                       LOADIRDR(IRREGA_APACC, DREAD, 0x01), DR_WAIT,
@@ -1204,6 +1196,10 @@ logfile = stdout;
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
+#ifdef USE_CORTEX_ADI
+logging = 1;
+dont_run_pciescan = 1;
+#endif
     ftdi = initialize(idcode, serialno, CLOCK_FREQUENCY);
 
 #ifndef USE_CORTEX_ADI

@@ -396,8 +396,8 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 /*
  * Xilinx constants
  */
-#define CLOCK_FREQUENCY      15000000
-//#define CLOCK_FREQUENCY      30000000
+//#define CLOCK_FREQUENCY      15000000
+#define CLOCK_FREQUENCY      30000000
 #define MAX_PACKET_STRING    10
 
 #define IRREG_USER2          (IRREG_EXTRABIT | 0x003)

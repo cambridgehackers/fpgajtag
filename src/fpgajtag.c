@@ -62,7 +62,8 @@
 
 static libusb_device_handle *usbhandle = NULL;
 static FILE *logfile;
-static int logging = 0;
+static int logging; // = 1;
+static int dont_run_pciescan; // = 1;
 static int logall = 1;
 static int datafile_fd = -1;
 static void openlogfile(void)
@@ -74,7 +75,7 @@ static void openlogfile(void)
 }
 #include "dumpdata.h"
 #ifdef USE_LIBFTDI
-#include "ftdi_reference.h"
+#include "ftdi.h"
 #else
 #define MPSSE_WRITE_NEG 0x01   /* Write TDI/DO on negative TCK/SK edge*/
 #define MPSSE_BITMODE   0x02   /* Write bits, not bytes */
@@ -100,7 +101,6 @@ static unsigned char usbreadbuffer[USB_CHUNKSIZE];
 #define ftdi_transfer_data_done(A) (void)(A)
 #define ftdi_set_usbdev(A,B)
 #define ftdi_write_data_submit(A, B, C) (ftdi_write_data((A), (B), (C)), NULL)
-#define ftdi_read_data_submit(A, B, C) (ftdi_read_data((A), (B), (C)), NULL)
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
 {
     int actual_length;
@@ -135,7 +135,7 @@ static struct ftdi_context foo;
         printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
     return &foo;
 }
-#endif
+#endif //end if not USE_LIBFTDI
 
 static struct libusb_context *usb_context;
 static int number_of_devices = 1;
@@ -503,6 +503,11 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 #define RET_PATTERNB 0x12, 0x00, 0x04, 0x18, 0x06, 0x00
 #define RET_PATTERNC 0x12, 0x02, 0x00, 0x04, 0x01, 0x00
 
+#define CORTEX_RESET RESET_TO_IDLE, TMSW, 0x01, 0x00
+
+#define CORTEX_PAIR \
+          LOADDR(DREAD, 0x18060016), LOADDR(DREAD, 0x18860016)
+
 static void clear_cortex(struct ftdi_context *ftdi)
 {
     uint8_t *senddata = DITEM(
@@ -517,9 +522,9 @@ static void cortex_test(struct ftdi_context *ftdi, int count, int extra)
 {
 int i, j;
 uint8_t *senddata, *dresp;
-if (extra) {
-if (extra == 2) {
+
     clear_cortex(ftdi);
+if (extra == 2) {
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
                      LOADIRDR(IRREGA_APACC, DREAD, 0x01),
                      LOADIRDR_3_7(IRREGA_DPACC),);
@@ -543,8 +548,8 @@ if (extra == 2) {
     senddata = DITEM(
           LOADIRDR(IRREGA_DPACC, 0, 0x04),
           LOADIR(IRREGA_APACC),
-          LOADDR(DREAD, 0x87c0000802LL), LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMSW, 0x01, 0x00,
-          LOADDR(DREAD, 0x87c0000902LL), LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMSW, 0x01, 0x00,
+          LOADDR(DREAD, 0x87c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+          LOADDR(DREAD, 0x87c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
           LOADIRDR_3_7(IRREGA_DPACC));
     dresp = DITEM( RET_PATTERN3, RET_PATTERN2, RET_PATTERN9, RET_PATTERN9, RET_PATTERN8, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
@@ -560,8 +565,7 @@ if (extra == 2) {
     WRITE_READ(__LINE__, senddata, dresp);
     uint8_t senddata33[] = {
           LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
-          LOADDR(DREAD, 0x18060016),
-          LOADDR(DREAD, 0x18860016),
+          CORTEX_PAIR,
           LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
           LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
           LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
@@ -574,8 +578,7 @@ if (extra == 2) {
     check_read_data(__LINE__, ftdi, dresp);
     senddata = DITEM(
           LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
-          LOADDR(DREAD, 0x18060016),
-          LOADDR(DREAD, 0x18860016),
+          CORTEX_PAIR,
           LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
           LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
@@ -636,8 +639,9 @@ if (extra == 2) {
             WRITE_READ(__LINE__, senddata, dresp);
         }
     }
-}
     clear_cortex(ftdi);
+}
+if (extra) {
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
                       LOADIRDR(IRREGA_APACC, DREAD, 0x01),
                       LOADIRDR_3_7(IRREGA_DPACC),);
@@ -650,7 +654,6 @@ if (extra == 2) {
     WRITE_READ(__LINE__, senddata, dresp);
 }
 else {
-    clear_cortex(ftdi);
 //01
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x04),
                       LOADIRDR(IRREGA_APACC, DREAD, 0x01), RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00,
@@ -686,29 +689,22 @@ WRITE_READ(__LINE__, senddata, dresp);
     WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(
            LOADIR(IRREGA_APACC),
-           LOADDR(0, 0x87c0038402LL),
-           LOADDR(DREAD, 0x07),
-           RESET_TO_IDLE, TMSW, 0x01, 0x00,
+           LOADDR(0, 0x87c0038402LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
            LOADIRDR_3_7(IRREGA_DPACC),);
     dresp = DITEM( RET_PATTERN8, RET_PATTERN3, RET_PATTERN1,);
     WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(
            LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-           LOADIRDR(IRREGA_APACC, DREAD, 0x8400480002LL),
-                      LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x84004818a2LL),
-                      LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400480442LL),
-                      LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400480142LL),
-                      LOADDR(DREAD, 0x07),
+           LOADIRDR(IRREGA_APACC, DREAD, 0x8400480002LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x8400480142LL), LOADDR(DREAD, 0x07),
            LOADIRDR_3_7(IRREGA_DPACC),);
     dresp = DITEM( RET_PATTERNA, RET_PATTERN3, RET_PATTERN7, RET_PATTERN7, RET_PATTERN5, RET_PATTERN5, RET_PATTERNB, RET_PATTERNB, RET_PATTERN3, RET_PATTERN1,);
     WRITE_READ(__LINE__, senddata, dresp);
     static uint8_t senddata23[] = {
            LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
-           LOADDR(DREAD, 0x18060016),
-           LOADDR(DREAD, 0x18860016),
+           CORTEX_PAIR,
            LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
            LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
            LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
@@ -725,8 +721,7 @@ WRITE_READ(__LINE__, senddata, dresp);
                      LOADIRDR(IRREGA_ABORT, 0, 0x08), /* Clear WDATAERR write data error flag */
                      LOADIRDR(IRREGA_DPACC, 0, 0x028000019aLL),
                      LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
-                     LOADDR(DREAD, 0x18060016),
-                     LOADDR(DREAD, 0x18860016),
+                     CORTEX_PAIR,
                      LOADIRDR(IRREGA_DPACC, DREAD, 0x03), LOADDR_3_7);
             dresp = DITEM( RET_PATTERNA, RET_PATTERN2, RET_PATTERN1);
             WRITE_READ(__LINE__, senddata, dresp);
@@ -753,10 +748,8 @@ WRITE_READ(__LINE__, senddata, dresp);
     WRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(LOADIRDR(IRREGA_DPACC, 0, 0x04),
              LOADIR(IRREGA_APACC),
-             LOADDR(DREAD, 0x87c0000802LL),
-                      LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMSW, 0x01, 0x00,
-             LOADDR(DREAD, 0x87c0000902LL),
-                      LOADDR(DREAD, 0x07), RESET_TO_IDLE, TMSW, 0x01, 0x00,
+             LOADDR(DREAD, 0x87c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+             LOADDR(DREAD, 0x87c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
              LOADIRDR_3_7(IRREGA_DPACC));
     dresp = DITEM( RET_PATTERN3, RET_PATTERN2, RET_PATTERN9, RET_PATTERN9, RET_PATTERN8, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
@@ -771,8 +764,8 @@ WRITE_READ(__LINE__, senddata, dresp);
     write_data(ftdi, senddata3, sizeof(senddata3));
     check_read_data(__LINE__, ftdi, dresp);
     uint8_t senddata17[] = {
-            LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
-          LOADDR(DREAD, 0x18060016),    LOADDR(DREAD, 0x18860016),
+          LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
+          CORTEX_PAIR,
           LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
           LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
           LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
@@ -784,25 +777,24 @@ WRITE_READ(__LINE__, senddata, dresp);
     write_data(ftdi, senddata17, sizeof(senddata17));
     check_read_data(__LINE__, ftdi, dresp);
     uint8_t senddata18[] = {
-                     LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
-                     LOADDR(DREAD, 0x18060016),
-                     LOADDR(DREAD, 0x18860016),
-                     LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-                     LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
-                     LOADIRDR_3_7(IRREGA_DPACC)};
+          LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
+          CORTEX_PAIR,
+          LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
+          LOADIRDR_3_7(IRREGA_DPACC)};
     dresp = DITEM( RET_PATTERN3, RET_PATTERN3, RET_PATTERN3, RET_PATTERN3, RET_PATTERN5, RET_PATTERN5, RET_PATTERN4, RET_PATTERN1);
     write_data(ftdi, senddata18, sizeof(senddata18));
     check_read_data(__LINE__, ftdi, dresp);
 
     senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0x8400480422LL), LOADDR(DREAD, 0x07),
-                      LOADIRDR_3_7(IRREGA_DPACC));
+          LOADIRDR_3_7(IRREGA_DPACC));
     dresp = DITEM(RET_PATTERN4, RET_PATTERN6, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
 
     senddata = DITEM(
-                 LOADIRDR(IRREGA_APACC, 0, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-                 LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
-                 LOADIRDR_3_7(IRREGA_DPACC));
+         LOADIRDR(IRREGA_APACC, 0, 0x84004918a2LL), LOADDR(DREAD, 0x07),
+         LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
+         LOADIRDR_3_7(IRREGA_DPACC));
     dresp = DITEM( RET_PATTERN6, RET_PATTERN5, RET_PATTERN5, RET_PATTERN4, RET_PATTERN1);
     WRITE_READ(__LINE__, senddata, dresp);
 
@@ -1359,7 +1351,7 @@ logfile = stdout;
     write_data(ftdi, i2reset+1, i2reset[0]);
 #else
     bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
-    cortex_test(ftdi, 0, 1);
+    cortex_test(ftdi, 0, 2);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #endif
     ftdi_deinit(ftdi);
@@ -1367,6 +1359,7 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     libusb_close (usbhandle);
     libusb_exit(usb_context);
 #endif
-    execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+    if (!dont_run_pciescan)
+        execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

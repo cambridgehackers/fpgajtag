@@ -475,7 +475,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 #define LOADDR(AREAD, A) \
     TEMPLOADDR(0), DATAW((AREAD), 4), INT32(A), \
     DATAWBIT | (AREAD), 0x01, ((((uint64_t)(A))>>32) & 0x3f),\
-    SHIFT_TO_UPDATE_TO_IDLE((AREAD),((((uint64_t)(A))>>32) & 0x80))
+    SHIFT_TO_UPDATE_TO_IDLE((AREAD),((((uint64_t)(A))>>27) & 0x80))
 
 #define DR_WAIT RESET_TO_IDLE, TMS_WAIT, TMSW, 0x02, 0x00
 
@@ -556,7 +556,7 @@ static void clear_cortex(struct ftdi_context *ftdi)
 {
     uint8_t *senddata = DITEM(
           LOADIRDR(IRREGA_ABORT, 0, 0x08), /* Clear WDATAERR write data error flag */
-          LOADIRDR(IRREGA_DPACC, 0, 0x028000019aLL),
+          LOADIRDR(IRREGA_DPACC, 0, 0x28000019aLL),
           LOADIRDR(IRREGA_DPACC, 0, 0x03),
           LOADDR_3_7,);
     uint32_t *cresp = (uint32_t []) { 2, 0xf0000001, 0xf0000001,};
@@ -590,59 +590,59 @@ if (extra == 2) {
     cresp = (uint32_t []) { 3, 0, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-                     LOADIRDR(IRREGA_APACC, DREAD, 0x8400000010LL),
+                     LOADIRDR(IRREGA_APACC, DREAD, 0x400000010LL),
                      LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x01000000, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
           LOADIRDR(IRREGA_DPACC, 0, 0x04),
           LOADIR(IRREGA_APACC),
-          LOADDR(DREAD, 0x87c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
-          LOADDR(DREAD, 0x87c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+          LOADDR(DREAD, 0x7c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+          LOADDR(DREAD, 0x7c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 6, 0, 0x00000042, 0x00028000, 0x00028000, 0x3f000200, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
           LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-          LOADIRDR(IRREGA_APACC, DREAD, 0x8400480002LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400480142LL), LOADDR(DREAD, 0x07),
+          LOADIRDR(IRREGA_APACC, DREAD, 0x400480002LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x4004818a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400480442LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400480142LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     uint8_t senddata33[] = {
-          LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
+          LOADIRDR(IRREGA_APACC, 0, 0x400480442LL),
           CORTEX_PAIR,
-          LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400490142LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490002LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x4004918a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490442LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490142LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC)};
     write_data(ftdi, senddata33, sizeof(senddata33));
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, 0xf0000001,};
     check_read_cortex(__LINE__, ftdi, cresp);
     senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
+          LOADIRDR(IRREGA_APACC, 0, 0x400490442LL),
           CORTEX_PAIR,
-          LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x4004818a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400480442LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 8, 0, 0, 0, 0, 1, 1, 0x0310c002, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, 0x8400480422LL), LOADDR(DREAD, 0x07),
+          LOADIRDR(IRREGA_APACC, 0, 0x400480422LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
+          LOADIRDR(IRREGA_APACC, 0, 0x4004918a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490442LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 5, 0x8001b400, 1, 1, 0x0310c002, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, 0x8400490422LL), LOADDR(DREAD, 0x07),
+          LOADIRDR(IRREGA_APACC, 0, 0x400490422LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
@@ -704,7 +704,7 @@ RITE_READ(__LINE__, senddata, cresp);
     cresp = (uint32_t []) { 3, 0, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM( LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x8400000010LL), DR_WAIT,
+                      LOADIRDR(IRREGA_APACC, DREAD, 0x400000010LL), DR_WAIT,
                       LOADIRDR_3_7(IRREGA_DPACC),);
     cresp = (uint32_t []) { 3, 0x01000000, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
@@ -712,33 +712,33 @@ RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
            LOADIRDR(IRREGA_DPACC, 0, 0x04),
            LOADIR(IRREGA_APACC),
-           LOADDR(DREAD, 0x87c0000802LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
-           LOADDR(DREAD, 0x87c0000902LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
+           LOADDR(DREAD, 0x7c0000802LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
+           LOADDR(DREAD, 0x7c0000902LL), CORTEX_WAIT, LOADDR(DREAD, 0x07), CORTEX_WAIT,
            LOADIRDR_3_7(IRREGA_DPACC),);
     cresp = (uint32_t []) { 6, 0, 0x00000042, 0x00028000, 0x00028000, 0x3f000200, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
            LOADIR(IRREGA_APACC),
-           LOADDR(0, 0x87c0038402LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+           LOADDR(0, 0x7c0038402LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
            LOADIRDR_3_7(IRREGA_DPACC),);
     cresp = (uint32_t []) { 3, 0x3f000200, 0, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
            LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-           LOADIRDR(IRREGA_APACC, DREAD, 0x8400480002LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400480142LL), LOADDR(DREAD, 0x07),
+           LOADIRDR(IRREGA_APACC, DREAD, 0x400480002LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x4004818a2LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x400480442LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x400480142LL), LOADDR(DREAD, 0x07),
            LOADIRDR_3_7(IRREGA_DPACC),);
     cresp = (uint32_t []) { 10, 0x01000000, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     static uint8_t senddata23[] = {
-           LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
+           LOADIRDR(IRREGA_APACC, 0, 0x400480442LL),
            CORTEX_PAIR,
-           LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
-           LOADDR(DREAD, 0x8400490142LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x400490002LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x4004918a2LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x400490442LL), LOADDR(DREAD, 0x07),
+           LOADDR(DREAD, 0x400490142LL), LOADDR(DREAD, 0x07),
            LOADIRDR_3_7(IRREGA_DPACC),};
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, 0xf0000001,};
     write_data(ftdi, senddata23, sizeof(senddata23));
@@ -747,8 +747,8 @@ RITE_READ(__LINE__, senddata, cresp);
     while (count-- > 0) {
             senddata = DITEM(
                      LOADIRDR(IRREGA_ABORT, 0, 0x08), /* Clear WDATAERR write data error flag */
-                     LOADIRDR(IRREGA_DPACC, 0, 0x028000019aLL),
-                     LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
+                     LOADIRDR(IRREGA_DPACC, 0, 0x28000019aLL),
+                     LOADIRDR(IRREGA_APACC, 0, 0x400490442LL),
                      CORTEX_PAIR,
                      LOADIRDR(IRREGA_DPACC, DREAD, 0x03), LOADDR_3_7);
             cresp = (uint32_t []) { 5, 0, 0, 0, 0xf0000001, 0xf0000001,};
@@ -770,61 +770,61 @@ RITE_READ(__LINE__, senddata, cresp);
     cresp = (uint32_t []) { 3, 0, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(   LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-                      LOADIRDR(IRREGA_APACC, DREAD, 0x8400000010LL),
+                      LOADIRDR(IRREGA_APACC, DREAD, 0x400000010LL),
                       LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x01000000, 0x00000042, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(LOADIRDR(IRREGA_DPACC, 0, 0x04),
              LOADIR(IRREGA_APACC),
-             LOADDR(DREAD, 0x87c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
-             LOADDR(DREAD, 0x87c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+             LOADDR(DREAD, 0x7c0000802LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
+             LOADDR(DREAD, 0x7c0000902LL), LOADDR(DREAD, 0x07), CORTEX_RESET,
              LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 6, 0, 0x00000042, 0x00028000, 0x00028000, 0x3f000200, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
     uint8_t senddata3[] = {
         LOADIRDR(IRREGA_DPACC, 0, 0x08000004),
-        LOADIRDR(IRREGA_APACC, DREAD, 0x8400480002LL), LOADDR(DREAD, 0x07),
-       LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-       LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
-       LOADDR(DREAD, 0x8400480142LL), LOADDR(DREAD, 0x07),
+        LOADIRDR(IRREGA_APACC, DREAD, 0x400480002LL), LOADDR(DREAD, 0x07),
+       LOADDR(DREAD, 0x4004818a2LL), LOADDR(DREAD, 0x07),
+       LOADDR(DREAD, 0x400480442LL), LOADDR(DREAD, 0x07),
+       LOADDR(DREAD, 0x400480142LL), LOADDR(DREAD, 0x07),
       LOADIRDR_3_7(IRREGA_DPACC)};
     write_data(ftdi, senddata3, sizeof(senddata3));
     cresp = (uint32_t []) { 10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, 0xf0000001,};
     check_read_cortex(__LINE__, ftdi, cresp);
     uint8_t senddata17[] = {
-          LOADIRDR(IRREGA_APACC, 0, 0x8400480442LL),
+          LOADIRDR(IRREGA_APACC, 0, 0x400480442LL),
           CORTEX_PAIR,
-          LOADDR(DREAD, 0x8400490002LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400490142LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490002LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x4004918a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490442LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400490142LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC)};
     write_data(ftdi, senddata17, sizeof(senddata17));
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, 0xf0000001,};
     check_read_cortex(__LINE__, ftdi, cresp);
     uint8_t senddata18[] = {
-          LOADIRDR(IRREGA_APACC, 0, 0x8400490442LL),
+          LOADIRDR(IRREGA_APACC, 0, 0x400490442LL),
           CORTEX_PAIR,
-          LOADDR(DREAD, 0x84004818a2LL), LOADDR(DREAD, 0x07),
-          LOADDR(DREAD, 0x8400480442LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x4004818a2LL), LOADDR(DREAD, 0x07),
+          LOADDR(DREAD, 0x400480442LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC)};
     write_data(ftdi, senddata18, sizeof(senddata18));
     cresp = (uint32_t []) { 8, 0, 0, 0, 0, 1, 1, 0x0310c002, 0xf0000001,};
     check_read_cortex(__LINE__, ftdi, cresp);
 
-    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0x8400480422LL), LOADDR(DREAD, 0x07),
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0x400480422LL), LOADDR(DREAD, 0x07),
           LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
 
     senddata = DITEM(
-         LOADIRDR(IRREGA_APACC, 0, 0x84004918a2LL), LOADDR(DREAD, 0x07),
-         LOADDR(DREAD, 0x8400490442LL), LOADDR(DREAD, 0x07),
+         LOADIRDR(IRREGA_APACC, 0, 0x4004918a2LL), LOADDR(DREAD, 0x07),
+         LOADDR(DREAD, 0x400490442LL), LOADDR(DREAD, 0x07),
          LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 5, 0x8001b400, 1, 1, 0x0310c002, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);
 
-    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0x8400490422LL), LOADDR(DREAD, 0x07),
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0x400490422LL), LOADDR(DREAD, 0x07),
                       LOADIRDR_3_7(IRREGA_DPACC));
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, 0xf0000001,};
     RITE_READ(__LINE__, senddata, cresp);

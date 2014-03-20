@@ -605,6 +605,7 @@ static void clear_cortex(struct ftdi_context *ftdi)
 }
 static void cortex_firstreq(struct ftdi_context *ftdi)
 {
+    clear_cortex(ftdi);
     uint8_t *senddata = READ_AHB_CSW();
     uint32_t *cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
     RITE_READ(__LINE__, senddata, cresp);
@@ -664,55 +665,15 @@ static void cortex_readreg2(struct ftdi_context *ftdi)
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
-static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode);
 static void cortex_test(struct ftdi_context *ftdi, int count, int extra)
 {
-int i, j;
 uint8_t *senddata;
 uint32_t *cresp;
 
-    clear_cortex(ftdi);
-if (extra == 2) {
-    cortex_firstreq(ftdi);
-    cortex_readreg2(ftdi);
-check_idcode(ftdi, DITEM(IDLE_TO_RESET), 0);
-#if 0
-    senddata = DITEM(
-          IDLE_TO_RESET, TMS_RESET_WEIRD,
-          RESET_TO_SHIFT_DR, DATAW(DREAD, 0x3f), PATTERN1, 0xff, 0x00, 0x00, DATARWBIT, 0x06, 0x00, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0),
-          SEND_IMMEDIATE);
-    ZZWRITE_READ(__LINE__, senddata, idcode_pattern1);
-#endif
-    for (i = 0; i < 3; i++) {
-        senddata = DITEM(
-          TEMPLOADIR(IRREGA_BYPASS), SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-          IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xc3, DATAWBIT, 0x02, 0xff, SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-          IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
-        uint8_t *dresp = DITEM( INT32(0),);
-        ZZWRITE_READ(__LINE__, senddata, dresp);
-        senddata = DITEM(
-          TEMPLOADIR(IRREGA_BYPASS), SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-          IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xc3, DATAWBIT, 0x02, 0xff, SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-          IDLE_TO_SHIFT_DR, DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00, DATAWBIT, 0x00, 0x00, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-          SEND_IMMEDIATE);
-        dresp = DITEM( INT32(0),);
-        ZZWRITE_READ(__LINE__, senddata, dresp);
-        for (j = 0; j < 2; j++) {
-            senddata = DITEM(
-              TEMPLOADIR(IRREGA_BYPASS), SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-              IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xc3, DATAWBIT, 0x02, 0xff, SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
-              IDLE_TO_SHIFT_DR, DATAWBIT, 0x05, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-              IDLE_TO_SHIFT_DR, DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00, DATAWBIT, 0x00, 0x00, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-              SEND_IMMEDIATE);
-            dresp = DITEM( INT32(0),);
-            ZZWRITE_READ(__LINE__, senddata, dresp);
-        }
-    }
-    clear_cortex(ftdi);
-}
 if (extra)
     cortex_firstreq(ftdi);
 else {
+    clear_cortex(ftdi);
     senddata = READ_AHB_CSW( CORTEX_WAIT, );
     cresp = (uint32_t []) { 3, 0, 0x83800042, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
@@ -1217,6 +1178,9 @@ dont_run_pciescan = 1;
     write_data(ftdi, i2reset+1, i2reset[0]);
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
 #ifdef USE_CORTEX_ADI
+    cortex_firstreq(ftdi);
+    cortex_readreg2(ftdi);
+    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
     cortex_test(ftdi, 0, 2);
 #endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
@@ -1319,6 +1283,9 @@ dont_run_pciescan = 1;
     write_data(ftdi, i2reset+1, i2reset[0]);
 #else
     bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
+    cortex_firstreq(ftdi);
+    cortex_readreg2(ftdi);
+    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
     cortex_test(ftdi, 0, 2);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #endif

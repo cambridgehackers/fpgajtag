@@ -463,8 +463,10 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
     SEND_IMMEDIATE
 #endif
 
-#ifdef USE_CORTEX_ADI
 #define CORTEX_IDCODE 0x4ba00477
+static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
+
+#ifdef USE_CORTEX_ADI
 
 #define TEMPLOADIR(A) \
     IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, DATAWBIT, 0x02, M((IRREG_BYPASS<<4) | (A)) //JTAG_IRREG
@@ -662,6 +664,7 @@ static void cortex_readreg2(struct ftdi_context *ftdi)
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
+static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode);
 static void cortex_test(struct ftdi_context *ftdi, int count, int extra)
 {
 int i, j;
@@ -672,22 +675,20 @@ uint32_t *cresp;
 if (extra == 2) {
     cortex_firstreq(ftdi);
     cortex_readreg2(ftdi);
+check_idcode(ftdi, DITEM(IDLE_TO_RESET), 0);
+#if 0
     senddata = DITEM(
           IDLE_TO_RESET, TMS_RESET_WEIRD,
           RESET_TO_SHIFT_DR, DATAW(DREAD, 0x3f), PATTERN1, 0xff, 0x00, 0x00, DATARWBIT, 0x06, 0x00, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0),
           SEND_IMMEDIATE);
-    uint8_t *dresp = DITEM( 0x93, 0x70, 0x72, 0x03, INT32(CORTEX_IDCODE),
-             INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff),
-             INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff),
-             INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff),
-             0x00,);
-    ZZWRITE_READ(__LINE__, senddata, dresp);
+    ZZWRITE_READ(__LINE__, senddata, idcode_pattern1);
+#endif
     for (i = 0; i < 3; i++) {
         senddata = DITEM(
           TEMPLOADIR(IRREGA_BYPASS), SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
           IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xc3, DATAWBIT, 0x02, 0xff, SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
           IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
-        dresp = DITEM( INT32(0),);
+        uint8_t *dresp = DITEM( INT32(0),);
         ZZWRITE_READ(__LINE__, senddata, dresp);
         senddata = DITEM(
           TEMPLOADIR(IRREGA_BYPASS), SHIFT_TO_UPDATE_TO_IDLE(0, 0x80),
@@ -770,7 +771,6 @@ else {
 }
 #endif
 
-static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
 static uint8_t idcode_pattern2[] = DITEM( INT32(0), PATTERN2, 0xff); // starts with idcode
 
 static int idcode_setup;

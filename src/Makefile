@@ -1,5 +1,5 @@
 
-CFLAGS= $(VARIANT) -Wall -fPIC -I/usr/include/libusb-1.0 -g
+CFLAGS= $(VARIANT) -Wall -fPIC -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -g
 
 fpgajtag: fpgajtag.o Makefile
 	gcc -g -o fpgajtag fpgajtag.o -lpthread -lusb-1.0

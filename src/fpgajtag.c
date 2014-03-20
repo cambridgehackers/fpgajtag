@@ -66,13 +66,7 @@ static int logging; // = 1;
 static int dont_run_pciescan; // = 1;
 static int logall = 1;
 static int datafile_fd = -1;
-static void openlogfile(void)
-{
-    if (!logfile)
-        logfile = fopen("/tmp/xx.logfile2", "w");
-    if (datafile_fd < 0)
-        datafile_fd = creat("/tmp/xx.datafile2", 0666);
-}
+static void openlogfile(void);
 #include "dumpdata.h"
 #ifdef USE_LIBFTDI
 #include "ftdi.h"
@@ -136,6 +130,13 @@ static struct ftdi_context foo;
     return &foo;
 }
 #endif //end if not USE_LIBFTDI
+static void openlogfile(void)
+{
+    if (!logfile)
+        logfile = fopen("/tmp/xx.logfile2", "w");
+    if (datafile_fd < 0)
+        datafile_fd = creat("/tmp/xx.datafile2", 0666);
+}
 
 static struct libusb_context *usb_context;
 static int number_of_devices = 1;
@@ -147,16 +148,17 @@ int i;
 
     i = 0;
     while (len > 0) {
-        if (!(i & 0xf)) {
+        if (title && !(i & 0xf)) {
             if (i > 0)
                 printf("\n");
             printf("%s: ",title);
         }
-        printf("%02x ", *p++);
+        printf("0x%02x, ", *p++);
         i++;
         len--;
     }
-    printf("\n");
+    if (title)
+        printf("\n");
 }
 
 #define BUFFER_MAX_LEN      1000000

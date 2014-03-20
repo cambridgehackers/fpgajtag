@@ -464,6 +464,8 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 #endif
 
 #ifdef USE_CORTEX_ADI
+#define CORTEX_IDCODE 0x4ba00477
+
 #define TEMPLOADIR(A) \
     IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, DATAWBIT, 0x02, M((IRREG_BYPASS<<4) | (A)) //JTAG_IRREG
 #define TEMPLOADDR(A) \
@@ -488,8 +490,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
     LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE), \
     READ_RDBUFF, SEND_IMMEDIATE
 
-#define LOADIRDR_3_7(A) \
-    LOADIR(A), LOADDR_3_7
+#define LOADIRDR_3_7   LOADIR(IRREGA_DPACC), LOADDR_3_7
 
 #define CORTEX_RESET   RESET_TO_IDLE, TMSW, 0x01, 0x00
 
@@ -525,7 +526,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
          DITEM(SELECT_AHB_AP, \
                LOADIRDR(IRREGA_APACC, DREAD, 0, DPACC_WRITE), \
                __VA_ARGS__ \
-               LOADIRDR_3_7(IRREGA_DPACC))
+               LOADIRDR_3_7)
     #define DEFAULT_CSW   0x42
                           // Coresight: Table 2-20
                           // DbgStatus=1 -> AHB transfers permitted
@@ -534,7 +535,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
          DITEM(SELECT_APB_AP, \
                LOADIRDR(IRREGA_APACC, DREAD, 0, DPACC_WRITE), \
                __VA_ARGS__ \
-               LOADIRDR_3_7(IRREGA_DPACC))
+               LOADIRDR_3_7)
 #define DPACC_RDBUFF   (3 << 1)
     #define CORTEX_PAIR \
          LOADDR(DREAD, 0x0300c002, DPACC_RDBUFF), LOADDR(DREAD, 0x0310c002, DPACC_RDBUFF)
@@ -618,25 +619,24 @@ uint32_t *cresp;
     clear_cortex(ftdi);
 if (extra == 2) {
     cortex_firstreq(ftdi);
-    senddata = DITEM( SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM( SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0),
-                     LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0), LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM( SELECT_AHB_AP,
           LOADIR(IRREGA_APACC),
           LOADDR(DREAD, 0xf8000100, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET,
           LOADDR(DREAD, 0xf8000120, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET,
-          LOADIRDR_3_7(IRREGA_DPACC));
+          LOADIRDR_3_7);
     cresp = (uint32_t []) { 6, 0, DEFAULT_CSW, 0x00028000, 0x00028000, 0x3f000200, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+          LOADIRDR_3_7);
     cresp = (uint32_t []) { 10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     uint8_t senddata33[] = {
@@ -646,7 +646,7 @@ if (extra == 2) {
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC)};
+          LOADIRDR_3_7};
     write_data(ftdi, senddata33, sizeof(senddata33));
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
     check_read_cortex(__LINE__, ftdi, cresp);
@@ -655,23 +655,19 @@ if (extra == 2) {
           CORTEX_PAIR,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+          LOADIRDR_3_7);
     cresp = (uint32_t []) { 8, 0, 0, 0, 0, 1, 1, 0x0310c002, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090084, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090084, DPACC_CTRL), READ_RDBUFF, LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
           LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+          LOADIRDR_3_7);
     cresp = (uint32_t []) { 5, 0x8001b400, 1, 1, 0x0310c002, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092084, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092084, DPACC_CTRL), READ_RDBUFF, LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(
@@ -720,11 +716,10 @@ else {
     senddata = READ_APB_CSW( DR_WAIT, );
     cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM( SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), CORTEX_WAIT, LOADIRDR_3_7(IRREGA_DPACC),);
+    senddata = DITEM( SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), CORTEX_WAIT, LOADIRDR_3_7,);
     cresp = (uint32_t []) { 3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0), DR_WAIT,
-                      LOADIRDR_3_7(IRREGA_DPACC),);
+    senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0), DR_WAIT, LOADIRDR_3_7,);
     cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 
@@ -732,20 +727,17 @@ else {
            LOADIR(IRREGA_APACC),
            LOADDR(DREAD, 0xf8000100, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
            LOADDR(DREAD, 0xf8000120, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
-           LOADIRDR_3_7(IRREGA_DPACC),);
+           LOADIRDR_3_7,);
     cresp = (uint32_t []) { 6, 0, DEFAULT_CSW, 0x00028000, 0x00028000, 0x3f000200, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM(
-           LOADIR(IRREGA_APACC),
-           LOADDR(0, 0xf8007080, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET,
-           LOADIRDR_3_7(IRREGA_DPACC),);
+    senddata = DITEM( LOADIRDR(IRREGA_APACC, 0, 0xf8007080, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET, LOADIRDR_3_7,);
     cresp = (uint32_t []) { 3, 0x3f000200, 0, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
-           LOADIRDR_3_7(IRREGA_DPACC),);
+           LOADIRDR_3_7,);
     cresp = (uint32_t []) { 10, 0x01000000, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     static uint8_t senddata23[] = {
@@ -755,7 +747,7 @@ else {
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
            LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
-           LOADIRDR_3_7(IRREGA_DPACC),};
+           LOADIRDR_3_7,};
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
     write_data(ftdi, senddata23, sizeof(senddata23));
     check_read_cortex(__LINE__, ftdi, cresp);
@@ -776,25 +768,24 @@ else {
             cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
             RITE_READ(__LINE__, senddata, cresp);
     }
-    senddata = DITEM(SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM(SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0),
-                      LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0), LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     senddata = DITEM(SELECT_AHB_AP,
              LOADIR(IRREGA_APACC),
              LOADDR(DREAD, 0xf8000100, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET,
              LOADDR(DREAD, 0xf8000120, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET,
-             LOADIRDR_3_7(IRREGA_DPACC));
+             LOADIRDR_3_7);
     cresp = (uint32_t []) { 6, 0, DEFAULT_CSW, 0x00028000, 0x00028000, 0x3f000200, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
     uint8_t senddata3[] = {SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
        LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
        LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
        LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
-      LOADIRDR_3_7(IRREGA_DPACC)};
+      LOADIRDR_3_7};
     write_data(ftdi, senddata3, sizeof(senddata3));
     cresp = (uint32_t []) { 10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
     check_read_cortex(__LINE__, ftdi, cresp);
@@ -805,7 +796,7 @@ else {
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC)};
+          LOADIRDR_3_7};
     write_data(ftdi, senddata17, sizeof(senddata17));
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
     check_read_cortex(__LINE__, ftdi, cresp);
@@ -814,31 +805,27 @@ else {
           CORTEX_PAIR,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC)};
+          LOADIRDR_3_7};
     write_data(ftdi, senddata18, sizeof(senddata18));
     cresp = (uint32_t []) { 8, 0, 0, 0, 0, 1, 1, 0x0310c002, CORTEX_DEFAULT_STATUS,};
     check_read_cortex(__LINE__, ftdi, cresp);
 
-    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090084, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090084, DPACC_CTRL), READ_RDBUFF, LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 
     senddata = DITEM(
          LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
-         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
-         LOADIRDR_3_7(IRREGA_DPACC));
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF, LOADIRDR_3_7);
     cresp = (uint32_t []) { 5, 0x8001b400, 1, 1, 0x0310c002, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 
-    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092084, DPACC_CTRL), READ_RDBUFF,
-                      LOADIRDR_3_7(IRREGA_DPACC));
+    senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092084, DPACC_CTRL), READ_RDBUFF, LOADIRDR_3_7);
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
 #endif
 
-#define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
 static uint8_t idcode_pattern2[] = DITEM( INT32(0), PATTERN2, 0xff); // starts with idcode
 

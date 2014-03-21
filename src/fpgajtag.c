@@ -1115,8 +1115,8 @@ logfile = stdout;
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
 #if defined(USE_CORTEX_ADI) || defined(USE_LOGGING)
-logging = 1;
-dont_run_pciescan = 1;
+    logging = 1;
+    dont_run_pciescan = 1;
 #endif
     ftdi = initialize(idcode, serialno, CLOCK_FREQUENCY);
 
@@ -1162,9 +1162,9 @@ dont_run_pciescan = 1;
     static uint8_t i2reset[] = DITEM(IDLE_TO_RESET );
     write_data(ftdi, i2reset+1, i2reset[0]);
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+    for (i = 0; i < 3; i++)
+        bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+
     /*
      * Step 2: Initialization
      */

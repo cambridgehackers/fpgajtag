@@ -603,16 +603,6 @@ static void clear_cortex(struct ftdi_context *ftdi)
     uint32_t *cresp = (uint32_t []) { 2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
-static void cortex_firstreq(struct ftdi_context *ftdi)
-{
-    clear_cortex(ftdi);
-    uint8_t *senddata = READ_AHB_CSW();
-    uint32_t *cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
-    RITE_READ(__LINE__, senddata, cresp);
-    senddata = READ_APB_CSW();
-    cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-    RITE_READ(__LINE__, senddata, cresp);
-}
 static void cortex_readreg2(struct ftdi_context *ftdi)
 {
     uint8_t *senddata = DITEM(SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7);
@@ -665,24 +655,15 @@ static void cortex_readreg2(struct ftdi_context *ftdi)
     cresp = (uint32_t []) { 3, 0x0310c002, 0x8001b400, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
-static void cortex_test(struct ftdi_context *ftdi, int count, int extra)
+static void cortex_firstreq(struct ftdi_context *ftdi)
 {
-uint8_t *senddata;
-uint32_t *cresp;
-
-    while (count-- > 0) {
-            senddata = DITEM(CORTEX_ABORT, LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL),
-                     CORTEX_PAIR,
-                     LOADIRDR(IRREGA_DPACC, DREAD, 0, DPACC_CTRL | DPACC_WRITE), LOADDR_3_7);
-            cresp = (uint32_t []) { 5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
-            RITE_READ(__LINE__, senddata, cresp);
-            senddata = READ_AHB_CSW();
-            cresp = (uint32_t []) { 3, 0, 0x00800042, CORTEX_DEFAULT_STATUS,};
-            RITE_READ(__LINE__, senddata, cresp);
-            senddata = READ_APB_CSW();
-            cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-            RITE_READ(__LINE__, senddata, cresp);
-    }
+    clear_cortex(ftdi);
+    uint8_t *senddata = READ_AHB_CSW();
+    uint32_t *cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
+    RITE_READ(__LINE__, senddata, cresp);
+    senddata = READ_APB_CSW();
+    cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+    RITE_READ(__LINE__, senddata, cresp);
     cortex_readreg2(ftdi);
 }
 #endif
@@ -760,7 +741,7 @@ static void data_test(struct ftdi_context *ftdi)
         }
     }
 }
-static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int str_count)
+static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int run_cortex)
 {
     check_idcode(ftdi, statep, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
@@ -1061,12 +1042,27 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
     write_data(ftdi, senddata23, sizeof(senddata23));
     check_read_cortex(__LINE__, ftdi, cresp);
-    cortex_test(ftdi, number_of_devices-1, 0);
+    int count = number_of_devices - 1;
+    while (count-- > 0) {
+uint8_t *senddata;
+uint32_t *cresp;
+            senddata = DITEM(CORTEX_ABORT, LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL),
+                     CORTEX_PAIR,
+                     LOADIRDR(IRREGA_DPACC, DREAD, 0, DPACC_CTRL | DPACC_WRITE), LOADDR_3_7);
+            cresp = (uint32_t []) { 5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
+            RITE_READ(__LINE__, senddata, cresp);
+            senddata = READ_AHB_CSW();
+            cresp = (uint32_t []) { 3, 0, 0x00800042, CORTEX_DEFAULT_STATUS,};
+            RITE_READ(__LINE__, senddata, cresp);
+            senddata = READ_APB_CSW();
+            cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+            RITE_READ(__LINE__, senddata, cresp);
+    }
+    cortex_readreg2(ftdi);
 #endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
 #ifdef USE_CORTEX_ADI
     cortex_firstreq(ftdi);
-    cortex_test(ftdi, 0, 1);
 #endif
 #ifndef USE_CORTEX_ADI
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
@@ -1176,20 +1172,16 @@ dont_run_pciescan = 1;
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
 #ifdef USE_CORTEX_ADI
     cortex_firstreq(ftdi);
-    cortex_readreg2(ftdi);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
     cortex_firstreq(ftdi);
-    cortex_test(ftdi, 0, 2);
 #endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
 #ifdef USE_CORTEX_ADI
     cortex_firstreq(ftdi);
-    cortex_test(ftdi, 0, 1);
 #endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
 #ifdef USE_CORTEX_ADI
     cortex_firstreq(ftdi);
-    cortex_test(ftdi, 0, 1);
 #endif
 #ifndef USE_CORTEX_ADI
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
@@ -1284,10 +1276,8 @@ dont_run_pciescan = 1;
 #else
     bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
     cortex_firstreq(ftdi);
-    cortex_readreg2(ftdi);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
     cortex_firstreq(ftdi);
-    cortex_test(ftdi, 0, 2);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #endif
     ftdi_deinit(ftdi);

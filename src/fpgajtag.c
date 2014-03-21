@@ -747,8 +747,9 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
         data_test(ftdi);
     }
 #ifdef USE_CORTEX_ADI
+    clear_cortex(ftdi);
     if (run_cortex)
-        clear_cortex(ftdi);
+        cortex_firstreq(ftdi);
 #endif
 }
 
@@ -1002,7 +1003,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
      * Step 5: Check Device ID
      */
 
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, number_of_devices);
+    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, 0);
 #ifdef USE_CORTEX_ADI
     uint8_t *senddata = READ_AHB_CSW( CORTEX_WAIT, );
     uint32_t *cresp = (uint32_t []) { 3, 0, 0x83800042, CORTEX_DEFAULT_STATUS,};
@@ -1063,9 +1064,6 @@ uint32_t *cresp;
     cortex_readreg2(ftdi);
 #endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-#ifdef USE_CORTEX_ADI
-    cortex_firstreq(ftdi);
-#endif
 #ifndef USE_CORTEX_ADI
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
     write_data(ftdi, i2resetin+1, i2resetin[0]);
@@ -1172,22 +1170,9 @@ dont_run_pciescan = 1;
     static uint8_t i2reset[] = DITEM(IDLE_TO_RESET );
     write_data(ftdi, i2reset+1, i2reset[0]);
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
-#ifdef USE_CORTEX_ADI
-    cortex_firstreq(ftdi);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    cortex_firstreq(ftdi);
-#endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-#ifdef USE_CORTEX_ADI
-    cortex_firstreq(ftdi);
-#endif
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-#ifdef USE_CORTEX_ADI
-    cortex_firstreq(ftdi);
-#endif
-#ifndef USE_CORTEX_ADI
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-#endif
     /*
      * Step 2: Initialization
      */
@@ -1277,11 +1262,9 @@ dont_run_pciescan = 1;
     write_data(ftdi, i2reset+1, i2reset[0]);
 #else
     bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
-    cortex_firstreq(ftdi);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    cortex_firstreq(ftdi);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #endif
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     ftdi_deinit(ftdi);
 #ifndef USE_LIBFTDI
     libusb_close (usbhandle);

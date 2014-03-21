@@ -130,36 +130,6 @@ static struct ftdi_context foo;
     return &foo;
 }
 #endif //end if not USE_LIBFTDI
-static void openlogfile(void)
-{
-    if (!logfile)
-        logfile = fopen("/tmp/xx.logfile2", "w");
-    if (datafile_fd < 0)
-        datafile_fd = creat("/tmp/xx.datafile2", 0666);
-}
-
-static struct libusb_context *usb_context;
-static int number_of_devices = 1;
-static int found_232H;
-
-static void memdump(uint8_t *p, int len, char *title)
-{
-int i;
-
-    i = 0;
-    while (len > 0) {
-        if (title && !(i & 0xf)) {
-            if (i > 0)
-                printf("\n");
-            printf("%s: ",title);
-        }
-        printf("0x%02x, ", *p++);
-        i++;
-        len--;
-    }
-    if (title)
-        printf("\n");
-}
 
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
@@ -246,6 +216,39 @@ int i;
      EXTRA_BIT(READA, B)                                      \
      SHIFT_TO_UPDATE_TO_IDLE((READA), ((A) & 0x100)>>1)
 
+static struct libusb_context *usb_context;
+static int number_of_devices = 1;
+static uint8_t bitswap[256];
+static int last_read_data_length;
+static int found_232H;
+
+static void openlogfile(void)
+{
+    if (!logfile)
+        logfile = fopen("/tmp/xx.logfile2", "w");
+    if (datafile_fd < 0)
+        datafile_fd = creat("/tmp/xx.datafile2", 0666);
+}
+
+static void memdump(uint8_t *p, int len, char *title)
+{
+int i;
+
+    i = 0;
+    while (len > 0) {
+        if (title && !(i & 0xf)) {
+            if (i > 0)
+                printf("\n");
+            printf("%s: ",title);
+        }
+        printf("0x%02x, ", *p++);
+        i++;
+        len--;
+    }
+    if (title)
+        printf("\n");
+}
+
 static uint8_t *catlist(uint8_t *arg[])
 {
     static uint8_t prebuffer[BUFFER_MAX_LEN];
@@ -296,8 +299,6 @@ static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
     ftdi_transfer_data_done(writetc);
 }
 
-static uint8_t bitswap[256];
-static int last_read_data_length;
 static uint8_t *read_data(struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
@@ -916,9 +917,7 @@ uint8_t *req = catlist((uint8_t *[]){
 #ifdef USE_CORTEX_ADI
         DATAW(0, 20), STATREQ, INT32(0),
 #else
-        DATAW(0, 19), STATREQ,
-             0x00, 0x00, 0x00,
-        DATAWBIT, 0x06, 0x00,
+        DATAW(0, 19), STATREQ, 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00,
 #endif
         SHIFT_TO_UPDATE_TO_IDLE(0, 0),
         EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS),
@@ -1187,11 +1186,11 @@ logfile = stdout;
      * Step 6: Load Configuration Data Frames
      */
     if ((ret16 = fetch16(ftdi,
-        DITEM(
+        DITEM(EXIT1_TO_IDLE,
 #ifndef USE_CORTEX_ADI
-         EXIT1_TO_IDLE, JTAG_IRREG(DREAD, IRREG_CFG_IN), 
+         JTAG_IRREG(DREAD, IRREG_CFG_IN), 
 #else
-         EXIT1_TO_IDLE, EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
+         EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
          IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, 0x05, TMSRW, 0x01, 0x01, //JTAG_IRREG
 #endif
              SEND_IMMEDIATE))) != 0x458a)
@@ -1219,11 +1218,11 @@ logfile = stdout;
               SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
-    if ((ret40 = read_smap(ftdi, DITEM(
+    if ((ret40 = read_smap(ftdi, DITEM(EXIT1_TO_IDLE,
 #ifdef USE_CORTEX_ADI
-              EXIT1_TO_IDLE, EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80),
+              EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE
 #endif
-              EXIT1_TO_IDLE ), SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
+              ), SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 #ifndef USE_CORTEX_ADI
     static uint8_t bypass_end[] = DITEM(EXIT1_TO_IDLE, JTAG_IRREG(0, IRREG_BYPASS), EXIT1_TO_IDLE);

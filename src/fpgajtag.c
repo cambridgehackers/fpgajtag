@@ -657,7 +657,6 @@ static void cortex_readreg2(struct ftdi_context *ftdi)
 }
 static void cortex_firstreq(struct ftdi_context *ftdi)
 {
-    clear_cortex(ftdi);
     uint8_t *senddata = READ_AHB_CSW();
     uint32_t *cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
     RITE_READ(__LINE__, senddata, cresp);
@@ -747,6 +746,10 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
     while (j-- > 0) {
         data_test(ftdi);
     }
+#ifdef USE_CORTEX_ADI
+    if (run_cortex)
+        clear_cortex(ftdi);
+#endif
 }
 
 /*
@@ -1001,7 +1004,6 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
 
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, number_of_devices);
 #ifdef USE_CORTEX_ADI
-    clear_cortex(ftdi);
     uint8_t *senddata = READ_AHB_CSW( CORTEX_WAIT, );
     uint32_t *cresp = (uint32_t []) { 3, 0, 0x83800042, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);

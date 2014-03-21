@@ -154,10 +154,16 @@ static void openlogfile(void);
 #define OPCODE_BITS 0x05
 #define IRREG_EXTRABIT 0x100
 #define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
+
+#define SET_BYPASS \
+        IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)
 #else
 #define OPCODE_BITS 0x04
 #define IRREG_EXTRABIT 0
 #define EXTRA_BIT(READA, B)
+
+#define SET_BYPASS \
+         EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)
 #endif
 
 #define JTAG_IRREG(READA, A)                             \
@@ -1093,10 +1099,7 @@ int main(int argc, char **argv)
               COMMAND_ENDING))) != 0xffffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 #else
-    uint8_t *senddata = DITEM(
-        FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
-        IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80),
-        SEND_IMMEDIATE);
+    uint8_t *senddata = DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE);
     uint8_t *dresp = DITEM(0x51, 0x28, 0x05);
     ZZWRITE_READ(__LINE__, senddata, dresp);
     senddata = DITEM(
@@ -1109,13 +1112,9 @@ int main(int argc, char **argv)
 
     for (i = 0; i < 3; i++) {
 #ifndef USE_CORTEX_ADI
-        ret16 = fetch16(ftdi, DITEM(
-              EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-              SEND_IMMEDIATE));
+        ret16 = fetch16(ftdi, DITEM( SET_BYPASS, SEND_IMMEDIATE));
 #else
-        ret16 = fetch24(ftdi, DITEM(
-              IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80),
-              SEND_IMMEDIATE));
+        ret16 = fetch24(ftdi, DITEM( SET_BYPASS, SEND_IMMEDIATE));
 #endif
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
@@ -1207,13 +1206,7 @@ int main(int argc, char **argv)
               SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
               JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
 #endif
-              IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
-#ifndef USE_CORTEX_ADI
-              EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-#else
-              IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80),
-#endif
-              SEND_IMMEDIATE))) != 0xf5a9)
+              IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 #ifndef USE_CORTEX_ADI
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);

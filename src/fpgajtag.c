@@ -1122,7 +1122,7 @@ logfile = stdout;
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
-#ifdef USE_CORTEX_ADI
+#if defined(USE_CORTEX_ADI) || defined(USE_LOGGING)
 logging = 1;
 dont_run_pciescan = 1;
 #endif

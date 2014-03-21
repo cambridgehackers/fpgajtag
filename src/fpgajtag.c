@@ -628,16 +628,16 @@ static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t id
         patdata, sizeof(patdata), 9999, NULL);
     uint8_t *rdata = read_data(ftdi, idcode_pattern1[0]);
     if (!idcode_setup) {    // only setup idcode patterns on first call!
-        memcpy(&returnedid, rdata, 4);
+        memcpy(&returnedid, rdata, sizeof(returnedid));
         idcode |= 0xf0000000 & returnedid;
-        memcpy(idcode_pattern2+1, rdata, 4); // copy returned idcode
-        memcpy(idcode_pattern1+1, rdata, 4);       // copy returned idcode
+        memcpy(idcode_pattern2+1, rdata, sizeof(returnedid)); // copy returned idcode
+        memcpy(idcode_pattern1+1, rdata, sizeof(returnedid));       // copy returned idcode
         if (memcmp(idcode_pattern1+1, rdata, idcode_pattern1[0])) {
             uint32_t anotherid;
-            memcpy(&anotherid, rdata+4, 4);
+            memcpy(&anotherid, rdata+4, sizeof(anotherid));
             printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, anotherid);
-            memcpy(idcode_pattern1+4+1, rdata+4, 4);   // copy 2nd idcode
-            memcpy(idcode_pattern2+4+1, rdata+4, 4);   // copy 2nd idcode
+            memcpy(idcode_pattern1+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
+            memcpy(idcode_pattern2+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             number_of_devices++;
         }
         idcode_setup = 1;
@@ -936,11 +936,10 @@ uint8_t *req = catlist((uint8_t *[]){
 #endif
         ),
     NULL});
-    write_data(ftdi, req+1, req[0]);
 #ifdef USE_CORTEX_ADI
-    uint64_t ret40 = read_data_int(ftdi, 4);
+    uint64_t ret40 = fetch32(ftdi, req);
 #else
-    uint64_t ret40 = read_data_int(ftdi, 5);
+    uint64_t ret40 = fetch40(ftdi, req);
 #endif
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
@@ -983,8 +982,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint8_t *prefix, uint32_t d
 #endif
                  SEND_IMMEDIATE ),
           NULL});
-    write_data(ftdi, sendreq+1, sendreq[0]);
-    return read_data_int(ftdi, 5);
+    return fetch40(ftdi, sendreq);
 }
 
 static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, uint32_t clock_frequency)

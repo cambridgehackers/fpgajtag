@@ -116,7 +116,7 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     memcpy (buf, usbreadbuffer+2, actual_length);
     if (actual_length != size) {
         printf("[%s:%d] bozo actual_length %d size %d\n", __FUNCTION__, __LINE__, actual_length, size);
-        //exit(-1);
+        exit(-1);
         }
     if (logging)
         memdumpfile(buf, actual_length, "READ");
@@ -342,6 +342,12 @@ static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
 #else
     return read_data_int(ftdi, 2);
 #endif
+}
+
+static uint64_t fetch24(struct ftdi_context *ftdi, uint8_t *req)
+{
+    write_data(ftdi, req+1, req[0]);
+    return read_data_int(ftdi, 3);
 }
 
 static uint64_t fetch32(struct ftdi_context *ftdi, uint8_t *req)
@@ -834,7 +840,7 @@ int i;
     }
     static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
     ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
-        ftdi_read_data(ftdi, retcode, sizeof(retcode));
+    ftdi_read_data(ftdi, retcode, sizeof(retcode));
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
         memdump(retcode, sizeof(retcode), "RETab");
     uint8_t *initialize_sequence = DITEM(
@@ -931,7 +937,11 @@ uint8_t *req = catlist((uint8_t *[]){
         ),
     NULL});
     write_data(ftdi, req+1, req[0]);
+#ifdef USE_CORTEX_ADI
+    uint64_t ret40 = read_data_int(ftdi, 4);
+#else
     uint64_t ret40 = read_data_int(ftdi, 5);
+#endif
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
@@ -1135,13 +1145,15 @@ logfile = stdout;
     ZZWRITE_READ(__LINE__, senddata, dresp);
 #endif
     for (i = 0; i < 3; i++) {
-        ret16 = fetch16(ftdi, DITEM(
 #ifndef USE_CORTEX_ADI
+        ret16 = fetch16(ftdi, DITEM(
               EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-#else
-              IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80),
-#endif
               SEND_IMMEDIATE));
+#else
+        ret16 = fetch24(ftdi, DITEM(
+              IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80),
+              SEND_IMMEDIATE));
+#endif
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
@@ -1222,7 +1234,11 @@ logfile = stdout;
     static uint8_t bypass_end[] = DITEM(EXIT1_TO_IDLE, JTAG_IRREG(0, IRREG_BYPASS), EXIT1_TO_IDLE);
     write_data(ftdi, bypass_end+1, bypass_end[0]);
 #endif
+#ifdef USE_CORTEX_ADI
+    if ((ret16 = fetch24(ftdi,
+#else
     if ((ret16 = fetch16(ftdi,
+#endif
         DITEM(
 #ifdef USE_CORTEX_ADI
               EXIT1_TO_IDLE,

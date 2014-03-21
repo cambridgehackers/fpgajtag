@@ -47,6 +47,27 @@
 #include <inttypes.h>
 #include <libusb.h>
 
+#ifdef USE_LIBFTDI
+#include "ftdi.h"
+#else
+#define MPSSE_WRITE_NEG 0x01   /* Write TDI/DO on negative TCK/SK edge*/
+#define MPSSE_BITMODE   0x02   /* Write bits, not bytes */
+#define MPSSE_READ_NEG  0x04   /* Sample TDO/DI on negative TCK/SK edge */
+#define MPSSE_LSB       0x08   /* LSB first */
+#define MPSSE_DO_WRITE  0x10   /* Write TDI/DO */
+#define MPSSE_DO_READ   0x20   /* Read TDO/DI */
+#define MPSSE_WRITE_TMS 0x40   /* Write TMS/CS */
+#define SET_BITS_LOW   0x80
+#define SET_BITS_HIGH  0x82
+#define LOOPBACK_END   0x85
+#define TCK_DIVISOR    0x86
+#define DIS_DIV_5       0x8a
+#define CLK_BYTES       0x8f
+#define SEND_IMMEDIATE 0x87
+struct ftdi_context;
+struct ftdi_transfer_control;
+#endif
+
 #define USB_TIMEOUT    5000
 #define ENDPOINT_IN     0x02
 #define ENDPOINT_OUT    0x81
@@ -68,28 +89,8 @@ static int skip_penultimate_byte = 1;
 static int logall = 1;
 static int datafile_fd = -1;
 static void openlogfile(void);
-#include "dumpdata.h"
 
-#ifdef USE_LIBFTDI
-#include "ftdi.h"
-#else
-#define MPSSE_WRITE_NEG 0x01   /* Write TDI/DO on negative TCK/SK edge*/
-#define MPSSE_BITMODE   0x02   /* Write bits, not bytes */
-#define MPSSE_READ_NEG  0x04   /* Sample TDO/DI on negative TCK/SK edge */
-#define MPSSE_LSB       0x08   /* LSB first */
-#define MPSSE_DO_WRITE  0x10   /* Write TDI/DO */
-#define MPSSE_DO_READ   0x20   /* Read TDO/DI */
-#define MPSSE_WRITE_TMS 0x40   /* Write TMS/CS */
-#define SET_BITS_LOW   0x80
-#define SET_BITS_HIGH  0x82
-#define LOOPBACK_END   0x85
-#define TCK_DIVISOR    0x86
-#define DIS_DIV_5       0x8a
-#define CLK_BYTES       0x8f
-#define SEND_IMMEDIATE 0x87
-struct ftdi_context;
-struct ftdi_transfer_control;
-#endif
+#include "dumpdata.h"
 
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
@@ -167,7 +168,7 @@ struct ftdi_transfer_control;
 #define JTAG_IRREG_EXTRA(READA, A)                             \
      IDLE_TO_SHIFT_IR,                            \
      DATAWBIT | (READA), OPCODE_BITS, M(A),                        \
-     EXTRA_BIT(READA, 0xff)                                      \
+     EXTRA_BIT(READA, IRREGA_BYPASS)                                      \
      SHIFT_TO_EXIT1((READA), ((A) & 0x100)>>1)
 
 #define EXTENDED_COMMAND(READA, A, B)                       \
@@ -1105,6 +1106,7 @@ int main(int argc, char **argv)
     dresp = DITEM(0xff, 0xff, 0xff, 0xff);
     ZZWRITE_READ(__LINE__, senddata, dresp);
 #endif
+
     for (i = 0; i < 3; i++) {
 #ifndef USE_CORTEX_ADI
         ret16 = fetch16(ftdi, DITEM(
@@ -1144,7 +1146,7 @@ int main(int argc, char **argv)
 #ifndef USE_CORTEX_ADI
                  JTAG_IRREG(DREAD, IRREG_ISC_NOOP),
 #else
-                 IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, 0x14, TMSRW, 0x01, 0x01, //JTAG_IRREG
+                 IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01, //JTAG_IRREG
 #endif
                  SEND_IMMEDIATE),
             NULL}))) != 0x4488)
@@ -1158,7 +1160,7 @@ int main(int argc, char **argv)
          JTAG_IRREG(DREAD, IRREG_CFG_IN), 
 #else
          EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
-         IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, 0x05, TMSRW, 0x01, 0x01, //JTAG_IRREG
+         IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_CFG_IN), TMSRW, 0x01, 0x01, //JTAG_IRREG
 #endif
              SEND_IMMEDIATE))) != 0x458a)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
@@ -1177,8 +1179,7 @@ int main(int argc, char **argv)
              JTAG_IRREG_EXTRA(0, IRREG_JSTART), EXIT1_TO_IDLE,
              TMSW_DELAY,
 #ifdef USE_CORTEX_ADI
-              IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, 0x3f, TMSRW, 0x01, 0x81,
-//JTAG_IRREG
+              IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81, //JTAG_IRREG
 #else
               JTAG_IRREG(DREAD, IRREG_BYPASS), 
 #endif
@@ -1204,8 +1205,7 @@ int main(int argc, char **argv)
 #ifdef USE_CORTEX_ADI
               EXIT1_TO_IDLE,
               SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
-              IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0x3f, EXTRA_BIT(0, IRREGA_BYPASS) //JTAG_IRREG_EXTRA
-              SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
+              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
 #endif
               IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
 #ifndef USE_CORTEX_ADI

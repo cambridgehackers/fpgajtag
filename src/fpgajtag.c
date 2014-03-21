@@ -465,6 +465,9 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 
 #define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
+static uint8_t idcode_pattern2[] = DITEM( INT32(0), PATTERN2, 0xff); // starts with idcode
+static int idcode_setup;
+
 #define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
 static uint8_t *initialize_sequence = DITEM(
      LOOPBACK_END, // Disconnect TDI/DO from loopback
@@ -490,12 +493,12 @@ static uint8_t *initialize_sequence_232h = DITEM(
 #ifdef USE_CORTEX_ADI
 
 #define TEMPLOADIR(A) \
-    IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, DATAWBIT, 0x02, M((IRREG_BYPASS<<4) | (A)) //JTAG_IRREG
+    IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, EXTRA_BIT(0, (A))
 #define TEMPLOADDR(A) \
     IDLE_TO_SHIFT_DR, \
     DATAWBIT, 0x00, 0x00
 #define LOADIR(A) \
-    TEMPLOADIR(A), TMSW, 0x01, 0x83
+    TEMPLOADIR(A) TMSW, 0x01, 0x83
 #define LOADDR(AREAD, A, B) \
     TEMPLOADDR(0), DATAW((AREAD), 4), INT32(((A) << 3) | (B)), \
     DATAWBIT | (AREAD), 0x01, (((A)>>29) & 0x3f),\
@@ -647,9 +650,6 @@ static void cortex_csw(struct ftdi_context *ftdi)
 }
 #endif
 
-static uint8_t idcode_pattern2[] = DITEM( INT32(0), PATTERN2, 0xff); // starts with idcode
-
-static int idcode_setup;
 static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode)
 {
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};

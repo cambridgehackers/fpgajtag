@@ -1106,7 +1106,7 @@ int main(int argc, char **argv)
         EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
         IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
         SEND_IMMEDIATE);
-    dresp = DITEM(0xff, 0xff, 0xff, 0xff);
+    dresp = DITEM(INT32(0xffffffff));
     ZZWRITE_READ(__LINE__, senddata, dresp);
 #endif
 

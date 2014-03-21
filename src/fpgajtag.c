@@ -64,10 +64,12 @@ static libusb_device_handle *usbhandle = NULL;
 static FILE *logfile;
 static int logging; // = 1;
 static int dont_run_pciescan; // = 1;
+static int skip_penultimate_byte = 1;
 static int logall = 1;
 static int datafile_fd = -1;
 static void openlogfile(void);
 #include "dumpdata.h"
+
 #ifdef USE_LIBFTDI
 #include "ftdi.h"
 #else
@@ -85,51 +87,9 @@ static void openlogfile(void);
 #define DIS_DIV_5       0x8a
 #define CLK_BYTES       0x8f
 #define SEND_IMMEDIATE 0x87
-
-struct ftdi_context {
-};
-struct ftdi_transfer_control {
-};
-static unsigned char usbreadbuffer[USB_CHUNKSIZE];
-#define ftdi_deinit(A)
-#define ftdi_transfer_data_done(A) (void)(A)
-#define ftdi_set_usbdev(A,B)
-#define ftdi_write_data_submit(A, B, C) (ftdi_write_data((A), (B), (C)), NULL)
-static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
-{
-    int actual_length;
-    if (logging)
-        formatwrite(1, buf, size, "WRITE");
-    if (libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT) < 0)
-        printf( "usb bulk write failed");
-    return actual_length;
-}
-static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
-{
-    int actual_length = 1;
-    do {
-        int ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
-        if (ret < 0)
-            printf( "usb bulk read failed");
-        actual_length -= 2;
-    } while (actual_length == 0);
-    memcpy (buf, usbreadbuffer+2, actual_length);
-    if (actual_length != size) {
-        printf("[%s:%d] bozo actual_length %d size %d\n", __FUNCTION__, __LINE__, actual_length, size);
-        exit(-1);
-        }
-    if (logging)
-        memdumpfile(buf, actual_length, "READ");
-    return actual_length;
-}
-static struct ftdi_context *ftdi_new(void)
-{
-static struct ftdi_context foo;
-    if (logging)
-        printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
-    return &foo;
-}
-#endif //end if not USE_LIBFTDI
+struct ftdi_context;
+struct ftdi_transfer_control;
+#endif
 
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
@@ -222,6 +182,44 @@ static uint8_t bitswap[256];
 static int last_read_data_length;
 static int found_232H;
 
+#ifndef USE_LIBFTDI
+static unsigned char usbreadbuffer[USB_CHUNKSIZE];
+static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
+{
+    int actual_length;
+    if (logging)
+        formatwrite(1, buf, size, "WRITE");
+    if (libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT) < 0)
+        printf( "usb bulk write failed");
+    return actual_length;
+}
+static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
+{
+    int actual_length = 1;
+    do {
+        int ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
+        if (ret < 0)
+            printf( "usb bulk read failed");
+        actual_length -= 2;
+    } while (actual_length == 0);
+    memcpy (buf, usbreadbuffer+2, actual_length);
+    if (actual_length != size) {
+        printf("[%s:%d] bozo actual_length %d size %d\n", __FUNCTION__, __LINE__, actual_length, size);
+        exit(-1);
+        }
+    if (logging)
+        memdumpfile(buf, actual_length, "READ");
+    return actual_length;
+}
+static struct ftdi_context *ftdi_new(void)
+{
+static int foo;
+    if (logging)
+        printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
+    return (struct ftdi_context *)&foo;
+}
+#endif //end if not USE_LIBFTDI
+
 static void openlogfile(void)
 {
     if (!logfile)
@@ -295,20 +293,13 @@ static uint8_t *pulse_gpio(int delay)
 
 static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
 {
-    struct ftdi_transfer_control* writetc = ftdi_write_data_submit(ftdi, buf, size);
-    ftdi_transfer_data_done(writetc);
+    ftdi_write_data(ftdi, buf, size);
 }
 
 static uint8_t *read_data(struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
-#ifdef USE_LIBFTDI
-    struct ftdi_transfer_control* tc = ftdi_read_data_submit(ftdi, last_read_data, size);
-    ftdi_transfer_data_done(tc);
-    last_read_data_length = size;
-#else
     last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
-#endif
     return last_read_data;
 }
 
@@ -317,6 +308,7 @@ static uint64_t read_data_int(struct ftdi_context *ftdi, int size)
     uint64_t ret = 0;
     uint8_t *bufp = read_data(ftdi, size);
     uint8_t *backp = bufp + size;
+//skip_penultimate_byte = 0;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
     return ret;
@@ -353,7 +345,7 @@ static uint64_t fetch24(struct ftdi_context *ftdi, uint8_t *req)
 static uint64_t fetch32(struct ftdi_context *ftdi, uint8_t *req)
 {
     write_data(ftdi, req+1, req[0]);
-    return read_data_int(ftdi, 4);
+    return read_data_int(ftdi, 4+skip_penultimate_byte);
 }
 
 static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
@@ -472,6 +464,27 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
 
 #define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
+#define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
+static uint8_t *initialize_sequence = DITEM(
+     LOOPBACK_END, // Disconnect TDI/DO from loopback
+     DIS_DIV_5, // Disable clk divide by 5
+     SET_CLOCK_DIVISOR,
+     SET_BITS_LOW, 0xe8, 0xeb,
+     SET_BITS_HIGH, 0x20, 0x30,
+     SET_BITS_HIGH, 0x30, 0x00,
+     SET_BITS_HIGH, 0x00, 0x00,
+     FORCE_RETURN_TO_RESET
+);
+static uint8_t *initialize_sequence_232h = DITEM(
+     LOOPBACK_END, // Disconnect TDI/DO from loopback
+     DIS_DIV_5, // Disable clk divide by 5
+     SET_CLOCK_DIVISOR,
+     SET_BITS_LOW, 0xe8, 0xeb,
+     SET_BITS_HIGH, 0x20, 0x30,
+     //SET_BITS_HIGH, 0x30, 0x00,
+     //SET_BITS_HIGH, 0x00, 0x00,
+     FORCE_RETURN_TO_RESET
+);
 
 #ifdef USE_CORTEX_ADI
 
@@ -570,8 +583,6 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     if (last_read_data_length != buf[0]*6) {
         err = 1;
         printf("[%s] mismatch on line %d act %d exp %d\n", __FUNCTION__, linenumber, last_read_data_length/6, buf[0]);
-        //memdump(buf+1, buf[0], "EXPECT");
-        //memdump(rdata, last_read_data_length, "ACTUAL");
     }
     int i;
     uint8_t *bufp = rdata;
@@ -582,15 +593,15 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
             ret = (ret << 8) | *--backp;
         int bottom = ret & 0x7;
         if (bottom != DPACC_RESPONSE_OK) /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
-            printf("[%s:%d] Error in cortex response %x ****************************\n", __FUNCTION__, linenumber, bottom);
+            printf("[%s:%d] Error in cortex response %x \n", __FUNCTION__, linenumber, bottom);
         ret >>= 3;
         int top = ret >> 32;
         if (top && top != 7)
-            printf("[%s:%d] Error in cortex msb %x ****************************\n", __FUNCTION__, linenumber, top);
+            printf("[%s:%d] Error in cortex msb %x \n", __FUNCTION__, linenumber, top);
         uint32_t ret32 = ret & 0xffffffff;
-tempdata[tempdata_index++] = ret32;
+        tempdata[tempdata_index++] = ret32;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error in cortex data[%d] %x != %x ****************************\n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            printf("[%s:%d] Error in cortex data[%d] %x != %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
             err = 1;
         }
         testp++;
@@ -608,6 +619,29 @@ static void clear_cortex(struct ftdi_context *ftdi)
 {
     uint8_t *senddata = DITEM(CORTEX_ABORT, LOADIRDR(IRREGA_DPACC, 0, 0, DPACC_CTRL | DPACC_WRITE), LOADDR_3_7,);
     uint32_t *cresp = (uint32_t []) { 2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
+    RITE_READ(__LINE__, senddata, cresp);
+}
+static uint8_t senddata23[] = {
+         LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL),
+         CORTEX_PAIR,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092000, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
+         LOADIRDR_3_7,};
+static uint8_t *senddata44 = DITEM(
+         SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
+         LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
+         LOADIRDR_3_7);
+static void cortex_csw(struct ftdi_context *ftdi)
+{
+    uint8_t *senddata = READ_AHB_CSW();
+    uint32_t *cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
+    RITE_READ(__LINE__, senddata, cresp);
+    senddata = READ_APB_CSW();
+    cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
 }
 #endif
@@ -653,7 +687,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t id
     }
 }
 
-static void data_test(struct ftdi_context *ftdi)
+static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int run_cortex)
 {
     int i;
     uint64_t ret40;
@@ -664,45 +698,32 @@ static void data_test(struct ftdi_context *ftdi)
 #endif
        ),
         DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR)};
-    uint8_t *alist[5] = {
-        DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-               EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
-               IDLE_TO_SHIFT_DR),
-        DITEM(COMMAND_ENDING),
-        NULL, NULL, NULL};
-#define ALEN (sizeof(alist)/sizeof(alist[0]))
-    for (i = 0; i < 4; i++) {
-#ifndef USE_CORTEX_ADI
-        if ((ret40 = fetch40(ftdi, catlist(alist))) != 0)
-#else
-        if ((ret40 = fetch32(ftdi, catlist(alist))) != 0)
-#endif
-            printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-        if (i <= 1) {
-            alist[ALEN-2] = alist[ALEN-3];
-            alist[ALEN-3] = alist[ALEN-4];
-            alist[ALEN-4] = added_item[i];
-        }
-    }
-}
-static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int run_cortex)
-{
+
     check_idcode(ftdi, statep, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
-        data_test(ftdi);
+        uint8_t *alist[5] = {
+            DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
+                   EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
+                   IDLE_TO_SHIFT_DR),
+            DITEM(COMMAND_ENDING),
+            NULL, NULL, NULL};
+    #define ALEN (sizeof(alist)/sizeof(alist[0]))
+        for (i = 0; i < 4; i++) {
+            if ((ret40 = fetch32(ftdi, catlist(alist))) != 0)
+                printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+            if (i <= 1) {
+                alist[ALEN-2] = alist[ALEN-3];
+                alist[ALEN-3] = alist[ALEN-4];
+                alist[ALEN-4] = added_item[i];
+            }
+        }
     }
 #ifdef USE_CORTEX_ADI
     uint8_t *senddata;
     uint32_t *cresp;
     clear_cortex(ftdi);
-    if (run_cortex) {
-        senddata = READ_AHB_CSW();
-        cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
-        RITE_READ(__LINE__, senddata, cresp);
-        senddata = READ_APB_CSW();
-        cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
-    }
+    if (run_cortex)
+        cortex_csw(ftdi);
     else {
         senddata = READ_AHB_CSW( CORTEX_WAIT, );
         cresp = (uint32_t []) { 3, 0, 0x83800042, CORTEX_DEFAULT_STATUS,};
@@ -716,31 +737,17 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
         senddata = DITEM(SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x000002, 0), DR_WAIT, LOADIRDR_3_7,);
         cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
         RITE_READ(__LINE__, senddata, cresp);
-
-        senddata = DITEM( SELECT_AHB_AP, LOADIR(IRREGA_APACC),
-           LOADDR(DREAD, 0xf8000100, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
-           LOADDR(DREAD, 0xf8000120, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
-           LOADIRDR_3_7,);
+        senddata = DITEM(SELECT_AHB_AP, LOADIR(IRREGA_APACC),
+                 LOADDR(DREAD, 0xf8000100, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
+                 LOADDR(DREAD, 0xf8000120, DPACC_CTRL), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
+                 LOADIRDR_3_7);
         cresp = (uint32_t []) { 6, 0, DEFAULT_CSW, 0x00028000, 0x00028000, 0x3f000200, CORTEX_DEFAULT_STATUS,};
         RITE_READ(__LINE__, senddata, cresp);
-        senddata = DITEM( LOADIRDR(IRREGA_APACC, 0, 0xf8007080, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET, LOADIRDR_3_7,);
+        senddata = DITEM(LOADIRDR(IRREGA_APACC, 0, 0xf8007080, DPACC_CTRL), READ_RDBUFF, CORTEX_RESET, LOADIRDR_3_7,);
         cresp = (uint32_t []) { 3, 0x3f000200, 0, CORTEX_DEFAULT_STATUS,};
         RITE_READ(__LINE__, senddata, cresp);
-        senddata = DITEM( SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
-           LOADIRDR_3_7,);
-        cresp = (uint32_t []) { 10, 0x01000000, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
-        static uint8_t senddata23[] = {
-           LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL),
-           CORTEX_PAIR,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092000, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
-           LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
-           LOADIRDR_3_7,};
+        cresp = (uint32_t[]){10, 0x01000000, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
+        RITE_READ(__LINE__, senddata44, cresp);
         cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x03008002, 0x03008002, 0, CORTEX_DEFAULT_STATUS,};
         write_data(ftdi, senddata23, sizeof(senddata23));
         check_read_cortex(__LINE__, ftdi, cresp);
@@ -751,12 +758,7 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
                      LOADIRDR(IRREGA_DPACC, DREAD, 0, DPACC_CTRL | DPACC_WRITE), LOADDR_3_7);
             cresp = (uint32_t []) { 5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
             RITE_READ(__LINE__, senddata, cresp);
-            senddata = READ_AHB_CSW();
-            cresp = (uint32_t []) { 3, 0, 0x00800042, CORTEX_DEFAULT_STATUS,};
-            RITE_READ(__LINE__, senddata, cresp);
-            senddata = READ_APB_CSW();
-            cresp = (uint32_t []) { 3, 0x01000000, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-            RITE_READ(__LINE__, senddata, cresp);
+            cortex_csw(ftdi);
         }
     }
     senddata = DITEM(SELECT_AHB_AP, LOADIRDR(IRREGA_APACC, DREAD, 2, 0), LOADIRDR_3_7);
@@ -771,26 +773,12 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
              LOADIRDR_3_7);
     cresp = (uint32_t []) { 6, 0, DEFAULT_CSW, 0x00028000, 0x00028000, 0x3f000200, CORTEX_DEFAULT_STATUS,};
     RITE_READ(__LINE__, senddata, cresp);
-    senddata = DITEM(SELECT_APB_AP, LOADIRDR(IRREGA_APACC, DREAD, CORTEX_ROM_BASE | 0x090000, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x090028, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7);
-    cresp = (uint32_t []) { 10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
-    RITE_READ(__LINE__, senddata, cresp);
-    uint8_t senddata33[] = {
-          LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL),
-          CORTEX_PAIR,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x092000, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x092314, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL), READ_RDBUFF,
-          LOADDR(DREAD, CORTEX_ROM_BASE | 0x092028, DPACC_CTRL), READ_RDBUFF,
-          LOADIRDR_3_7};
-    write_data(ftdi, senddata33, sizeof(senddata33));
+    cresp = (uint32_t[]){10, 0x01000000, 0x3f000200, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
+    RITE_READ(__LINE__, senddata44, cresp);
+    write_data(ftdi, senddata23, sizeof(senddata23));
     cresp = (uint32_t []) { 12, 0, 0, 0, 0, 0x75137030, 0x75137030, 1, 1, 0x0310c002, 0x0310c002, 0, CORTEX_DEFAULT_STATUS,};
     check_read_cortex(__LINE__, ftdi, cresp);
-    senddata = DITEM(
-          LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL),
+    senddata = DITEM( LOADIRDR(IRREGA_APACC, 0, CORTEX_ROM_BASE | 0x092088, DPACC_CTRL),
           CORTEX_PAIR,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090314, DPACC_CTRL), READ_RDBUFF,
           LOADDR(DREAD, CORTEX_ROM_BASE | 0x090088, DPACC_CTRL), READ_RDBUFF,
@@ -814,9 +802,8 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int r
 /*
  * FTDI initialization
  */
-struct ftdi_context *init_ftdi(uint32_t clock_frequency, uint32_t idcode)
+struct ftdi_context *init_ftdi(uint32_t idcode)
 {
-#define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/clock_frequency - 1)
 int i;
     struct ftdi_context *ftdi = ftdi_new();
 #ifdef USE_LIBFTDI
@@ -843,26 +830,6 @@ int i;
     ftdi_read_data(ftdi, retcode, sizeof(retcode));
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
         memdump(retcode, sizeof(retcode), "RETab");
-    uint8_t *initialize_sequence = DITEM(
-         LOOPBACK_END, // Disconnect TDI/DO from loopback
-         DIS_DIV_5, // Disable clk divide by 5
-         SET_CLOCK_DIVISOR,
-         SET_BITS_LOW, 0xe8, 0xeb,
-         SET_BITS_HIGH, 0x20, 0x30,
-         SET_BITS_HIGH, 0x30, 0x00,
-         SET_BITS_HIGH, 0x00, 0x00,
-         FORCE_RETURN_TO_RESET
-    );
-    uint8_t *initialize_sequence_232h = DITEM(
-         LOOPBACK_END, // Disconnect TDI/DO from loopback
-         DIS_DIV_5, // Disable clk divide by 5
-         SET_CLOCK_DIVISOR,
-         SET_BITS_LOW, 0xe8, 0xeb,
-         SET_BITS_HIGH, 0x20, 0x30,
-         //SET_BITS_HIGH, 0x30, 0x00,
-         //SET_BITS_HIGH, 0x00, 0x00,
-         FORCE_RETURN_TO_RESET
-    );
     uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
     ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
     uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
@@ -936,11 +903,7 @@ uint8_t *req = catlist((uint8_t *[]){
 #endif
         ),
     NULL});
-#ifdef USE_CORTEX_ADI
     uint64_t ret40 = fetch32(ftdi, req);
-#else
-    uint64_t ret40 = fetch40(ftdi, req);
-#endif
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
@@ -985,7 +948,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint8_t *prefix, uint32_t d
     return fetch40(ftdi, sendreq);
 }
 
-static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, uint32_t clock_frequency)
+static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
 {
     struct ftdi_context *ftdi;
     int cfg, type = 0, i = 0, baudrate = 9600;
@@ -1055,7 +1018,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
     /*
      * Initialize FTDI chip and GPIO pins
      */
-    ftdi = init_ftdi(clock_frequency, idcode);   /* generic initialization */
+    ftdi = init_ftdi(idcode);   /* generic initialization */
 
     /*
      * Step 5: Check Device ID
@@ -1079,7 +1042,6 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
         iddata, sizeof(iddata), 9999, idcode_pattern2);
     return ftdi;
 error:
-    //libusb_close (usbhandle);
     printf("Can't find usable usb interface\n");
     exit(-1);
 }
@@ -1087,7 +1049,7 @@ error:
 static uint8_t *cfg_in_command = DITEM(RESET_TO_IDLE, EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS), IDLE_TO_SHIFT_DR);
 int main(int argc, char **argv)
 {
-logfile = stdout;
+    logfile = stdout;
     struct ftdi_context *ftdi;
     uint32_t idcode;
     uint16_t ret16;
@@ -1118,11 +1080,12 @@ logfile = stdout;
 #if defined(USE_CORTEX_ADI) || defined(USE_LOGGING)
     logging = 1;
     dont_run_pciescan = 1;
+    skip_penultimate_byte = 0;
 #endif
-    ftdi = initialize(idcode, serialno, CLOCK_FREQUENCY);
+    ftdi = initialize(idcode, serialno);
 
 #ifndef USE_CORTEX_ADI
-    if ((ret40 = fetch40(ftdi,
+    if ((ret40 = fetch32(ftdi,
         DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
               EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC),
               IDLE_TO_SHIFT_DR,
@@ -1263,11 +1226,13 @@ logfile = stdout;
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
 #endif
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+#ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
-#ifndef USE_LIBFTDI
+#else
     libusb_close (usbhandle);
     libusb_exit(usb_context);
 #endif
+    fflush(stdout);
     if (!dont_run_pciescan)
         execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;

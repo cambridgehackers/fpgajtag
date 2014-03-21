@@ -1055,20 +1055,14 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno, ui
 
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, 0);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-#ifndef USE_CORTEX_ADI
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
     write_data(ftdi, i2resetin+1, i2resetin[0]);
     uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
     ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
-#endif
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
     send_data_frame(ftdi, DREAD,
         (uint8_t *[]){DITEM(
-#ifdef USE_CORTEX_ADI
-             IDLE_TO_RESET, IN_RESET_STATE,
-             0x86, 0x01, 0x00,
-#endif
              SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE,
              SHIFT_TO_EXIT1(0, 0),

@@ -301,9 +301,12 @@ static uint8_t *pulse_gpio(int delay)
 
 static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
 {
-    //ftdi_write_data(ftdi, buf, size);
     memcpy(usbreadbuffer_ptr, buf, size);
     usbreadbuffer_ptr += size;
+}
+static void write_item(struct ftdi_context *ftdi, uint8_t *buf)
+{
+    write_data(ftdi, buf+1, buf[0]);
 }
 
 static uint8_t *read_data(struct ftdi_context *ftdi, int size)
@@ -344,7 +347,7 @@ static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8
 
 static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_data(ftdi, req+1, req[0]);
+    write_item(ftdi, req);
 #if 1
     uint8_t *rdata = read_data(ftdi, sizeof(uint16_t));
     return rdata[0] | (rdata[1] << 8);
@@ -355,19 +358,19 @@ static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
 
 static uint64_t fetch24(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_data(ftdi, req+1, req[0]);
+    write_item(ftdi, req);
     return read_data_int(ftdi, 3);
 }
 
 static uint64_t fetch32(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_data(ftdi, req+1, req[0]);
+    write_item(ftdi, req);
     return read_data_int(ftdi, 4+skip_penultimate_byte);
 }
 
 static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_data(ftdi, req+1, req[0]);
+    write_item(ftdi, req);
     return read_data_int(ftdi, 5);
 }
 
@@ -584,12 +587,12 @@ static uint8_t *initialize_sequence_232h = DITEM(
 
 #define ZZWRITE_READ(LL, A,B) \
     /*printf("[%d]\n", LL);*/ \
-    write_data(ftdi, (A)+1, (A)[0]); \
+    write_item(ftdi, (A)); \
     check_read_data(LL, ftdi, (B));
 
 #define RITE_READ(LL, A,B) \
     /*printf("[%d]\n", LL);*/ \
-    write_data(ftdi, (A)+1, (A)[0]); \
+    write_item(ftdi, (A)); \
     check_read_cortex(LL, ftdi, (B));
 
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf)
@@ -621,7 +624,7 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
         uint32_t ret32 = ret & 0xffffffff;
         tempdata[tempdata_index++] = ret32;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error in cortex data[%d] %x != %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            printf("[%s:%d] Error in cortex data[%ld] %x != %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
             err = 1;
         }
         testp++;
@@ -643,44 +646,46 @@ static uint8_t *senddata44 = DITEM(SELECT_APB_AP,
 
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
-#define CORTEX_ABORT \
-    LOADIRDR(IRREGA_ABORT, 0, 1, 0), \
-    LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)
-    // in Debug, 2.3.2: CTRL/STAT, Control/Status register
-    // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
 #define ACCESS_REG_CTRL(A) \
     LOADIRDR(IRREGA_DPACC, (A), 0, DPACC_CTRL | DPACC_WRITE), LOADDR_CTRL_RDBUFF
-#define READ_AHB_CSW(...) DITEM(SELECT_AHB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
-#define READ_APB_CSW(...) DITEM(SELECT_APB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
 
-    uint8_t *senddata;
+    uint8_t *senddata, *senddata2;
     uint32_t *cresp;
+    write_item(ftdi, DITEM(LOADIRDR(IRREGA_ABORT, 0, 1, 0),
+                           LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)));
+    // in Debug, 2.3.2: CTRL/STAT, Control/Status register
+    // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
     if (!clear_wait) {
-        senddata = DITEM(CORTEX_ABORT,  ACCESS_REG_CTRL(0));
+        senddata = DITEM(ACCESS_REG_CTRL(0));
         cresp = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
     }
     else {
-        senddata = DITEM(CORTEX_ABORT, CORTEX_PAIR(0x80092088),  ACCESS_REG_CTRL(DREAD));
+        senddata = DITEM(CORTEX_PAIR(0x80092088),  ACCESS_REG_CTRL(DREAD));
         cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
     }
+    RITE_READ(__LINE__, senddata, cresp);
+#define READ_AHB_CSW(...) DITEM(__VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
+    write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_WRITE_0));
     if (!wait) {
-        senddata = READ_AHB_CSW();
         cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
-        RITE_READ(__LINE__, senddata, cresp);
-        senddata = READ_APB_CSW();
-        cresp = (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
+        senddata2 = NULL;
+        senddata = NULL;
     }
     else {
-        senddata = READ_AHB_CSW( CORTEX_WAIT, );
         cresp = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
-        senddata = READ_APB_CSW( DR_WAIT, );
-        cresp = (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-        RITE_READ(__LINE__, senddata, cresp);
+        senddata2 = DITEM(DR_WAIT);
+        senddata = DITEM(CORTEX_WAIT);
     }
+    if (senddata)
+       write_item(ftdi, senddata);
+    write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
+    check_read_cortex(__LINE__, ftdi, cresp);
+    write_item(ftdi, DITEM(SELECT_APB_AP, CSW_WRITE_0));
+    if (senddata2)
+       write_item(ftdi, senddata2);
+    write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
+    cresp = (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+    check_read_cortex(__LINE__, ftdi, cresp);
 }
 #endif
 

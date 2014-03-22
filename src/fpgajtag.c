@@ -646,11 +646,11 @@ static uint8_t *senddata44 = DITEM(SELECT_APB_AP,
 
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
+    uint8_t *senddata = NULL, *senddata2 = NULL;
+    uint32_t *cresp, *cresp2;
 #define ACCESS_REG_CTRL(A) \
     LOADIRDR(IRREGA_DPACC, (A), 0, DPACC_CTRL | DPACC_WRITE), LOADDR_CTRL_RDBUFF
 
-    uint8_t *senddata, *senddata2;
-    uint32_t *cresp;
     write_item(ftdi, DITEM(LOADIRDR(IRREGA_ABORT, 0, 1, 0),
                            LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
@@ -663,23 +663,24 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         senddata = DITEM(CORTEX_PAIR(0x80092088),  ACCESS_REG_CTRL(DREAD));
         cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
-    RITE_READ(__LINE__, senddata, cresp);
+    write_item(ftdi, senddata);
+    check_read_cortex(__LINE__, ftdi, cresp);
 #define READ_AHB_CSW(...) DITEM(__VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
     write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_WRITE_0));
     if (!wait) {
-        cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
+        cresp2 = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
         senddata2 = NULL;
         senddata = NULL;
     }
     else {
-        cresp = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+        cresp2 = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
         senddata2 = DITEM(DR_WAIT);
         senddata = DITEM(CORTEX_WAIT);
     }
     if (senddata)
        write_item(ftdi, senddata);
     write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
-    check_read_cortex(__LINE__, ftdi, cresp);
+    check_read_cortex(__LINE__, ftdi, cresp2);
     write_item(ftdi, DITEM(SELECT_APB_AP, CSW_WRITE_0));
     if (senddata2)
        write_item(ftdi, senddata2);

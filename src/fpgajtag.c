@@ -68,7 +68,7 @@ struct ftdi_context;
 struct ftdi_transfer_control;
 #endif
 
-#define USB_TIMEOUT    5000
+#define USB_TIMEOUT     5000
 #define ENDPOINT_IN     0x02
 #define ENDPOINT_OUT    0x81
 #define USB_CHUNKSIZE   4096
@@ -83,8 +83,8 @@ struct ftdi_transfer_control;
 
 static libusb_device_handle *usbhandle = NULL;
 static FILE *logfile;
-static int logging; // = 1;
-static int dont_run_pciescan; // = 1;
+static int logging;
+static int dont_run_pciescan;
 static int skip_penultimate_byte = 1;
 static int logall = 1;
 static int datafile_fd = -1;
@@ -563,8 +563,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
 
-#define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
-
 #define CSW_WRITE_0 LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)
 
 #define TAR_READ(A)  LOADDR(DREAD, (A), AP_TAR), READ_RDBUFF
@@ -637,9 +635,8 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
                            LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
-    if (!clear_wait) {
+    if (!clear_wait)
         cresp = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
-    }
     else {
         write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
         cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
@@ -659,6 +656,21 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     write_item(ftdi, DITEM(SELECT_APB_AP, CSW_WRITE_0));
     if (wait)
        write_item(ftdi, DITEM(DR_WAIT));
+    write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
+}
+static void read_csw(struct ftdi_context *ftdi, int wait)
+{
+#define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
+
+    write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_READ(2)));
+    if (wait)
+        write_item(ftdi, DITEM(CORTEX_WAIT));
+    write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
+    write_item(ftdi, DITEM(SELECT_APB_AP, CSW_READ(0x80000002)));
+    if (wait)
+        write_item(ftdi, DITEM(DR_WAIT));
     write_item(ftdi, DITEM(LOADIRDR_CTRL_RDBUFF));
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
 }
@@ -741,10 +753,7 @@ uint8_t *senddata44 = DITEM(SELECT_APB_AP,
 
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
-        write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_READ(2), CORTEX_WAIT, LOADIRDR_CTRL_RDBUFF,));
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
-        write_item(ftdi, DITEM(SELECT_APB_AP, CSW_READ(0x80000002), DR_WAIT, LOADIRDR_CTRL_RDBUFF,));
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
+        read_csw(ftdi, 1);
         write_item(ftdi, DITEM(SELECT_AHB_AP,
             LOADDR(DREAD, 0xf8000100, AP_TAR), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
             LOADDR(DREAD, 0xf8000120, AP_TAR), CORTEX_WAIT, READ_RDBUFF, CORTEX_WAIT,
@@ -760,10 +769,7 @@ uint8_t *senddata44 = DITEM(SELECT_APB_AP,
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
-    write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_READ(2), LOADIRDR_CTRL_RDBUFF));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
-    write_item(ftdi, DITEM(SELECT_APB_AP, CSW_READ(0x80000002), LOADIRDR_CTRL_RDBUFF));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,});
+    read_csw(ftdi, 0);
     write_item(ftdi, DITEM(SELECT_AHB_AP,
              TAR_READ(0xf8000100), CORTEX_RESET,
              TAR_READ(0xf8000120), CORTEX_RESET,

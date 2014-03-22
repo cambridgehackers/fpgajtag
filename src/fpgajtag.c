@@ -585,12 +585,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
 
 #define LOADIRDR_CTRL_RDBUFF   LOADIR(IRREGA_DPACC), LOADDR_CTRL_RDBUFF
 
-#define ZZWRITE_READ(LL, A,B) \
-    /*printf("[%d]\n", LL);*/ \
-    write_item(ftdi, (A)); \
-    check_read_data(LL, ftdi, (B));
-
-
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf)
 {
     uint32_t *testp = buf+1;
@@ -1100,15 +1094,13 @@ int main(int argc, char **argv)
               COMMAND_ENDING))) != 0xffffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 #else
-    uint8_t *senddata = DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE);
-    uint8_t *dresp = DITEM(0x51, 0x28, 0x05);
-    ZZWRITE_READ(__LINE__, senddata, dresp);
-    senddata = DITEM(
+    write_item(ftdi, DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
+    check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
+    write_item(ftdi, DITEM(
         EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
         IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-        SEND_IMMEDIATE);
-    dresp = DITEM(INT32(0xffffffff));
-    ZZWRITE_READ(__LINE__, senddata, dresp);
+        SEND_IMMEDIATE));
+    check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
 #endif
 
     for (i = 0; i < 3; i++) {

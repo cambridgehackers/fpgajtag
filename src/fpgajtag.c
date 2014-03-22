@@ -402,8 +402,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
             *(readptr+2) |= 0x80 & ch; // insert 1 bit of data here
             readptr += tail[0];
         }
-        write_data(ftdi, packetbuffer, readptr - packetbuffer);
-        read_data(ftdi, 0);
+        ftdi_write_data(ftdi, packetbuffer, readptr - packetbuffer);
         size -= limit_len+1;
         readptr = packetbuffer;
     }
@@ -1043,8 +1042,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, 0);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
-    write_data(ftdi, i2resetin+1, i2resetin[0]);
-    read_data(ftdi, 0);
+    ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
     uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
     ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
 
@@ -1137,8 +1135,7 @@ int main(int argc, char **argv)
     }
     read_status(ftdi, cfg_in_command, DITEM(), 0x30861900);
     static uint8_t i2reset[] = DITEM(IDLE_TO_RESET );
-    write_data(ftdi, i2reset+1, i2reset[0]);
-    read_data(ftdi, 0);
+    ftdi_write_data(ftdi, i2reset+1, i2reset[0]);
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
     for (i = 0; i < 3; i++)
         bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
@@ -1204,8 +1201,7 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 #ifndef USE_CORTEX_ADI
     static uint8_t bypass_end[] = DITEM(EXIT1_TO_IDLE, JTAG_IRREG(0, IRREG_BYPASS), EXIT1_TO_IDLE);
-    write_data(ftdi, bypass_end+1, bypass_end[0]);
-    read_data(ftdi, 0);
+    ftdi_write_data(ftdi, bypass_end+1, bypass_end[0]);
 #endif
 #ifdef USE_CORTEX_ADI
     if ((ret16 = fetch24(ftdi,
@@ -1225,8 +1221,7 @@ int main(int argc, char **argv)
 #endif
     read_status(ftdi, DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)), cfg_in_command, 0xf0fe7910);
 #ifndef USE_CORTEX_ADI
-    write_data(ftdi, i2reset+1, i2reset[0]);
-    read_data(ftdi, 0);
+    ftdi_write_data(ftdi, i2reset+1, i2reset[0]);
 #else
     bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
     bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);

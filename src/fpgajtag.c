@@ -660,9 +660,11 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cresp = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     else {
-        senddata = DITEM(CORTEX_PAIR(0x80092088),  ACCESS_REG_CTRL(DREAD));
+        senddata = DITEM(CORTEX_PAIR(0x80092088));
+        write_item(ftdi, senddata);
         cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
+    senddata = DITEM(ACCESS_REG_CTRL(clear_wait?DREAD:0));
     write_item(ftdi, senddata);
     check_read_cortex(__LINE__, ftdi, cresp);
 #define READ_AHB_CSW(...) DITEM(__VA_ARGS__ LOADIRDR_CTRL_RDBUFF)

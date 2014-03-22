@@ -518,6 +518,10 @@ static uint8_t *initialize_sequence_232h = DITEM(
 #define LOADIRDR(IRA, AREAD, A, B) \
     LOADIR(IRA), LOADDR(AREAD, A, B)
 
+#define CORTEX_RESET   RESET_TO_IDLE, TMSW, 0x01, 0x00
+
+#define CORTEX_WAIT    RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00
+
 #define VAL1          0x75137030
 #define VAL2          0x0310c002
 #define VAL3          0x3f000200
@@ -541,16 +545,14 @@ static uint8_t *initialize_sequence_232h = DITEM(
 
 #define DPACC_RDBUFF   (3 << 1)
 
-#define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
-
-#define CSW_WRITE_0 LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)
-
-#define READ_AHB_CSW(...) DITEM(SELECT_AHB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
 #define DEFAULT_CSW   0x42
                       // Coresight: Table 2-20
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
-#define READ_APB_CSW(...) DITEM(SELECT_APB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
+
+#define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
+
+#define CSW_WRITE_0 LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)
 
 #define TAR_READ(A)  LOADDR(DREAD, (A), AP_TAR), READ_RDBUFF
 
@@ -559,7 +561,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
 #define CORTEX_PAIR(A) \
      LOADIR(IRREGA_APACC), LOADDR(0, (A), AP_TAR), \
      LOADDR(DREAD, 0x0300c002, AP_DRW), LOADDR(DREAD, VAL2, AP_DRW)
-// Coresight, p2-33: RDBUFF is at address 0xc
 
 /* response */
 #define DPACC_RESPONSE_OK 0x2
@@ -570,10 +571,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
     LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE), READ_RDBUFF, SEND_IMMEDIATE
 
 #define LOADIRDR_CTRL_RDBUFF   LOADIR(IRREGA_DPACC), LOADDR_CTRL_RDBUFF
-
-#define CORTEX_RESET   RESET_TO_IDLE, TMSW, 0x01, 0x00
-
-#define CORTEX_WAIT    RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00
 
 #define ZZWRITE_READ(LL, A,B) \
     /*printf("[%d]\n", LL);*/ \
@@ -628,7 +625,13 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     }
     return rdata;
 }
-static void clear_cortex(struct ftdi_context *ftdi, int wait)
+static uint8_t senddata23[] = {CORTEX_PAIR(0x80090088),
+    TAR_READ(0x80092000), TAR_READ(0x80092314), TAR_READ(0x80092088), TAR_READ(0x80092028), LOADIRDR_CTRL_RDBUFF};
+
+static uint8_t *senddata44 = DITEM(SELECT_APB_AP,
+    TAR_READ(0x80090000), TAR_READ(0x80090314), TAR_READ(0x80090088), TAR_READ(0x80090028), LOADIRDR_CTRL_RDBUFF);
+
+static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
 #define CORTEX_ABORT \
     LOADIRDR(IRREGA_ABORT, 0, 1, 0), \
@@ -637,10 +640,12 @@ static void clear_cortex(struct ftdi_context *ftdi, int wait)
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
 #define ACCESS_REG_CTRL(A) \
     LOADIRDR(IRREGA_DPACC, (A), 0, DPACC_CTRL | DPACC_WRITE), LOADDR_CTRL_RDBUFF
+#define READ_AHB_CSW(...) DITEM(SELECT_AHB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
+#define READ_APB_CSW(...) DITEM(SELECT_APB_AP, CSW_WRITE_0, __VA_ARGS__ LOADIRDR_CTRL_RDBUFF)
 
     uint8_t *senddata;
     uint32_t *cresp;
-    if (!wait) {
+    if (!clear_wait) {
         senddata = DITEM(CORTEX_ABORT,  ACCESS_REG_CTRL(0));
         cresp = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
         RITE_READ(__LINE__, senddata, cresp);
@@ -650,17 +655,6 @@ static void clear_cortex(struct ftdi_context *ftdi, int wait)
         cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
         RITE_READ(__LINE__, senddata, cresp);
     }
-}
-static uint8_t senddata23[] = {CORTEX_PAIR(0x80090088),
-    TAR_READ(0x80092000), TAR_READ(0x80092314), TAR_READ(0x80092088), TAR_READ(0x80092028), LOADIRDR_CTRL_RDBUFF};
-
-static uint8_t *senddata44 = DITEM(SELECT_APB_AP,
-    TAR_READ(0x80090000), TAR_READ(0x80090314), TAR_READ(0x80090088), TAR_READ(0x80090028), LOADIRDR_CTRL_RDBUFF);
-
-static void cortex_csw(struct ftdi_context *ftdi, int wait)
-{
-    uint8_t *senddata;
-    uint32_t *cresp;
     if (!wait) {
         senddata = READ_AHB_CSW();
         cresp = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
@@ -752,8 +746,7 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
 #ifdef USE_CORTEX_ADI
     uint8_t *senddata;
     uint32_t *cresp;
-    clear_cortex(ftdi, 0);
-    cortex_csw(ftdi, 1-cortex_nowait);
+    cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         senddata = DITEM(SELECT_AHB_AP, CSW_READ(2), CORTEX_WAIT, LOADIRDR_CTRL_RDBUFF,);
         cresp = (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
@@ -776,10 +769,8 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
         write_data(ftdi, senddata23, sizeof(senddata23));
         check_read_cortex(__LINE__, ftdi, cresp);
         int count = number_of_devices - 1;
-        while (count-- > 0) {
-            clear_cortex(ftdi, 1);
-            cortex_csw(ftdi, 0);
-        }
+        while (count-- > 0)
+            cortex_csw(ftdi, 0, 1);
     }
     senddata = DITEM(SELECT_AHB_AP, CSW_READ(2), LOADIRDR_CTRL_RDBUFF);
     cresp = (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};

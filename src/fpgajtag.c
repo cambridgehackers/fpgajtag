@@ -888,6 +888,10 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     printf("Done sending file\n");
 }
 
+static void swap32(struct ftdi_context *ftdi, uint32_t value)
+{
+    write_item(ftdi, DITEM(SWAP32(value)));
+}
 static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat3, uint32_t expected)
 {
 #define STATREQ \
@@ -922,21 +926,27 @@ static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat
 
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_item(ftdi, DITEM(
-                 JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
-    write_item(ftdi, DITEM(DATAW(0, 4), SWAP32(SMAP_DUMMY)));
+    write_item(ftdi, DITEM( JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_DUMMY);
     if (found_zynq)
         write_item(ftdi, DITEM( DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(ftdi, DITEM(
-                 DATAW(0, 4), SWAP32(SMAP_SYNC),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))));
-    write_item(ftdi, DITEM( DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_READ, data, 1))));
-    write_item(ftdi,
-          DITEM(DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1)),
-                 DATAW(0, 4), SWAP32(SMAP_CMD_DESYNC),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))));
+    write_item(ftdi, DITEM( DATAW(0, 4)));
+    swap32(ftdi, SMAP_SYNC);
+    write_item(ftdi, DITEM( DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(ftdi, DITEM( DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_READ, data, 1));
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_CMD_DESYNC),
+    write_item(ftdi, DITEM(DATAW(0, 4)));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
     if (found_zynq)
         write_item(ftdi, DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
     else

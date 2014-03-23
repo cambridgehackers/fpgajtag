@@ -589,10 +589,9 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     uint32_t tempdata_index = 0;
     uint32_t *testp = buf+1;
 
-    if (load == 2)
-        write_item(ftdi, DITEM(LOADIR(IRREGA_DPACC)));
     if (load)
-        write_item(ftdi, DITEM(LOADDR_CTRL_RDBUFF));
+        write_item(ftdi, DITEM(LOADIR(IRREGA_DPACC)));
+    write_item(ftdi, DITEM(LOADDR_CTRL_RDBUFF));
     rdata = read_data(ftdi, buf[0] * 6);
     if (last_read_data_length != buf[0]*6) {
         err = 1;
@@ -630,9 +629,12 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     return rdata;
 }
 
+static uint8_t *waitreq[2] = {DITEM(CORTEX_WAIT), DITEM(DR_WAIT)};
+static uint8_t *selreq[2] = {DITEM(SELECT_AHB_AP), DITEM(SELECT_APB_AP)};
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
-    uint32_t *cresp, *cresp2;
+    uint32_t *cresp[2];
+    int i;
 
 #define CSW_WRITE_0 LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)
 
@@ -641,25 +643,24 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
     if (!clear_wait)
-        cresp = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
+        cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
         write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
-        cresp = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
+        cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     if (!wait)
-        cresp2 = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
+        cresp[1] = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
     else
-        cresp2 = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+        cresp[1] = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
     write_item(ftdi, DITEM(LOADIRDR(IRREGA_DPACC, clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
-    check_read_cortex(__LINE__, ftdi, cresp, 1);
-    write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_WRITE_0));
-    if (wait)
-       write_item(ftdi, DITEM(CORTEX_WAIT));
-    check_read_cortex(__LINE__, ftdi, cresp2, 2);
-    write_item(ftdi, DITEM(SELECT_APB_AP, CSW_WRITE_0));
-    if (wait)
-       write_item(ftdi, DITEM(DR_WAIT));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 2);
+    for (i = 0; i < 2; i++) {
+        check_read_cortex(__LINE__, ftdi, cresp[i], i);
+        write_item(ftdi, selreq[i]);
+        write_item(ftdi, DITEM(CSW_WRITE_0));
+        if (wait)
+           write_item(ftdi, waitreq[i]);
+    }
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 }
 static void read_csw(struct ftdi_context *ftdi, int wait)
 {
@@ -668,11 +669,11 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
     write_item(ftdi, DITEM(SELECT_AHB_AP, CSW_READ(2)));
     if (wait)
         write_item(ftdi, DITEM(CORTEX_WAIT));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(ftdi, DITEM(SELECT_APB_AP, CSW_READ(0x80000002)));
     if (wait)
         write_item(ftdi, DITEM(DR_WAIT));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 
     write_item(ftdi, DITEM(SELECT_AHB_AP, LOADDR(DREAD, 0xf8000100, AP_TAR)));
     if (wait)
@@ -690,10 +691,10 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
         write_item(ftdi, DITEM(CORTEX_WAIT));
     else
         write_item(ftdi, DITEM(CORTEX_RESET));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW, VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW, VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
         write_item(ftdi, DITEM(TAR_WRITE(0xf8007080), CORTEX_RESET));
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 2);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
 uint8_t *senddata44 = DITEM(SELECT_APB_AP,
     TAR_READ(0x80090000), TAR_READ(0x80090314), TAR_READ(0x80090088), TAR_READ(0x80090028));
@@ -777,25 +778,25 @@ static uint8_t senddata23[] = {CORTEX_PAIR(0x80090088),
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         read_csw(ftdi, 1);
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 2);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
         write_data(ftdi, senddata23, sizeof(senddata23));
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 2);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
         int count = number_of_devices - 1;
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
     write_data(ftdi, senddata23, sizeof(senddata23));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088), TAR_READ(0x80090314), TAR_READ(0x80090088)));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(ftdi, DITEM(TAR_WRITE(0x80090084)));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(ftdi, DITEM(TAR_WRITE(0x80092314), TAR_READ(0x80092088)));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(ftdi, DITEM(TAR_WRITE(0x80092084)));
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 2);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 #endif
 }
 

@@ -754,12 +754,11 @@ static void exit1_to_idle(struct ftdi_context *ftdi)
     write_item(ftdi, DITEM(EXIT1_TO_IDLE));
 }
 
-static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode)
+static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 {
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
     uint32_t returnedid;
 
-    write_item(ftdi, statep);
     write_item(ftdi, DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM( SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999, NULL);
@@ -802,7 +801,8 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
        ),
         DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR)};
 
-    check_idcode(ftdi, statep, 0); // idcode parameter ignored, since this is not the first invocation
+    write_item(ftdi, statep);
+    check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         uint8_t *alist[5] = {
             DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
@@ -861,7 +861,8 @@ int i;
     uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
     i = number_of_devices;
     while (i--) {
-        check_idcode(ftdi, move_to_reset, idcode);
+        write_item(ftdi, move_to_reset);
+        check_idcode(ftdi, idcode);
         move_to_reset = DITEM(IDLE_TO_RESET);
     }
     return ftdi;

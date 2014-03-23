@@ -888,34 +888,36 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     printf("Done sending file\n");
 }
 
+static void write_dataw(struct ftdi_context *ftdi, uint32_t value)
+{
+    write_item(ftdi, DITEM(DATAW(0, value)));
+}
 static void swap32(struct ftdi_context *ftdi, uint32_t value)
 {
     write_item(ftdi, DITEM(SWAP32(value)));
 }
 static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat3, uint32_t expected)
 {
-#define STATREQ \
-         SWAP32(SMAP_DUMMY), SWAP32(SMAP_SYNC), SWAP32(SMAP_TYPE2(0)), \
-         SWAP32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1))
     write_item(ftdi, DITEM(IDLE_TO_RESET));
     write_item(ftdi, stat2);
     write_item(ftdi, stat3);
+    write_dataw(ftdi, 19 + found_zynq);
+    swap32(ftdi, SMAP_DUMMY);
+    swap32(ftdi, SMAP_SYNC);
+    swap32(ftdi, SMAP_TYPE2(0));
+    swap32(ftdi, SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
+    if (found_zynq)
+        write_item(ftdi, DITEM(INT32(0)));
+    else
+        write_item(ftdi, DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
     write_item(ftdi, DITEM(
-#ifdef USE_CORTEX_ADI
-        DATAW(0, 20), STATREQ, INT32(0),
-#else
-        DATAW(0, 19), STATREQ, 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00,
-#endif
         SHIFT_TO_UPDATE_TO_IDLE(0, 0),
         EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS),
-#ifdef USE_CORTEX_ADI
-        IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-        SEND_IMMEDIATE
-#else
-        IDLE_TO_SHIFT_DR,
-        COMMAND_ENDING
-#endif
         ));
+    if (found_zynq)
+        write_item(ftdi, DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
+    else
+        write_item(ftdi, DITEM( IDLE_TO_SHIFT_DR, COMMAND_ENDING));
     uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)

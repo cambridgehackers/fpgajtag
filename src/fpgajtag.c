@@ -791,15 +791,15 @@ static void write_jtag_irreg(int read, int command)
     write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
 }
 
-static void write_jtag_irreg_extra(int read, int command, int extra, int goto_idle)
+static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
     if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(read, extra)));
+        write_item(DITEM(EXTRA_BIT(read, IRREGA_BYPASS)));
     if (goto_idle)
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), (command & 0x100)>>1)));
+        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), (command & 0x100)>>1)));
     else
-    write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
+        write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
 }
 
 static void write_bypass(void)
@@ -807,7 +807,7 @@ static void write_bypass(void)
     if (found_zynq)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
-        write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS, 1);
+        write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
 }
 
 static void write_combo_irreg(int command, int extra_bit)
@@ -826,8 +826,8 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS, 1);
-            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS, 1);
+            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
+            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USER2, 1);
             write_item(DITEM(IDLE_TO_SHIFT_DR));
             if (i > 1)
                 write_item(DITEM( DATAWBIT, opcode_bits, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
@@ -899,7 +899,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     else
         write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS, 1);
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_OUT, 1);
     if (found_zynq)
         write_item(DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
     else {
@@ -915,7 +915,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 }
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_jtag_irreg_extra(0, IRREG_CFG_IN, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
     write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
     write_dataw(4); swap32(SMAP_DUMMY);
     if (found_zynq)
@@ -933,7 +933,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
-    write_jtag_irreg_extra(0, IRREG_CFG_OUT, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(DITEM( TMSRW, 0x01, 0x01));
@@ -1090,13 +1090,13 @@ int main(int argc, char **argv)
         write_bypass();
         write_item(DITEM(SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-        write_jtag_irreg_extra(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS, 1);
+        write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
         write_item(DITEM(IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
     else {
         write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-        write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC, 1);
+        write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
         write_item(DITEM(IDLE_TO_SHIFT_DR));
         write_item(command_ending);
         if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
@@ -1117,7 +1117,7 @@ int main(int argc, char **argv)
     }
     write_item(idle_to_reset);
     write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS, 1);
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x30861900);
     ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
@@ -1132,9 +1132,9 @@ int main(int argc, char **argv)
      * Step 2: Initialization
      */
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, IRREG_JPROGRAM, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_JPROGRAM, 0);
     exit1_to_idle();
-    write_jtag_irreg_extra(0, IRREG_ISC_NOOP, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_ISC_NOOP, 0);
     exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(IRREG_ISC_NOOP, 0);
@@ -1158,9 +1158,9 @@ int main(int argc, char **argv)
     exit1_to_idle();
     if (found_zynq)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    write_jtag_irreg_extra(0, IRREG_BYPASS, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
     exit1_to_idle();
-    write_jtag_irreg_extra(0, IRREG_JSTART, IRREGA_BYPASS, 0);
+    write_jtag_irreg_extra(0, IRREG_JSTART, 0);
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(IRREG_BYPASS, 0x80);
@@ -1174,7 +1174,7 @@ int main(int argc, char **argv)
     exit1_to_idle();
     if (found_zynq) {
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-        write_jtag_irreg_extra(0, IRREG_BYPASS, IRREGA_BYPASS, 0);
+        write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
         exit1_to_idle();
     }
     else {
@@ -1193,7 +1193,7 @@ int main(int argc, char **argv)
     write_item(idle_to_reset);
     write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS, 1);
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {

@@ -147,8 +147,8 @@ static void openlogfile(void);
 #define PAUSE_TO_SHIFT       TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
 #define SHIFT_TO_PAUSE       TMSW, 0x01, 0x01 /* Shift-DR -> Pause-DR */
 #define TMS_RESET_WEIRD      TMSW, 0x04, 0x7f /* Reset????? */
-#define EXTEND_EXTRA 0xc0
 
+#define EXTEND_EXTRA            0xc0
 #define EXTRA_BIT_SHIFT         12 //8
 #define EXTRA_IRREG_BIT_SHIFT    8
 #define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
@@ -428,9 +428,14 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 #define IRREG_JPROGRAM       (irreg_extrabit | 0x00b)
 #define IRREG_JSTART         (irreg_extrabit | 0x00c)
 #define IRREG_ISC_NOOP       (irreg_extrabit | 0x014)
-#define IRREG_BYPASS         (irreg_extrabit | (1<<EXTRA_BIT_SHIFT) | 0x3f)
+#define IRREG_BYPASS         (irreg_extrabit | (1<<EXTRA_BIT_SHIFT) | 0x3f) // even on PCIE, this has an extra bit
 
 /* ARM JTAG-DP registers */
+
+#define LOADIR(A) \
+    write_jtag_irreg_extra(0, (((A) << EXTRA_IRREG_BIT_SHIFT) | (1 << EXTRA_BIT_SHIFT) | 0xff), 2)
+    //IDLE_TO_SHIFT_IR, DATAWBIT, opcode_bits, 0xff, EXTRA_BIT(0, (A)) TMSW, 0x01, 0x83
+
 #define IRREGA_ABORT         0x8   /* 35 bit register */
 #define IRREGA_DPACC         0xa   /* Debug Port access, 35 bit register */
 #define IRREGA_APACC         0xb   /* Access Port access, 35 bit register */
@@ -439,6 +444,12 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     #define AP_DRW           6
 #define IRREGA_IDCODE        0xe   /* 32 bit register */
 #define IRREGA_BYPASS        0xf
+
+static void cortex_extra_shift(void)
+{
+    if (found_zynq)
+        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+}
 
 #define SMAP_DUMMY           0xffffffff
 #define SMAP_SYNC            0xaa995566
@@ -552,10 +563,6 @@ static void write_jtag_irreg(int read, int command)
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
     write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
-
-#define LOADIR(A) \
-    write_jtag_irreg_extra(0, (((A) << EXTRA_IRREG_BIT_SHIFT) | (1 << EXTRA_BIT_SHIFT) | 0xff), 2)
-    //IDLE_TO_SHIFT_IR, DATAWBIT, opcode_bits, 0xff, EXTRA_BIT(0, (A)) TMSW, 0x01, 0x83
 
 static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
@@ -732,12 +739,6 @@ LOADIR(IRREGA_APACC);
     tar_read(0x80092314);
     tar_read(0x80092088);
     tar_read(0x80092028);
-}
-
-static void cortex_extra_shift(void)
-{
-    if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 }
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {

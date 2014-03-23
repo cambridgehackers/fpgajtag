@@ -191,6 +191,7 @@ static int found_232H;
 static int found_zynq;
 static unsigned char usbreadbuffer[USB_CHUNKSIZE];
 static unsigned char *usbreadbuffer_ptr = usbreadbuffer;
+static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 
 #ifndef USE_LIBFTDI
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
@@ -776,12 +777,11 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     }
 }
 
-static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int cortex_nowait)
+static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
 {
     int i;
     uint64_t ret40;
 
-    write_item(ftdi, statep);
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
@@ -842,7 +842,7 @@ int i;
     while (i--) {
         write_item(ftdi, move_to_reset);
         check_idcode(ftdi, idcode);
-        move_to_reset = DITEM(IDLE_TO_RESET);
+        move_to_reset = idle_to_reset;
     }
     return ftdi;
 }
@@ -861,7 +861,9 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
               DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00,
 #endif
               DATAW(0, 4), INT32(0));
-    int limit_len = MAX_SINGLE_USB_DATA - headerp[0];
+    write_item(ftdi, headerp);
+    int limit_len = MAX_SINGLE_USB_DATA - (usbreadbuffer_ptr - usbreadbuffer);
+//headerp[0];
     printf("Starting to send file\n");
     do {
         static uint8_t filebuffer[FILE_READSIZE];
@@ -878,11 +880,11 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
                           EXIT1_TO_IDLE);
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
-        write_item(ftdi, headerp);
         send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, NULL);
         if (size != FILE_READSIZE)
             break;
         headerp = DITEM(PAUSE_TO_SHIFT);
+        write_item(ftdi, headerp);
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
     printf("Done sending file\n");
@@ -1038,8 +1040,10 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
      * Step 5: Check Device ID
      */
 
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 2 + number_of_devices, 0);
-    bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+    write_item(ftdi, idle_to_reset);
+    bypass_test(ftdi, 2 + number_of_devices, 0);
+    write_item(ftdi, idle_to_reset);
+    bypass_test(ftdi, 3, 1);
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
     ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
     uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
@@ -1124,14 +1128,15 @@ int main(int argc, char **argv)
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
-    write_item(ftdi, DITEM(IDLE_TO_RESET));
+    write_item(ftdi, idle_to_reset);
     write_item(ftdi, cfg_in_command);
     read_status(ftdi, 0x30861900);
-    static uint8_t i2reset[] = DITEM(IDLE_TO_RESET );
-    ftdi_write_data(ftdi, i2reset+1, i2reset[0]);
-    bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
+    ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
+    write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)));
+    bypass_test(ftdi, 3, 1);
     for (i = 0; i < 3; i++) {
-        bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+        write_item(ftdi, idle_to_reset);
+        bypass_test(ftdi, 3, 1);
     }
 
     /*
@@ -1196,21 +1201,25 @@ int main(int argc, char **argv)
         write_item(ftdi, DITEM(EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
               JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE));
     if ((ret16 = fetch24(ftdi,
-        DITEM(
-              IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
+        DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
-    if (!found_zynq)
-        bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    write_item(ftdi, DITEM(IDLE_TO_RESET));
+    if (!found_zynq) {
+        write_item(ftdi, idle_to_reset);
+        bypass_test(ftdi, 3, 1);
+    }
+    write_item(ftdi, idle_to_reset);
     write_item(ftdi, DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(ftdi, cfg_in_command);
     read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {
-        bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
-        bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+        write_item(ftdi, idle_to_reset);
+        write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)));
+        bypass_test(ftdi, 3, 1);
+        write_item(ftdi, idle_to_reset);
+        bypass_test(ftdi, 3, 1);
     }
     else
-        ftdi_write_data(ftdi, i2reset+1, i2reset[0]);
+        ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);

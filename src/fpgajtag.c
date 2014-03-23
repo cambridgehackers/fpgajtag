@@ -149,6 +149,10 @@ static void openlogfile(void);
 #define TMS_RESET_WEIRD      TMSW, 0x04, 0x7f /* Reset????? */
 #define EXTEND_EXTRA 0xc0
 
+#define EXTRA_BIT_SHIFT         12 //8
+#define EXTRA_IRREG_BIT_SHIFT    8
+#define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
+#define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)
 #define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
 
 static struct libusb_context *usb_context;
@@ -424,7 +428,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 #define IRREG_JPROGRAM       (irreg_extrabit | 0x00b)
 #define IRREG_JSTART         (irreg_extrabit | 0x00c)
 #define IRREG_ISC_NOOP       (irreg_extrabit | 0x014)
-#define IRREG_BYPASS         (irreg_extrabit | 0x13f)
+#define IRREG_BYPASS         (irreg_extrabit | (1<<EXTRA_BIT_SHIFT) | 0x3f)
 
 /* ARM JTAG-DP registers */
 #define IRREGA_ABORT         0x8   /* 35 bit register */
@@ -546,22 +550,24 @@ static void read_rdbuff(void)
 static void write_jtag_irreg(int read, int command)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
-    write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
+    write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
 #define LOADIR(A) \
     IDLE_TO_SHIFT_IR, DATAWBIT, opcode_bits, 0xff, EXTRA_BIT(0, (A)) TMSW, 0x01, 0x83
+    //write_jtag_irreg_extra(0, ((A) << EXTRA_IRREG_BIT_SHIFT) | IRREG_BYPASS, 2)
+
 static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
     if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(read, IRREGA_BYPASS)));
+        write_item(DITEM(EXTRA_BIT(read, ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (goto_idle == 2)
         write_item(DITEM(TMSW, 0x01, 0x83));
     else if (goto_idle)
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), (command & 0x100)>>1)));
+        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
     else
-        write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
+        write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
@@ -1053,7 +1059,7 @@ int main(int argc, char **argv)
         skip_penultimate_byte = 0;
         command_ending = DITEM( DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
         opcode_bits = 0x05;
-        irreg_extrabit = 0x100;
+        irreg_extrabit = EXTRA_BIT_MASK | (IRREGA_BYPASS << EXTRA_IRREG_BIT_SHIFT);
         // Coresight: Table 2-11
         selreq[0] = DITEM(LOADIR(IRREGA_DPACC),LOADDR(0,            0, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* main system bus */
         selreq[1] = DITEM(LOADIR(IRREGA_DPACC),LOADDR(0, SELECT_DEBUG, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* dedicated Debug Bus */

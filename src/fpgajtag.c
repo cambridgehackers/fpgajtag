@@ -155,15 +155,10 @@ static void openlogfile(void);
 #define IRREG_EXTRABIT 0x100
 #define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
 
-#define SET_BYPASS \
-        IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)
 #else
 #define OPCODE_BITS 0x04
 #define IRREG_EXTRABIT 0
 #define EXTRA_BIT(READA, B)
-
-#define SET_BYPASS \
-         EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)
 #endif
 
 #define JTAG_IRREG(READA, A)                             \
@@ -493,6 +488,14 @@ static uint8_t *initialize_sequence_232h = DITEM(
      //SET_BITS_HIGH, 0x00, 0x00,
      FORCE_RETURN_TO_RESET
 );
+
+static void write_bypass(void)
+{
+    if (found_zynq)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
+    else
+        write_item(DITEM(EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)));
+}
 
 #ifdef USE_CORTEX_ADI
 
@@ -1071,7 +1074,7 @@ int main(int argc, char **argv)
 
     if (found_zynq) {
         write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-        write_item(DITEM(SET_BYPASS));
+        write_bypass();
         write_item(DITEM(SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
         write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS)));
@@ -1088,7 +1091,7 @@ int main(int argc, char **argv)
     }
 
     for (i = 0; i < 3; i++) {
-        write_item(DITEM(SET_BYPASS));
+        write_bypass();
         ret16 = fetch24(ftdi, DITEM(SEND_IMMEDIATE));
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
@@ -1177,8 +1180,9 @@ int main(int argc, char **argv)
         exit1_to_idle();
         flush_write(ftdi);
     }
-    if ((ret16 = fetch24(ftdi,
-        DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+    write_bypass();
+    if ((ret16 = fetch24(ftdi, DITEM(SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

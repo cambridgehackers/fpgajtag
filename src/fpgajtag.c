@@ -463,22 +463,13 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
 
-#ifndef USE_CORTEX_ADI
-#define COMMAND_ENDING  /* Enters in Shift-DR */            \
-     DATAR(3),                                              \
-     DATARBIT, 0x06,                                        \
-     SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0),                     \
-     SEND_IMMEDIATE
-#else
-#define COMMAND_ENDING  /* Enters in Shift-DR */            \
-    DATAR(4),                                               \
-    SHIFT_TO_UPDATE_TO_IDLE(0, 0),                          \
-    SEND_IMMEDIATE
-#endif
+static uint8_t *command_ending_non_cortex = DITEM( DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);
+static uint8_t *command_ending_cortex = DITEM( DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
 
 #define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM( INT32(0), PATTERN1, 0x00); // starts with idcode
 static uint8_t idcode_pattern2[] = DITEM( INT32(0), PATTERN2, 0xff); // starts with idcode
+static uint8_t *command_ending;
 static int idcode_setup;
 
 #define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
@@ -795,7 +786,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
                 if (found_zynq)
                     write_item(ftdi, DITEM(DATAWBIT, 0x00, 0x00));
             }
-            write_item(ftdi, DITEM(COMMAND_ENDING));
+            write_item(ftdi, command_ending);
             if ((ret40 = fetch32(ftdi, DITEM())) != 0)
                 printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
@@ -851,40 +842,30 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE);
-    uint8_t *headerp =
-         DITEM( EXIT1_TO_IDLE,
-#ifdef USE_CORTEX_ADI
-              EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
-#endif
-              IDLE_TO_SHIFT_DR,
-#ifdef USE_CORTEX_ADI
-              DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00,
-#endif
-              DATAW(0, 4), INT32(0));
-    write_item(ftdi, headerp);
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    if (found_zynq)
+        write_item(ftdi, DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(IDLE_TO_SHIFT_DR));
+    if (found_zynq)
+        write_item(ftdi, DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_item(ftdi, DITEM(DATAW(0, 4), INT32(0)));
     int limit_len = MAX_SINGLE_USB_DATA - (usbreadbuffer_ptr - usbreadbuffer);
-//headerp[0];
     printf("Starting to send file\n");
     do {
         static uint8_t filebuffer[FILE_READSIZE];
         size = read(inputfd, filebuffer, FILE_READSIZE);
-        if (size < FILE_READSIZE)
-            tailp = DITEM(
-#ifndef USE_CORTEX_ADI
-                          SHIFT_TO_EXIT1(0, 0),
-#else
-                          EXIT1_TO_IDLE,
-                          EXIT1_TO_IDLE,
-                          SHIFT_TO_EXIT1(0, 0x80),
-#endif
-                          EXIT1_TO_IDLE);
+        if (size < FILE_READSIZE) {
+            if (found_zynq)
+                tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
+            else
+                tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
+        }
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
         send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, NULL);
         if (size != FILE_READSIZE)
             break;
-        headerp = DITEM(PAUSE_TO_SHIFT);
-        write_item(ftdi, headerp);
+        write_item(ftdi, DITEM(PAUSE_TO_SHIFT));
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
     printf("Done sending file\n");
@@ -917,8 +898,10 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
         ));
     if (found_zynq)
         write_item(ftdi, DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
-    else
-        write_item(ftdi, DITEM( IDLE_TO_SHIFT_DR, COMMAND_ENDING));
+    else {
+        write_item(ftdi, DITEM(IDLE_TO_SHIFT_DR));
+        write_item(ftdi, command_ending);
+    }
     uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
@@ -1098,6 +1081,7 @@ int main(int argc, char **argv)
     dont_run_pciescan = 1;
     skip_penultimate_byte = 0;
 #endif
+    command_ending = found_zynq ? command_ending_cortex : command_ending_non_cortex;
     ftdi = initialize(idcode, serialno);
 
     if (found_zynq) {
@@ -1109,12 +1093,14 @@ int main(int argc, char **argv)
             SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
-    else if ((ret40 = fetch32(ftdi,
-        DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
+    else {
+        write_item(ftdi, DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
               EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC),
-              IDLE_TO_SHIFT_DR,
-              COMMAND_ENDING))) != 0xffffffffff)
-        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+              IDLE_TO_SHIFT_DR));
+        write_item(ftdi, command_ending);
+        if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
+            printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+    }
 
     for (i = 0; i < 3; i++) {
         ret16 = fetch24(ftdi,

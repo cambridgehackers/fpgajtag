@@ -773,9 +773,9 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            write_item(DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-                   EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
-                   IDLE_TO_SHIFT_DR));
+            write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)));
+            write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS)));
+            write_item(DITEM(IDLE_TO_SHIFT_DR));
             if (i > 1)
                 write_item(DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
             if (i > 0) {
@@ -889,10 +889,8 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
         write_item(DITEM(INT32(0)));
     else
         write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(DITEM(
-        SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-        EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS),
-        ));
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS)));
     if (found_zynq)
         write_item(DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
     else {
@@ -1022,8 +1020,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
-    write_item(DITEM(
-             SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
         iddata, sizeof(iddata), 9999, idcode_pattern2);
@@ -1033,7 +1030,6 @@ error:
     exit(-1);
 }
 
-static uint8_t *cfg_in_command = DITEM(RESET_TO_IDLE, EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS), IDLE_TO_SHIFT_DR);
 int main(int argc, char **argv)
 {
     logfile = stdout;
@@ -1074,26 +1070,26 @@ int main(int argc, char **argv)
     ftdi = initialize(idcode, serialno);
 
     if (found_zynq) {
-        write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
+        write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+        write_item(DITEM(SET_BYPASS));
+        write_item(DITEM(SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-        write_item(DITEM(
-            EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
-            IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-            SEND_IMMEDIATE));
+        write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS)));
+        write_item(DITEM(IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
     else {
-        write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
-              EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC),
-              IDLE_TO_SHIFT_DR));
+        write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+        write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC)));
+        write_item(DITEM(IDLE_TO_SHIFT_DR));
         write_item(command_ending);
         if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
             printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     }
 
     for (i = 0; i < 3; i++) {
-        ret16 = fetch24(ftdi,
-             DITEM( SET_BYPASS, SEND_IMMEDIATE));
+        write_item(DITEM(SET_BYPASS));
+        ret16 = fetch24(ftdi, DITEM(SEND_IMMEDIATE));
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
@@ -1104,7 +1100,9 @@ int main(int argc, char **argv)
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
     write_item(idle_to_reset);
-    write_item(cfg_in_command);
+    write_item(DITEM(RESET_TO_IDLE));
+    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS)));
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x30861900);
     ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
@@ -1188,7 +1186,9 @@ int main(int argc, char **argv)
     }
     write_item(idle_to_reset);
     write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
-    write_item(cfg_in_command);
+    write_item(DITEM(RESET_TO_IDLE));
+    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS)));
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {
         write_item(idle_to_reset);

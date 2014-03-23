@@ -56,13 +56,13 @@
 #define MPSSE_DO_WRITE  0x10   /* Write TDI/DO */
 #define MPSSE_DO_READ   0x20   /* Read TDO/DI */
 #define MPSSE_WRITE_TMS 0x40   /* Write TMS/CS */
-#define SET_BITS_LOW   0x80
-#define SET_BITS_HIGH  0x82
-#define LOOPBACK_END   0x85
-#define TCK_DIVISOR    0x86
+#define SET_BITS_LOW    0x80
+#define SET_BITS_HIGH   0x82
+#define LOOPBACK_END    0x85
+#define TCK_DIVISOR     0x86
 #define DIS_DIV_5       0x8a
 #define CLK_BYTES       0x8f
-#define SEND_IMMEDIATE 0x87
+#define SEND_IMMEDIATE  0x87
 struct ftdi_context;
 struct ftdi_transfer_control;
 #endif
@@ -921,12 +921,8 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
         write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_OUT, 1);
-    if (found_zynq)
-        write_item(DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
-    else {
-        write_item(DITEM(IDLE_TO_SHIFT_DR));
-        write_item(command_ending);
-    }
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_item(command_ending);
     uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)

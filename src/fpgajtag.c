@@ -892,15 +892,14 @@ static void write_dataw(struct ftdi_context *ftdi, uint32_t value)
 {
     write_item(ftdi, DITEM(DATAW(0, value)));
 }
+
 static void swap32(struct ftdi_context *ftdi, uint32_t value)
 {
     write_item(ftdi, DITEM(SWAP32(value)));
 }
-static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat3, uint32_t expected)
+
+static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 {
-    write_item(ftdi, DITEM(IDLE_TO_RESET));
-    write_item(ftdi, stat2);
-    write_item(ftdi, stat3);
     write_dataw(ftdi, 19 + found_zynq);
     swap32(ftdi, SMAP_DUMMY);
     swap32(ftdi, SMAP_SYNC);
@@ -1125,12 +1124,15 @@ int main(int argc, char **argv)
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
-    read_status(ftdi, cfg_in_command, DITEM(), 0x30861900);
+    write_item(ftdi, DITEM(IDLE_TO_RESET));
+    write_item(ftdi, cfg_in_command);
+    read_status(ftdi, 0x30861900);
     static uint8_t i2reset[] = DITEM(IDLE_TO_RESET );
     ftdi_write_data(ftdi, i2reset+1, i2reset[0]);
     bypass_test(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)), 3, 1);
-    for (i = 0; i < 3; i++)
+    for (i = 0; i < 3; i++) {
         bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
+    }
 
     /*
      * Step 2: Initialization
@@ -1199,7 +1201,10 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq)
         bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);
-    read_status(ftdi, DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)), cfg_in_command, 0xf0fe7910);
+    write_item(ftdi, DITEM(IDLE_TO_RESET));
+    write_item(ftdi, DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
+    write_item(ftdi, cfg_in_command);
+    read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {
         bypass_test(ftdi, DITEM(IDLE_TO_RESET, SHIFT_TO_EXIT1(0, 0),), 3, 1);
         bypass_test(ftdi, DITEM(IDLE_TO_RESET), 3, 1);

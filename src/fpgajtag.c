@@ -310,14 +310,18 @@ static void write_item(struct ftdi_context *ftdi, uint8_t *buf)
     write_data(ftdi, buf+1, buf[0]);
 }
 
+static void flush_write(struct ftdi_context *ftdi)
+{
+    int write_length = usbreadbuffer_ptr - usbreadbuffer;
+    if (write_length)
+        ftdi_write_data(ftdi, usbreadbuffer, write_length);
+    usbreadbuffer_ptr = usbreadbuffer;
+}
+
 static uint8_t *read_data(struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
-    int write_length = usbreadbuffer_ptr - usbreadbuffer;
-    if (write_length) {
-        ftdi_write_data(ftdi, usbreadbuffer, write_length);
-    }
-    usbreadbuffer_ptr = usbreadbuffer;
+    flush_write(ftdi);
     last_read_data_length = size;
     if (size)
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
@@ -375,16 +379,13 @@ static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
     return read_data_int(ftdi, 5);
 }
 
-static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, uint8_t *headerl[],
+static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int limit_len, uint8_t *checkdata)
 {
     int i;
     static uint8_t packetbuffer[BUFFER_MAX_LEN];
     uint8_t *readptr = packetbuffer;
 
-    uint8_t *header = catlist(headerl);
-    memcpy(readptr, header+1, header[0]);
-    readptr += header[0];
     while (size > 0) {
         int rlen = size-1;
         if (rlen > limit_len)
@@ -406,7 +407,8 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param, u
             *(readptr+2) |= 0x80 & ch; // insert 1 bit of data here
             readptr += tail[0];
         }
-        ftdi_write_data(ftdi, packetbuffer, readptr - packetbuffer);
+        write_data(ftdi, packetbuffer, readptr - packetbuffer);
+        flush_write(ftdi);
         size -= limit_len+1;
         readptr = packetbuffer;
     }
@@ -757,11 +759,9 @@ static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t id
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
     uint32_t returnedid;
 
-    send_data_frame(ftdi, DREAD,
-        (uint8_t *[]){statep,
-                      DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR),
-                      NULL},
-        DITEM( SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
+    write_item(ftdi, statep);
+    write_item(ftdi, DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR));
+    send_data_frame(ftdi, DREAD, DITEM( SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999, NULL);
     uint8_t *rdata = read_data(ftdi, idcode_pattern1[0]);
     if (!idcode_setup) {    // only setup idcode patterns on first call!
@@ -898,7 +898,10 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
                           EXIT1_TO_IDLE);
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
-        send_data_frame(ftdi, 0, (uint8_t *[]){headerp, NULL}, tailp, filebuffer, size, limit_len, NULL);
+        write_item(ftdi, headerp);
+        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, NULL);
+        if (size != FILE_READSIZE)
+            break;
         headerp = DITEM(PAUSE_TO_SHIFT);
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
@@ -1060,13 +1063,10 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
-    send_data_frame(ftdi, DREAD,
-        (uint8_t *[]){DITEM(
-             SHIFT_TO_EXIT1(0, 0),
-             IN_RESET_STATE,
-             SHIFT_TO_EXIT1(0, 0),
-             IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR), NULL},
-        DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
+    write_item(ftdi, DITEM(
+             SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
+             IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
         iddata, sizeof(iddata), 9999, idcode_pattern2);
     return ftdi;
 error:

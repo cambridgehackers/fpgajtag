@@ -508,12 +508,15 @@ static uint8_t *initialize_sequence_232h = DITEM(
 /* response */
 #define DPACC_RESPONSE_OK 0x2
 
-#define READ_RDBUFF   LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)
+/* Addresses from ug585-Zynq-7000-TRM.pdf */
+#define ADDRESS_DEVCFG_MCTRL      0xf8007080
+#define ADDRESS_SLCR_ARM_PLL_CTRL 0xf8000100
+#define ADDRESS_SLCR_ARM_CLK_CTRL 0xf8000120
 
-#define LOADDR_CTRL_RDBUFF \
-    LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE), READ_RDBUFF, SEND_IMMEDIATE
-
-#define LOADIRDR_CTRL_RDBUFF   LOADIR(IRREGA_DPACC), LOADDR_CTRL_RDBUFF
+static void read_rdbuff(void)
+{
+    write_item(DITEM(LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)));
+}
 
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
 {
@@ -525,7 +528,9 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
 
     if (load)
         write_item(DITEM(LOADIR(IRREGA_DPACC)));
-    write_item(DITEM(LOADDR_CTRL_RDBUFF));
+    write_item(DITEM(LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE)));
+    read_rdbuff();
+    write_item(DITEM(SEND_IMMEDIATE));
     rdata = read_data(ftdi, buf[0] * 6);
     if (last_read_data_length != buf[0]*6) {
         err = 1;
@@ -598,11 +603,13 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 
 static void tar_read(uint32_t v)
 {
-    write_item(DITEM(LOADDR(DREAD, v, AP_TAR), READ_RDBUFF));
+    write_item(DITEM(LOADDR(DREAD, v, AP_TAR)));
+    read_rdbuff();
 }
 static void tar_write(uint32_t v)
 {
-    write_item(DITEM(LOADIR(IRREGA_APACC), LOADDR(0, v, AP_TAR), READ_RDBUFF));
+    write_item(DITEM(LOADIR(IRREGA_APACC), LOADDR(0, v, AP_TAR)));
+    read_rdbuff();
 }
 static uint8_t *cread[2] = 
      {DITEM(LOADDR(DREAD,          2, AP_CSW)),
@@ -622,25 +629,26 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 
     write_item(selreq[0]);
-    write_item(DITEM(LOADDR(DREAD, 0xf8000100, AP_TAR)));
+    write_item(DITEM(LOADDR(DREAD, ADDRESS_SLCR_ARM_PLL_CTRL, AP_TAR)));
     if (wait)
         write_item(waitreq[0]);
-    write_item(DITEM(READ_RDBUFF));
-    if (wait)
-        write_item(waitreq[0]);
-    else
-        write_item(cortex_reset);
-    write_item(DITEM(LOADDR(DREAD, 0xf8000120, AP_TAR)));
-    if (wait)
-        write_item(waitreq[0]);
-    write_item(DITEM(READ_RDBUFF));
+    read_rdbuff();
     if (wait)
         write_item(waitreq[0]);
     else
         write_item(cortex_reset);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW, VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
+    write_item(DITEM(LOADDR(DREAD, ADDRESS_SLCR_ARM_CLK_CTRL, AP_TAR)));
+    if (wait)
+        write_item(waitreq[0]);
+    read_rdbuff();
+    if (wait)
+        write_item(waitreq[0]);
+    else
+        write_item(cortex_reset);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW,
+          VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
-        tar_write(0xf8007080);
+        tar_write(ADDRESS_DEVCFG_MCTRL);
         write_item(cortex_reset);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
@@ -661,10 +669,8 @@ static void senddata23(struct ftdi_context *ftdi)
 #endif
 static void cortex_extra_shift(void)
 {
-#ifdef USE_CORTEX_ADI
     if (found_zynq)
         write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-#endif
 }
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
@@ -672,21 +678,26 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         read_csw(ftdi, 1);
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0,
+            VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
         senddata23(ftdi);
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0,
+            VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
         int count = number_of_devices - 1;
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG,
+            VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
     senddata23(ftdi);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0,
+            VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
     write_item(DITEM(CORTEX_PAIR(0x80092088)));
     tar_read(0x80090314);
     tar_read(0x80090088);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
+            VAL2, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(0x80090084);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(0x80092314);

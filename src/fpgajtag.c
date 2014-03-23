@@ -568,6 +568,7 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     return rdata;
 }
 
+static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
 static uint8_t *waitreq[2] = {DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00),
                               DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x02, 0x00)};
 static uint8_t *selreq[2];
@@ -614,20 +615,20 @@ static void tar_write(uint32_t v)
 static uint8_t *cread[2] = 
      {DITEM(LOADDR(DREAD,          2, AP_CSW)),
       DITEM(LOADDR(DREAD, 0x80000002, AP_CSW))};
-static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
 static void read_csw(struct ftdi_context *ftdi, int wait)
 {
-    write_item(selreq[0]);
-    write_item(cread[0]);
-    if (wait)
-        write_item(waitreq[0]);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
-    write_item(selreq[1]);
-    write_item(cread[1]);
-    if (wait)
-        write_item(waitreq[1]);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
+int i;
+uint32_t *cresp[2] = {
+    (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
+    (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}};
 
+    for (i = 0; i < 2; i++) {
+        write_item(selreq[i]);
+        write_item(cread[i]);
+        if (wait)
+            write_item(waitreq[i]);
+        check_read_cortex(__LINE__, ftdi, cresp[i], 1);
+    }
     write_item(selreq[0]);
     write_item(DITEM(LOADDR(DREAD, ADDRESS_SLCR_ARM_PLL_CTRL, AP_TAR)));
     if (wait)
@@ -731,6 +732,8 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
             uint32_t anotherid;
             memcpy(&anotherid, rdata+4, sizeof(anotherid));
             printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, anotherid);
+            if (anotherid == CORTEX_IDCODE)
+                found_zynq = 1;
             memcpy(idcode_pattern1+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             memcpy(idcode_pattern2+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             number_of_devices++;

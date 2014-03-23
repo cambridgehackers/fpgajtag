@@ -936,9 +936,9 @@ uint8_t *req = catlist((uint8_t *[]){
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
 }
 
-static uint64_t read_smap(struct ftdi_context *ftdi, uint8_t *prefix, uint32_t data)
+static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    uint8_t *sendreq = catlist((uint8_t *[]){prefix,
+    uint8_t *sendreq = catlist((uint8_t *[]){
           DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE,
                  IDLE_TO_SHIFT_DR,
                  DATAW(0, 4), SWAP32(SMAP_DUMMY),
@@ -1151,20 +1151,15 @@ int main(int argc, char **argv)
     /*
      * Step 2: Initialization
      */
-    if ((ret16 = fetch16(ftdi,
-        catlist((uint8_t *[]){
-            DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
+    write_item(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
                JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM), EXIT1_TO_IDLE,
-               JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP), EXIT1_TO_IDLE),
-            pulse_gpio(CLOCK_FREQUENCY/80/* 12.5 msec */),
-            DITEM(
-#ifndef USE_CORTEX_ADI
-                 JTAG_IRREG(DREAD, IRREG_ISC_NOOP),
-#else
-                 IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01, //JTAG_IRREG
-#endif
-                 SEND_IMMEDIATE),
-            NULL}))) != 0x4488)
+               JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP), EXIT1_TO_IDLE));
+    write_item(ftdi, pulse_gpio(CLOCK_FREQUENCY/80/* 12.5 msec */));
+    if (found_zynq)
+        write_item(ftdi, DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
+    else
+        write_item(ftdi, DITEM(JTAG_IRREG(DREAD, IRREG_ISC_NOOP)));
+    if ((ret16 = fetch16(ftdi, DITEM( SEND_IMMEDIATE))) != 0x4488)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
      * Step 6: Load Configuration Data Frames
@@ -1182,30 +1177,31 @@ int main(int argc, char **argv)
     /*
      * Step 8: Startup
      */
-    if ((ret40 = read_smap(ftdi, pulse_gpio(CLOCK_FREQUENCY/800/*1.25 msec*/), SMAP_REG_BOOTSTS)) != 0x0100000000)
+    write_item(ftdi, pulse_gpio(CLOCK_FREQUENCY/800/*1.25 msec*/));
+    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x0100000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle(ftdi);
     if (found_zynq)
         write_item(ftdi, DITEM(
              SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    if ((ret16 = fetch16(ftdi, DITEM(
+    write_item(ftdi, DITEM(
              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
              JTAG_IRREG_EXTRA(0, IRREG_JSTART), EXIT1_TO_IDLE,
-             TMSW_DELAY,
-#ifdef USE_CORTEX_ADI
-              IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81, //JTAG_IRREG
-#else
-              JTAG_IRREG(DREAD, IRREG_BYPASS), 
-#endif
-              SEND_IMMEDIATE))) != 0xd6ac)
+             TMSW_DELAY));
+    if (found_zynq)
+        write_item(ftdi, DITEM(
+              IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81)); //JTAG_IRREG
+    else
+        write_item(ftdi, DITEM(
+              JTAG_IRREG(DREAD, IRREG_BYPASS)));
+    if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     exit1_to_idle(ftdi);
     if (found_zynq)
         write_item(ftdi, DITEM(
               EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    if ((ret40 = read_smap(ftdi, DITEM(
-              ), SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
+    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     static uint8_t bypass_end[] = DITEM(EXIT1_TO_IDLE, JTAG_IRREG(0, IRREG_BYPASS), EXIT1_TO_IDLE);
     if (!found_zynq)

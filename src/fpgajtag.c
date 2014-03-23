@@ -912,7 +912,8 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_item(ftdi, DITEM( JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
     write_item(ftdi, DITEM(DATAW(0, 4)));
     swap32(ftdi, SMAP_DUMMY);
     if (found_zynq)
@@ -937,8 +938,9 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
         write_item(ftdi, DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
     else
         write_item(ftdi, DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
-    write_item(ftdi, DITEM(
-                 EXIT1_TO_IDLE, JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT), EXIT1_TO_IDLE,
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE,
                  IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(ftdi, DITEM( TMSRW, 0x01, 0x01));
@@ -1128,9 +1130,11 @@ int main(int argc, char **argv)
     /*
      * Step 2: Initialization
      */
-    write_item(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
-               JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM), EXIT1_TO_IDLE,
-               JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP), EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     if (found_zynq)
         write_item(ftdi, DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
@@ -1159,18 +1163,17 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle(ftdi);
     if (found_zynq)
-        write_item(ftdi, DITEM(
-             SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(
-             JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
-             JTAG_IRREG_EXTRA(0, IRREG_JSTART), EXIT1_TO_IDLE,
-             TMSW_DELAY));
+        write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_JSTART)));
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(ftdi, DITEM(TMSW_DELAY));
     if (found_zynq)
         write_item(ftdi, DITEM(
               IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81)); //JTAG_IRREG
     else
-        write_item(ftdi, DITEM(
-              JTAG_IRREG(DREAD, IRREG_BYPASS)));
+        write_item(ftdi, DITEM(JTAG_IRREG(DREAD, IRREG_BYPASS)));
     if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
@@ -1180,12 +1183,17 @@ int main(int argc, char **argv)
               EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    static uint8_t bypass_end[] = DITEM(EXIT1_TO_IDLE, JTAG_IRREG(0, IRREG_BYPASS), EXIT1_TO_IDLE);
-    if (!found_zynq)
-        ftdi_write_data(ftdi, bypass_end+1, bypass_end[0]);
-    if (found_zynq)
-        write_item(ftdi, DITEM(EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
-              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE));
+    if (!found_zynq) {
+        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+        write_item(ftdi, DITEM(JTAG_IRREG(0, IRREG_BYPASS)));
+        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+        flush_write(ftdi);
+    }
+    if (found_zynq) {
+        write_item(ftdi, DITEM(EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    }
     if ((ret16 = fetch24(ftdi,
         DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);

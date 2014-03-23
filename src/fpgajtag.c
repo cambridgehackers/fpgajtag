@@ -496,21 +496,12 @@ static uint8_t *initialize_sequence_232h = DITEM(
      FORCE_RETURN_TO_RESET
 );
 
-#if 1 //def USE_CORTEX_ADI
-#define TEMPLOADIR(A) \
-    IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, EXTRA_BIT(0, (A))
-#define TEMPLOADDR(A) \
-    IDLE_TO_SHIFT_DR, \
-    DATAWBIT, 0x00, 0x00
-#define LOADIR(A) \
-    TEMPLOADIR(A) TMSW, 0x01, 0x83
+/****************** Cortex stuff ******************/
 #define LOADDR(AREAD, A, B) \
-    TEMPLOADDR(0), DATAW((AREAD), 4), INT32(((A) << 3) | (B)), \
+    IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00, \
+    DATAW((AREAD), 4), INT32(((A) << 3) | (B)), \
     DATAWBIT | (AREAD), 0x01, (((A)>>29) & 0x3f),\
     SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((A)>>24) & 0x80))
-
-#define LOADIRDR(IRA, AREAD, A, B) \
-    LOADIR(IRA), LOADDR(AREAD, A, B)
 
 #define VAL1          0x75137030
 #define VAL2          0x0310c002
@@ -550,6 +541,27 @@ static uint8_t *initialize_sequence_232h = DITEM(
 static void read_rdbuff(void)
 {
     write_item(DITEM(LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)));
+}
+
+static void write_jtag_irreg(int read, int command)
+{
+    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
+    write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
+}
+
+#define LOADIR(A) \
+    IDLE_TO_SHIFT_IR, DATAWBIT, opcode_bits, 0xff, EXTRA_BIT(0, (A)) TMSW, 0x01, 0x83
+static void write_jtag_irreg_extra(int read, int command, int goto_idle)
+{
+    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
+    if (found_zynq)
+        write_item(DITEM(EXTRA_BIT(read, IRREGA_BYPASS)));
+    if (goto_idle == 2)
+        write_item(DITEM(TMSW, 0x01, 0x83));
+    else if (goto_idle)
+        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), (command & 0x100)>>1)));
+    else
+        write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
 }
 
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
@@ -611,8 +623,8 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_item(DITEM(LOADIRDR(IRREGA_ABORT, 0, 1, 0),
-                           LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)));
+    write_item(DITEM(LOADIR(IRREGA_ABORT), LOADDR(0, 1, 0),
+                           LOADIR(IRREGA_DPACC), LOADDR(0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
     if (!clear_wait)
@@ -625,7 +637,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cresp[1] = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
     else
         cresp[1] = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-    write_item(DITEM(LOADIRDR(IRREGA_DPACC, clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
+    write_item(DITEM(LOADIR(IRREGA_DPACC), LOADDR(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
     for (i = 0; i < 2; i++) {
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
         write_item(selreq[i]);
@@ -701,7 +713,7 @@ static void senddata23(struct ftdi_context *ftdi)
     tar_read(0x80092088);
     tar_read(0x80092028);
 }
-#endif
+
 static void cortex_extra_shift(void)
 {
     if (found_zynq)
@@ -783,23 +795,6 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
         memdump(idcode_pattern1+1, idcode_pattern1[0], "EXPECT");
         memdump(rdata, idcode_pattern1[0], "ACTUAL");
     }
-}
-
-static void write_jtag_irreg(int read, int command)
-{
-    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
-    write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
-}
-
-static void write_jtag_irreg_extra(int read, int command, int goto_idle)
-{
-    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
-    if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(read, IRREGA_BYPASS)));
-    if (goto_idle)
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), (command & 0x100)>>1)));
-    else
-        write_item(DITEM(SHIFT_TO_EXIT1((read), (command & 0x100)>>1)));
 }
 
 static void write_bypass(void)
@@ -1060,8 +1055,8 @@ int main(int argc, char **argv)
         opcode_bits = 0x05;
         irreg_extrabit = 0x100;
         // Coresight: Table 2-11
-        selreq[0] = DITEM(LOADIRDR(IRREGA_DPACC, 0,            0, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* main system bus */
-        selreq[1] = DITEM(LOADIRDR(IRREGA_DPACC, 0, SELECT_DEBUG, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* dedicated Debug Bus */
+        selreq[0] = DITEM(LOADIR(IRREGA_DPACC),LOADDR(0,            0, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* main system bus */
+        selreq[1] = DITEM(LOADIR(IRREGA_DPACC),LOADDR(0, SELECT_DEBUG, DPACC_SELECT), LOADIR(IRREGA_APACC)); /* dedicated Debug Bus */
     }
     else
         command_ending = DITEM( DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);

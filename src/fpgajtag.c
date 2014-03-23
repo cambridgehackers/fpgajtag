@@ -715,8 +715,10 @@ static void senddata23(struct ftdi_context *ftdi)
     tar_read(ftdi, 0x80092088);
     tar_read(ftdi, 0x80092028);
 }
+#endif
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
+#ifdef USE_CORTEX_ADI
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         read_csw(ftdi, 1);
@@ -742,8 +744,8 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(ftdi, 0x80092084);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
-}
 #endif
+}
 
 static void exit1_to_idle(struct ftdi_context *ftdi)
 {
@@ -819,9 +821,8 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
             }
         }
     }
-#ifdef USE_CORTEX_ADI
-    cortex_bypass(ftdi, cortex_nowait);
-#endif
+    if (found_zynq)
+        cortex_bypass(ftdi, cortex_nowait);
 }
 
 /*
@@ -938,7 +939,7 @@ uint8_t *req = catlist((uint8_t *[]){
 
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    uint8_t *sendreq = catlist((uint8_t *[]){
+    write_item(ftdi,
           DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE,
                  IDLE_TO_SHIFT_DR,
                  DATAW(0, 4), SWAP32(SMAP_DUMMY),
@@ -947,13 +948,16 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 #endif
                  DATAW(0, 4), SWAP32(SMAP_SYNC),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
-                 DATAW(0, 4)),
-          (uint8_t []){4, SWAP32(SMAP_TYPE1(SMAP_OP_READ, data, 1))},
+                 DATAW(0, 4)));
+    write_item(ftdi,
+          (uint8_t []){4, SWAP32(SMAP_TYPE1(SMAP_OP_READ, data, 1))});
+    write_item(ftdi,
           DITEM(DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1)),
                  DATAW(0, 4), SWAP32(SMAP_CMD_DESYNC),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))),
+                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))));
+    write_item(ftdi,
           DITEM(
 #ifdef USE_CORTEX_ADI
                  DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80),
@@ -968,9 +972,8 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 #else
                  SHIFT_TO_EXIT1(DREAD, 0),
 #endif
-                 SEND_IMMEDIATE ),
-          NULL});
-    return fetch40(ftdi, sendreq);
+                 SEND_IMMEDIATE ));
+    return fetch40(ftdi, DITEM());
 }
 
 static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
@@ -1110,24 +1113,21 @@ int main(int argc, char **argv)
 #endif
     ftdi = initialize(idcode, serialno);
 
-#ifndef USE_CORTEX_ADI
-    if ((ret40 = fetch32(ftdi,
+    if (found_zynq) {
+        write_item(ftdi, DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
+        check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
+        write_item(ftdi, DITEM(
+            EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
+            IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
+            SEND_IMMEDIATE));
+        check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
+    }
+    else if ((ret40 = fetch32(ftdi,
         DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
               EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC),
               IDLE_TO_SHIFT_DR,
               COMMAND_ENDING))) != 0xffffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-#else
-    if (found_zynq) {
-    write_item(ftdi, DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
-    check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-    write_item(ftdi, DITEM(
-        EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
-        IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
-        SEND_IMMEDIATE));
-    check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
-    }
-#endif
 
     for (i = 0; i < 3; i++) {
         ret16 = fetch24(ftdi,

@@ -234,29 +234,29 @@ int i;
  */
 struct ftdi_context *init_ftdi(void)
 {
-int i;
+    static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
+    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
+    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
+    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
     struct ftdi_context *ftdi = NULL;
+    int i;
+    uint8_t retcode[2];
+
 #ifdef USE_LIBFTDI
     ftdi = ftdi_new();
     ftdi_set_usbdev(ftdi, usbhandle);
     ftdi->usb_ctx = usb_context;
     ftdi->max_packet_size = 512; //5000;
 #endif
-
     /*
      * Generic command synchronization with ftdi chip
      */
-    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
-    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
-    uint8_t retcode[2];
     for (i = 0; i < 4; i++) {
-        static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
         ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
         ftdi_read_data(ftdi, retcode, sizeof(retcode));
         if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
             memdump(retcode, sizeof(retcode), "RETaa");
     }
-    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
     ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
     ftdi_read_data(ftdi, retcode, sizeof(retcode));
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
@@ -586,7 +586,7 @@ static void write_jtag_irreg(int read, int command)
 static void write_combo_irreg(int command, int extra_bit)
 {
     if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 4, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG
     else
         write_jtag_irreg(DREAD, command);
 }
@@ -928,7 +928,8 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
     write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
-    write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
+    exit1_to_idle();
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dataw(4); swap32(SMAP_DUMMY);
     if (found_zynq)
         write_item(DITEM( DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
@@ -946,7 +947,8 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
         write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
-    write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
+    exit1_to_idle();
+    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(DITEM( TMSRW, 0x01, 0x01));
     else
@@ -1158,8 +1160,10 @@ int main(int argc, char **argv)
     if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x0100000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle();
-    if (found_zynq)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    if (found_zynq) {
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
+        exit1_to_idle();
+    }
     write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_JSTART, 0);
@@ -1174,7 +1178,8 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle();
     if (found_zynq) {
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
+        exit1_to_idle();
         write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
         exit1_to_idle();
     }

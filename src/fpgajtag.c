@@ -269,37 +269,6 @@ static uint8_t *catlist(uint8_t *arg[])
     return prebuffer;
 }
 
-static uint8_t *pulse_gpio(int delay)
-{
-#define GPIO_DONE            0x10
-#define GPIO_01              0x01
-#define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
-
-    static uint8_t prebuffer[BUFFER_MAX_LEN];
-    static uint8_t pulsepre[] =
-      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-            SET_LSB_DIRECTION(GPIO_DONE));
-    static uint8_t pulse65k[] = DITEM(CLK_BYTES, INT16(65536 - 1));
-    static uint8_t pulsepost[] =
-      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-            SET_LSB_DIRECTION(GPIO_01));
-    uint8_t *ptr = prebuffer+1;
-    memcpy(ptr, pulsepre+1, pulsepre[0]);
-    ptr += pulsepre[0];
-    while(delay > 65536) {
-        memcpy(ptr, pulse65k+1, pulse65k[0]);
-        ptr += pulse65k[0];
-        delay -= 65536;
-    }
-    *ptr++ = CLK_BYTES;
-    *ptr++ = M(delay-1);
-    *ptr++ = M((delay-1)>>8);
-    memcpy(ptr, pulsepost+1, pulsepost[0]);
-    ptr += pulsepost[0];
-    prebuffer[0] = ptr - (prebuffer + 1);
-    return prebuffer;
-}
-
 static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
 {
     memcpy(usbreadbuffer_ptr, buf, size);
@@ -377,6 +346,37 @@ static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(ftdi, req);
     return read_data_int(ftdi, 5);
+}
+
+static void pulse_gpio(struct ftdi_context *ftdi, int delay)
+{
+#define GPIO_DONE            0x10
+#define GPIO_01              0x01
+#define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
+
+    static uint8_t prebuffer[BUFFER_MAX_LEN];
+    static uint8_t pulsepre[] =
+      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+            SET_LSB_DIRECTION(GPIO_DONE));
+    static uint8_t pulse65k[] = DITEM(CLK_BYTES, INT16(65536 - 1));
+    static uint8_t pulsepost[] =
+      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+            SET_LSB_DIRECTION(GPIO_01));
+    uint8_t *ptr = prebuffer+1;
+    memcpy(ptr, pulsepre+1, pulsepre[0]);
+    ptr += pulsepre[0];
+    while(delay > 65536) {
+        memcpy(ptr, pulse65k+1, pulse65k[0]);
+        ptr += pulse65k[0];
+        delay -= 65536;
+    }
+    *ptr++ = CLK_BYTES;
+    *ptr++ = M(delay-1);
+    *ptr++ = M((delay-1)>>8);
+    memcpy(ptr, pulsepost+1, pulsepost[0]);
+    ptr += pulsepost[0];
+    prebuffer[0] = ptr - (prebuffer + 1);
+    write_item(ftdi,  prebuffer);
 }
 
 static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
@@ -804,15 +804,15 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
     write_item(ftdi, statep);
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
-        uint8_t *alist[5] = {
-            DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
-                   EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
-                   IDLE_TO_SHIFT_DR),
-            DITEM(COMMAND_ENDING),
-            NULL, NULL, NULL};
+        uint8_t *alist[5] = { DITEM( ), NULL, NULL, NULL, NULL};
     #define ALEN (sizeof(alist)/sizeof(alist[0]))
         for (i = 0; i < 4; i++) {
-            if ((ret40 = fetch32(ftdi, catlist(alist))) != 0)
+            write_item(ftdi, DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
+                   EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
+                   IDLE_TO_SHIFT_DR));
+            write_item(ftdi, catlist(alist));
+            write_item(ftdi, DITEM(COMMAND_ENDING));
+            if ((ret40 = fetch32(ftdi, DITEM())) != 0)
                 printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
             if (i <= 1) {
                 alist[ALEN-2] = alist[ALEN-3];
@@ -914,9 +914,10 @@ static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat
 #define STATREQ \
          SWAP32(SMAP_DUMMY), SWAP32(SMAP_SYNC), SWAP32(SMAP_TYPE2(0)), \
          SWAP32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1))
-uint8_t *req = catlist((uint8_t *[]){
-    DITEM(IDLE_TO_RESET), stat2, stat3,
-    DITEM(
+    write_item(ftdi, DITEM(IDLE_TO_RESET));
+    write_item(ftdi, stat2);
+    write_item(ftdi, stat3);
+    write_item(ftdi, DITEM(
 #ifdef USE_CORTEX_ADI
         DATAW(0, 20), STATREQ, INT32(0),
 #else
@@ -931,9 +932,8 @@ uint8_t *req = catlist((uint8_t *[]){
         IDLE_TO_SHIFT_DR,
         COMMAND_ENDING
 #endif
-        ),
-    NULL});
-    uint64_t ret40 = fetch32(ftdi, req);
+        ));
+    uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
@@ -1155,7 +1155,7 @@ int main(int argc, char **argv)
     write_item(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
                JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM), EXIT1_TO_IDLE,
                JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP), EXIT1_TO_IDLE));
-    write_item(ftdi, pulse_gpio(CLOCK_FREQUENCY/80/* 12.5 msec */));
+    pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     if (found_zynq)
         write_item(ftdi, DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
     else
@@ -1178,7 +1178,7 @@ int main(int argc, char **argv)
     /*
      * Step 8: Startup
      */
-    write_item(ftdi, pulse_gpio(CLOCK_FREQUENCY/800/*1.25 msec*/));
+    pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
     if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x0100000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle(ftdi);

@@ -744,6 +744,11 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 }
 #endif
 
+static void exit1_to_idle(struct ftdi_context *ftdi)
+{
+    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+}
+
 static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode)
 {
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
@@ -1122,10 +1127,11 @@ int main(int argc, char **argv)
 
     for (i = 0; i < 3; i++) {
 #ifndef USE_CORTEX_ADI
-        ret16 = fetch16(ftdi, DITEM( SET_BYPASS, SEND_IMMEDIATE));
+        ret16 = fetch16(ftdi,
 #else
-        ret16 = fetch24(ftdi, DITEM( SET_BYPASS, SEND_IMMEDIATE));
+        ret16 = fetch24(ftdi,
 #endif
+             DITEM( SET_BYPASS, SEND_IMMEDIATE));
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
@@ -1163,14 +1169,17 @@ int main(int argc, char **argv)
     /*
      * Step 6: Load Configuration Data Frames
      */
-    if ((ret16 = fetch16(ftdi,
-        DITEM(EXIT1_TO_IDLE,
+    exit1_to_idle(ftdi);
 #ifndef USE_CORTEX_ADI
-         JTAG_IRREG(DREAD, IRREG_CFG_IN), 
+    write_item(ftdi, DITEM(
+         JTAG_IRREG(DREAD, IRREG_CFG_IN));
 #else
+    write_item(ftdi, DITEM(
          EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
-         IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_CFG_IN), TMSRW, 0x01, 0x01, //JTAG_IRREG
+         IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_CFG_IN), TMSRW, 0x01, 0x01)); //JTAG_IRREG
 #endif
+    if ((ret16 = fetch16(ftdi,
+        DITEM(
              SEND_IMMEDIATE))) != 0x458a)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
@@ -1179,11 +1188,12 @@ int main(int argc, char **argv)
      */
     if ((ret40 = read_smap(ftdi, pulse_gpio(CLOCK_FREQUENCY/800/*1.25 msec*/), SMAP_REG_BOOTSTS)) != 0x0100000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    if ((ret16 = fetch16(ftdi, DITEM( EXIT1_TO_IDLE,
+    exit1_to_idle(ftdi);
 #ifdef USE_CORTEX_ADI
-             SHIFT_TO_EXIT1(0, 0x80),
-             EXIT1_TO_IDLE,
+    write_item(ftdi, DITEM(
+             SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 #endif
+    if ((ret16 = fetch16(ftdi, DITEM(
              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
              JTAG_IRREG_EXTRA(0, IRREG_JSTART), EXIT1_TO_IDLE,
              TMSW_DELAY,
@@ -1195,10 +1205,12 @@ int main(int argc, char **argv)
               SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
-    if ((ret40 = read_smap(ftdi, DITEM(EXIT1_TO_IDLE,
+    exit1_to_idle(ftdi);
 #ifdef USE_CORTEX_ADI
-              EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE
+    write_item(ftdi, DITEM(
+              EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 #endif
+    if ((ret40 = read_smap(ftdi, DITEM(
               ), SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 #ifndef USE_CORTEX_ADI
@@ -1206,16 +1218,15 @@ int main(int argc, char **argv)
     ftdi_write_data(ftdi, bypass_end+1, bypass_end[0]);
 #endif
 #ifdef USE_CORTEX_ADI
+    write_item(ftdi, DITEM(
+              EXIT1_TO_IDLE,
+              SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
+              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE));
     if ((ret16 = fetch24(ftdi,
 #else
     if ((ret16 = fetch16(ftdi,
 #endif
         DITEM(
-#ifdef USE_CORTEX_ADI
-              EXIT1_TO_IDLE,
-              SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE,
-              JTAG_IRREG_EXTRA(0, IRREG_BYPASS), EXIT1_TO_IDLE,
-#endif
               IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 #ifndef USE_CORTEX_ADI

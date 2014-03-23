@@ -819,7 +819,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
 /*
  * FTDI initialization
  */
-struct ftdi_context *init_ftdi(uint32_t idcode)
+struct ftdi_context *init_ftdi(void)
 {
 int i;
     struct ftdi_context *ftdi = ftdi_new();
@@ -847,15 +847,6 @@ int i;
     ftdi_read_data(ftdi, retcode, sizeof(retcode));
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
         memdump(retcode, sizeof(retcode), "RETab");
-    uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
-    ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
-    uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
-    i = number_of_devices;
-    while (i--) {
-        write_item(move_to_reset);
-        check_idcode(ftdi, idcode);
-        move_to_reset = idle_to_reset;
-    }
     return ftdi;
 }
 
@@ -1026,7 +1017,16 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     /*
      * Initialize FTDI chip and GPIO pins
      */
-    ftdi = init_ftdi(idcode);   /* generic initialization */
+    ftdi = init_ftdi();   /* generic initialization */
+    uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
+    ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
+    uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
+    i = number_of_devices;
+    while (i--) {
+        write_item(move_to_reset);
+        check_idcode(ftdi, idcode);
+        move_to_reset = idle_to_reset;
+    }
 
     /*
      * Step 5: Check Device ID

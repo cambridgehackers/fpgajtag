@@ -81,11 +81,11 @@ struct ftdi_context;
 
 static libusb_device_handle *usbhandle = NULL;
 static FILE *logfile;
-static int logging
 #if defined(USE_LOGGING)
-                   = 1
+static int logging = 1;
+#else
+static int logging;
 #endif
-                   ;
 
 static int dont_run_pciescan;
 static int skip_penultimate_byte = 1;
@@ -342,6 +342,21 @@ static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
     return read_data_int(ftdi, 5);
+}
+
+static void write_dataw(uint32_t value)
+{
+    write_item(DITEM(DATAW(0, value)));
+}
+
+static void swap32(uint32_t value)
+{
+    write_item(DITEM(SWAP32(value)));
+}
+static void write_dswap32(uint32_t value)
+{
+    write_dataw(4);
+    swap32(value);
 }
 
 static void pulse_gpio(struct ftdi_context *ftdi, int delay)
@@ -858,7 +873,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (found_zynq)
         write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(DITEM(DATAW(0, 4), INT32(0)));
+    write_dswap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - (usbreadbuffer_ptr - usbreadbuffer);
     printf("Starting to send file\n");
     do {
@@ -879,16 +894,6 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
     printf("Done sending file\n");
-}
-
-static void write_dataw(uint32_t value)
-{
-    write_item(DITEM(DATAW(0, value)));
-}
-
-static void swap32(uint32_t value)
-{
-    write_item(DITEM(SWAP32(value)));
 }
 
 static void read_status(struct ftdi_context *ftdi, uint32_t expected)
@@ -918,17 +923,17 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
     exit1_to_idle();
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_dataw(4); swap32(SMAP_DUMMY);
+    write_dswap32(SMAP_DUMMY);
     if (found_zynq)
         write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_dataw(4); swap32(SMAP_SYNC);
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_READ, data, 1));
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
-    write_dataw(4); swap32(SMAP_CMD_DESYNC);
-    write_dataw(4); swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_dswap32(SMAP_SYNC);
+    write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_dswap32(SMAP_TYPE1(SMAP_OP_READ, data, 1));
+    write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_dswap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
+    write_dswap32(SMAP_CMD_DESYNC);
+    write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
     if (found_zynq)
         write_item(DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
     else

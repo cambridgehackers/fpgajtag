@@ -529,8 +529,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
 #define LOADIRDR(IRA, AREAD, A, B) \
     LOADIR(IRA), LOADDR(AREAD, A, B)
 
-#define CORTEX_RESET   RESET_TO_IDLE, TMSW, 0x01, 0x00
-
 #define VAL1          0x75137030
 #define VAL2          0x0310c002
 #define VAL3          0x3f000200
@@ -653,20 +651,20 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 
 static void tar_read(struct ftdi_context *ftdi, uint32_t v)
 {
-#define TAR_READ(A)  LOADDR(DREAD, (A), AP_TAR), READ_RDBUFF
-    write_item(ftdi, DITEM(TAR_READ(v)));
+    write_item(ftdi, DITEM(LOADDR(DREAD, v, AP_TAR), READ_RDBUFF));
 }
 static void tar_write(struct ftdi_context *ftdi, uint32_t v)
 {
-#define TAR_WRITE(A) LOADIR(IRREGA_APACC), LOADDR(0, (A), AP_TAR), READ_RDBUFF
-    write_item(ftdi, DITEM(TAR_WRITE(v)));
+    write_item(ftdi, DITEM(LOADIR(IRREGA_APACC), LOADDR(0, v, AP_TAR), READ_RDBUFF));
 }
 static uint8_t *cread[2] = 
      {DITEM(LOADDR(DREAD,          2, AP_CSW)),
       DITEM(LOADDR(DREAD, 0x80000002, AP_CSW))};
+static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
 static void read_csw(struct ftdi_context *ftdi, int wait)
 {
 #define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
+
 
     write_item(ftdi, selreq[0]);
     write_item(ftdi, cread[0]);
@@ -687,7 +685,7 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
     if (wait)
         write_item(ftdi, waitreq[0]);
     else
-        write_item(ftdi, DITEM(CORTEX_RESET));
+        write_item(ftdi, cortex_reset);
     write_item(ftdi, DITEM(LOADDR(DREAD, 0xf8000120, AP_TAR)));
     if (wait)
         write_item(ftdi, waitreq[0]);
@@ -695,11 +693,11 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
     if (wait)
         write_item(ftdi, waitreq[0]);
     else
-        write_item(ftdi, DITEM(CORTEX_RESET));
+        write_item(ftdi, cortex_reset);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW, VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
         tar_write(ftdi, 0xf8007080);
-        write_item(ftdi, DITEM(CORTEX_RESET));
+        write_item(ftdi, cortex_reset);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
     write_item(ftdi, selreq[1]);
@@ -788,7 +786,6 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
         }
     }
 #ifdef USE_CORTEX_ADI
-
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         read_csw(ftdi, 1);

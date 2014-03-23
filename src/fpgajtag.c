@@ -692,21 +692,20 @@ static void tar_write(uint32_t v)
     write_item(DITEM(LOADDR(0, v, AP_TAR)));
     read_rdbuff();
 }
-static uint8_t *cread[2] =
-     {DITEM(LOADDR(DREAD,          2, AP_CSW)),
-      DITEM(LOADDR(DREAD, 0x80000002, AP_CSW))};
+
 static void read_csw(struct ftdi_context *ftdi, int wait, uint32_t *creturn1, uint32_t *creturn2)
 {
 int i;
+static uint32_t cread[] = {2, 0x80000002};
 uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
           (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}};
-uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
+static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
 
     for (i = 0; i < 2; i++) {
         write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
         write_item(selreq[i]);
         write_jtag_irreg_extra(0, IRREGA_APACC, 2);
-        write_item(cread[i]);
+        write_item(DITEM(LOADDR(DREAD,cread[i], AP_CSW)));
         if (wait)
             write_item(waitreq[i]);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
@@ -910,7 +909,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
-        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+        printf("[%s:%d] expect %x mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, expected, ret40);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
 }
@@ -1094,7 +1093,7 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_item(command_ending);
-    if ((ret40 = fetch32(ftdi, DITEM())) & 0xffffffff != 0xffffffff)
+    if (((ret40 = fetch32(ftdi, DITEM())) & 0xffffffff) != 0xffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 
     for (i = 0; i < 3; i++) {

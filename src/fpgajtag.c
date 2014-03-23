@@ -1070,7 +1070,7 @@ int main(int argc, char **argv)
     if (found_zynq) {
         dont_run_pciescan = 1;
         skip_penultimate_byte = 0;
-        command_ending = DITEM( DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
+        command_ending = DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
         opcode_bits = 0x05;
         irreg_extrabit = EXTRA_BIT_MASK;
         // Coresight: Table 2-11
@@ -1078,7 +1078,7 @@ int main(int argc, char **argv)
         selreq[1] = DITEM(LOADDR(0, SELECT_DEBUG, DPACC_SELECT), ); /* dedicated Debug Bus */
     }
     else
-        command_ending = DITEM( DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);
+        command_ending = DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);
 
     /*
      * Step 5: Check Device ID
@@ -1099,23 +1099,17 @@ int main(int argc, char **argv)
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
         iddata, sizeof(iddata), 9999, idcode_pattern2);
 
+    write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_zynq) {
-        write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
         write_bypass();
         write_item(DITEM(SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-        write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
-        write_item(DITEM(IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
-        check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
-    else {
-        write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-        write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
-        write_item(DITEM(IDLE_TO_SHIFT_DR));
-        write_item(command_ending);
-        if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
-            printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    }
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_item(command_ending);
+    if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
+        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 
     for (i = 0; i < 3; i++) {
         write_bypass();

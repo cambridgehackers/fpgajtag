@@ -228,6 +228,40 @@ int i;
         printf("\n");
 }
 
+/*
+ * FTDI generic initialization
+ */
+struct ftdi_context *init_ftdi(void)
+{
+int i;
+    struct ftdi_context *ftdi = ftdi_new();
+#ifdef USE_LIBFTDI
+    ftdi_set_usbdev(ftdi, usbhandle);
+    ftdi->usb_ctx = usb_context;
+    ftdi->max_packet_size = 512; //5000;
+#endif
+
+    /*
+     * Generic command synchronization with ftdi chip
+     */
+    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
+    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
+    uint8_t retcode[2];
+    for (i = 0; i < 4; i++) {
+        static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
+        ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
+        ftdi_read_data(ftdi, retcode, sizeof(retcode));
+        if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
+            memdump(retcode, sizeof(retcode), "RETaa");
+    }
+    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
+    ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
+    ftdi_read_data(ftdi, retcode, sizeof(retcode));
+    if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
+        memdump(retcode, sizeof(retcode), "RETab");
+    return ftdi;
+}
+
 static void write_data(uint8_t *buf, int size)
 {
     memcpy(usbreadbuffer_ptr, buf, size);
@@ -816,40 +850,6 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
         cortex_bypass(ftdi, cortex_nowait);
 }
 
-/*
- * FTDI initialization
- */
-struct ftdi_context *init_ftdi(void)
-{
-int i;
-    struct ftdi_context *ftdi = ftdi_new();
-#ifdef USE_LIBFTDI
-    ftdi_set_usbdev(ftdi, usbhandle);
-    ftdi->usb_ctx = usb_context;
-    ftdi->max_packet_size = 512; //5000;
-#endif
-
-    /*
-     * Generic command synchronization with ftdi chip
-     */
-    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
-    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
-    uint8_t retcode[2];
-    for (i = 0; i < 4; i++) {
-        static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
-        ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
-        ftdi_read_data(ftdi, retcode, sizeof(retcode));
-        if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
-            memdump(retcode, sizeof(retcode), "RETaa");
-    }
-    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
-    ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
-    ftdi_read_data(ftdi, retcode, sizeof(retcode));
-    if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
-        memdump(retcode, sizeof(retcode), "RETab");
-    return ftdi;
-}
-
 static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
@@ -947,9 +947,8 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     return fetch40(ftdi, DITEM(SEND_IMMEDIATE));
 }
 
-static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
+static void init_usb(const char *serialno)
 {
-    struct ftdi_context *ftdi;
     int cfg, type = 0, i = 0, baudrate = 9600;
     static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
     int best_divisor = 12000000*8 / baudrate;
@@ -1011,42 +1010,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     printf("[%s:%d] bcd %x type %d\n", __FUNCTION__, __LINE__, desc.bcdDevice, type);
     if (desc.bcdDevice == 0x900) //zedboard TYPE_232H
         found_232H = 1;
-    for (i = 0; i < sizeof(bitswap); i++)
-        bitswap[i] = BSWAP(i);
-
-    /*
-     * Initialize FTDI chip and GPIO pins
-     */
-    ftdi = init_ftdi();   /* generic initialization */
-    uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
-    ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
-    uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
-    i = number_of_devices;
-    while (i--) {
-        write_item(move_to_reset);
-        check_idcode(ftdi, idcode);
-        move_to_reset = idle_to_reset;
-    }
-
-    /*
-     * Step 5: Check Device ID
-     */
-
-    write_item(idle_to_reset);
-    bypass_test(ftdi, 2 + number_of_devices, 0);
-    write_item(idle_to_reset);
-    bypass_test(ftdi, 3, 1);
-    static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
-    ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
-    uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
-    ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
-
-    static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
-             IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
-        iddata, sizeof(iddata), 9999, idcode_pattern2);
-    return ftdi;
+    return;
 error:
     printf("Can't find usable usb interface\n");
     exit(-1);
@@ -1078,18 +1042,30 @@ int main(int argc, char **argv)
             exit(-1);
         }
     }
+    for (i = 0; i < sizeof(bitswap); i++)
+        bitswap[i] = BSWAP(i);
     lseek(inputfd, 0x80, SEEK_SET); /* read idcode from file to be programmed */
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
-#if defined(USE_CORTEX_ADI)
-    found_zynq = 1;
-#endif
+
 #if defined(USE_LOGGING)
     logging = 1;
 #endif
+    init_usb(serialno); /* Initialize USB interface */
+
+    ftdi = init_ftdi();   /* Generic initialization of FTDI chip */
+    uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
+    ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
+    uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
+    i = number_of_devices;
+    while (i--) {
+        write_item(move_to_reset);
+        /* Check to see if idcode matches file and detect Zynq */
+        check_idcode(ftdi, idcode);
+        move_to_reset = idle_to_reset;
+    }
     if (found_zynq) {
-        logging = 1;
         dont_run_pciescan = 1;
         skip_penultimate_byte = 0;
         command_ending = DITEM( DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
@@ -1101,7 +1077,25 @@ int main(int argc, char **argv)
     }
     else
         command_ending = DITEM( DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);
-    ftdi = initialize(idcode, serialno);
+
+    /*
+     * Step 5: Check Device ID
+     */
+
+    write_item(idle_to_reset);
+    bypass_test(ftdi, 2 + number_of_devices, 0);
+    write_item(idle_to_reset);
+    bypass_test(ftdi, 3, 1);
+    static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
+    ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
+    uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
+    ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
+
+    static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
+             IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
+        iddata, sizeof(iddata), 9999, idcode_pattern2);
 
     if (found_zynq) {
         write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -1223,7 +1217,6 @@ int main(int argc, char **argv)
     }
     else
         ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

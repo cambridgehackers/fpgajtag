@@ -714,6 +714,34 @@ static void senddata23(struct ftdi_context *ftdi)
     tar_read(ftdi, 0x80092088);
     tar_read(ftdi, 0x80092028);
 }
+static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
+{
+    cortex_csw(ftdi, 1-cortex_nowait, 0);
+    if (!cortex_nowait) {
+        read_csw(ftdi, 1);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
+        senddata23(ftdi);
+        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
+        int count = number_of_devices - 1;
+        while (count-- > 0)
+            cortex_csw(ftdi, 0, 1);
+    }
+    read_csw(ftdi, 0);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
+    senddata23(ftdi);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
+    write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
+    tar_read(ftdi, 0x80090314);
+    tar_read(ftdi, 0x80090088);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(ftdi, 0x80090084);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(ftdi, 0x80092314);
+    tar_read(ftdi, 0x80092088);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(ftdi, 0x80092084);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+}
 #endif
 
 static void check_idcode(struct ftdi_context *ftdi, uint8_t *statep, uint32_t idcode)
@@ -786,31 +814,7 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
         }
     }
 #ifdef USE_CORTEX_ADI
-    cortex_csw(ftdi, 1-cortex_nowait, 0);
-    if (!cortex_nowait) {
-        read_csw(ftdi, 1);
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
-        senddata23(ftdi);
-        check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,}, 1);
-        int count = number_of_devices - 1;
-        while (count-- > 0)
-            cortex_csw(ftdi, 0, 1);
-    }
-    read_csw(ftdi, 0);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
-    senddata23(ftdi);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
-    write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
-    tar_read(ftdi, 0x80090314);
-    tar_read(ftdi, 0x80090088);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80090084);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80092314);
-    tar_read(ftdi, 0x80092088);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80092084);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+    cortex_bypass(ftdi, cortex_nowait);
 #endif
 }
 

@@ -257,14 +257,14 @@ int i;
         printf("\n");
 }
 
-static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
+static void write_data(uint8_t *buf, int size)
 {
     memcpy(usbreadbuffer_ptr, buf, size);
     usbreadbuffer_ptr += size;
 }
-static void write_item(struct ftdi_context *ftdi, uint8_t *buf)
+static void write_item(uint8_t *buf)
 {
-    write_data(ftdi, buf+1, buf[0]);
+    write_data(buf+1, buf[0]);
 }
 
 static void flush_write(struct ftdi_context *ftdi)
@@ -309,7 +309,7 @@ static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8
 
 static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_item(ftdi, req);
+    write_item(req);
 #if 1
     uint8_t *rdata = read_data(ftdi, sizeof(uint16_t));
     return rdata[0] | (rdata[1] << 8);
@@ -320,19 +320,19 @@ static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
 
 static uint64_t fetch24(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_item(ftdi, req);
+    write_item(req);
     return read_data_int(ftdi, 2 + found_zynq);
 }
 
 static uint64_t fetch32(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_item(ftdi, req);
+    write_item(req);
     return read_data_int(ftdi, 4+skip_penultimate_byte);
 }
 
 static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
 {
-    write_item(ftdi, req);
+    write_item(req);
     return read_data_int(ftdi, 5);
 }
 
@@ -364,7 +364,7 @@ static void pulse_gpio(struct ftdi_context *ftdi, int delay)
     memcpy(ptr, pulsepost+1, pulsepost[0]);
     ptr += pulsepost[0];
     prebuffer[0] = ptr - (prebuffer + 1);
-    write_item(ftdi,  prebuffer);
+    write_item( prebuffer);
 }
 
 static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
@@ -395,7 +395,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             *(readptr+2) |= 0x80 & ch; // insert 1 bit of data here
             readptr += tail[0];
         }
-        write_data(ftdi, packetbuffer, readptr - packetbuffer);
+        write_data(packetbuffer, readptr - packetbuffer);
         flush_write(ftdi);
         size -= limit_len+1;
         readptr = packetbuffer;
@@ -557,8 +557,8 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     uint32_t *testp = buf+1;
 
     if (load)
-        write_item(ftdi, DITEM(LOADIR(IRREGA_DPACC)));
-    write_item(ftdi, DITEM(LOADDR_CTRL_RDBUFF));
+        write_item(DITEM(LOADIR(IRREGA_DPACC)));
+    write_item(DITEM(LOADDR_CTRL_RDBUFF));
     rdata = read_data(ftdi, buf[0] * 6);
     if (last_read_data_length != buf[0]*6) {
         err = 1;
@@ -606,38 +606,38 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_item(ftdi, DITEM(LOADIRDR(IRREGA_ABORT, 0, 1, 0),
+    write_item(DITEM(LOADIRDR(IRREGA_ABORT, 0, 1, 0),
                            LOADIRDR(IRREGA_DPACC, 0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
-        write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
+        write_item(DITEM(CORTEX_PAIR(0x80092088)));
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     if (!wait)
         cresp[1] = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
     else
         cresp[1] = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
-    write_item(ftdi, DITEM(LOADIRDR(IRREGA_DPACC, clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
+    write_item(DITEM(LOADIRDR(IRREGA_DPACC, clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
     for (i = 0; i < 2; i++) {
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
-        write_item(ftdi, selreq[i]);
-        write_item(ftdi, DITEM(LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)));
+        write_item(selreq[i]);
+        write_item(DITEM(LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)));
         if (wait)
-           write_item(ftdi, waitreq[i]);
+           write_item(waitreq[i]);
     }
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
-static void tar_read(struct ftdi_context *ftdi, uint32_t v)
+static void tar_read(uint32_t v)
 {
-    write_item(ftdi, DITEM(LOADDR(DREAD, v, AP_TAR), READ_RDBUFF));
+    write_item(DITEM(LOADDR(DREAD, v, AP_TAR), READ_RDBUFF));
 }
-static void tar_write(struct ftdi_context *ftdi, uint32_t v)
+static void tar_write(uint32_t v)
 {
-    write_item(ftdi, DITEM(LOADIR(IRREGA_APACC), LOADDR(0, v, AP_TAR), READ_RDBUFF));
+    write_item(DITEM(LOADIR(IRREGA_APACC), LOADDR(0, v, AP_TAR), READ_RDBUFF));
 }
 static uint8_t *cread[2] = 
      {DITEM(LOADDR(DREAD,          2, AP_CSW)),
@@ -648,53 +648,53 @@ static void read_csw(struct ftdi_context *ftdi, int wait)
 #define CSW_READ(A) LOADDR(DREAD, (A), AP_CSW)
 
 
-    write_item(ftdi, selreq[0]);
-    write_item(ftdi, cread[0]);
+    write_item(selreq[0]);
+    write_item(cread[0]);
     if (wait)
-        write_item(ftdi, waitreq[0]);
+        write_item(waitreq[0]);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
-    write_item(ftdi, selreq[1]);
-    write_item(ftdi, cread[1]);
+    write_item(selreq[1]);
+    write_item(cread[1]);
     if (wait)
-        write_item(ftdi, waitreq[1]);
+        write_item(waitreq[1]);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 
-    write_item(ftdi, selreq[0]);
-    write_item(ftdi, DITEM(LOADDR(DREAD, 0xf8000100, AP_TAR)));
+    write_item(selreq[0]);
+    write_item(DITEM(LOADDR(DREAD, 0xf8000100, AP_TAR)));
     if (wait)
-        write_item(ftdi, waitreq[0]);
-    write_item(ftdi, DITEM(READ_RDBUFF));
+        write_item(waitreq[0]);
+    write_item(DITEM(READ_RDBUFF));
     if (wait)
-        write_item(ftdi, waitreq[0]);
+        write_item(waitreq[0]);
     else
-        write_item(ftdi, cortex_reset);
-    write_item(ftdi, DITEM(LOADDR(DREAD, 0xf8000120, AP_TAR)));
+        write_item(cortex_reset);
+    write_item(DITEM(LOADDR(DREAD, 0xf8000120, AP_TAR)));
     if (wait)
-        write_item(ftdi, waitreq[0]);
-    write_item(ftdi, DITEM(READ_RDBUFF));
+        write_item(waitreq[0]);
+    write_item(DITEM(READ_RDBUFF));
     if (wait)
-        write_item(ftdi, waitreq[0]);
+        write_item(waitreq[0]);
     else
-        write_item(ftdi, cortex_reset);
+        write_item(cortex_reset);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW, VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
-        tar_write(ftdi, 0xf8007080);
-        write_item(ftdi, cortex_reset);
+        tar_write(0xf8007080);
+        write_item(cortex_reset);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
-    write_item(ftdi, selreq[1]);
-    tar_read(ftdi, 0x80090000);
-    tar_read(ftdi, 0x80090314);
-    tar_read(ftdi, 0x80090088);
-    tar_read(ftdi, 0x80090028);
+    write_item(selreq[1]);
+    tar_read(0x80090000);
+    tar_read(0x80090314);
+    tar_read(0x80090088);
+    tar_read(0x80090028);
 }
 static void senddata23(struct ftdi_context *ftdi)
 {
-    write_item(ftdi, DITEM(CORTEX_PAIR(0x80090088)));
-    tar_read(ftdi, 0x80092000);
-    tar_read(ftdi, 0x80092314);
-    tar_read(ftdi, 0x80092088);
-    tar_read(ftdi, 0x80092028);
+    write_item(DITEM(CORTEX_PAIR(0x80090088)));
+    tar_read(0x80092000);
+    tar_read(0x80092314);
+    tar_read(0x80092088);
+    tar_read(0x80092028);
 }
 #endif
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
@@ -714,23 +714,23 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){10, SELECT_DEBUG, VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
     senddata23(ftdi);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){12, 0, 0, 0, 0, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,}, 1);
-    write_item(ftdi, DITEM(CORTEX_PAIR(0x80092088)));
-    tar_read(ftdi, 0x80090314);
-    tar_read(ftdi, 0x80090088);
+    write_item(DITEM(CORTEX_PAIR(0x80092088)));
+    tar_read(0x80090314);
+    tar_read(0x80090088);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80090084);
+    tar_write(0x80090084);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80092314);
-    tar_read(ftdi, 0x80092088);
+    tar_write(0x80092314);
+    tar_read(0x80092088);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(ftdi, 0x80092084);
+    tar_write(0x80092084);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 #endif
 }
 
 static void exit1_to_idle(struct ftdi_context *ftdi)
 {
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(EXIT1_TO_IDLE));
 }
 
 static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
@@ -738,7 +738,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
     uint32_t returnedid;
 
-    write_item(ftdi, DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR));
+    write_item(DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM( SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999, NULL);
     uint8_t *rdata = read_data(ftdi, idcode_pattern1[0]);
@@ -776,17 +776,17 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            write_item(ftdi, DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
+            write_item(DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
                    EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
                    IDLE_TO_SHIFT_DR));
             if (i > 1)
-                write_item(ftdi, DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+                write_item(DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
             if (i > 0) {
-                write_item(ftdi, DITEM( DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
+                write_item(DITEM( DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
                 if (found_zynq)
-                    write_item(ftdi, DITEM(DATAWBIT, 0x00, 0x00));
+                    write_item(DITEM(DATAWBIT, 0x00, 0x00));
             }
-            write_item(ftdi, command_ending);
+            write_item(command_ending);
             if ((ret40 = fetch32(ftdi, DITEM())) != 0)
                 printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
@@ -831,7 +831,7 @@ int i;
     uint8_t *move_to_reset = DITEM(SHIFT_TO_EXIT1(0, 0));
     i = number_of_devices;
     while (i--) {
-        write_item(ftdi, move_to_reset);
+        write_item(move_to_reset);
         check_idcode(ftdi, idcode);
         move_to_reset = idle_to_reset;
     }
@@ -842,13 +842,13 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE);
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(EXIT1_TO_IDLE));
     if (found_zynq)
-        write_item(ftdi, DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(IDLE_TO_SHIFT_DR));
+        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (found_zynq)
-        write_item(ftdi, DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(ftdi, DITEM(DATAW(0, 4), INT32(0)));
+        write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_item(DITEM(DATAW(0, 4), INT32(0)));
     int limit_len = MAX_SINGLE_USB_DATA - (usbreadbuffer_ptr - usbreadbuffer);
     printf("Starting to send file\n");
     do {
@@ -865,42 +865,42 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
         send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, NULL);
         if (size != FILE_READSIZE)
             break;
-        write_item(ftdi, DITEM(PAUSE_TO_SHIFT));
+        write_item(DITEM(PAUSE_TO_SHIFT));
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
     printf("Done sending file\n");
 }
 
-static void write_dataw(struct ftdi_context *ftdi, uint32_t value)
+static void write_dataw(uint32_t value)
 {
-    write_item(ftdi, DITEM(DATAW(0, value)));
+    write_item(DITEM(DATAW(0, value)));
 }
 
-static void swap32(struct ftdi_context *ftdi, uint32_t value)
+static void swap32(uint32_t value)
 {
-    write_item(ftdi, DITEM(SWAP32(value)));
+    write_item(DITEM(SWAP32(value)));
 }
 
 static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 {
-    write_dataw(ftdi, 19 + found_zynq);
-    swap32(ftdi, SMAP_DUMMY);
-    swap32(ftdi, SMAP_SYNC);
-    swap32(ftdi, SMAP_TYPE2(0));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
+    write_dataw(19 + found_zynq);
+    swap32(SMAP_DUMMY);
+    swap32(SMAP_SYNC);
+    swap32(SMAP_TYPE2(0));
+    swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
     if (found_zynq)
-        write_item(ftdi, DITEM(INT32(0)));
+        write_item(DITEM(INT32(0)));
     else
-        write_item(ftdi, DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(ftdi, DITEM(
+        write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_item(DITEM(
         SHIFT_TO_UPDATE_TO_IDLE(0, 0),
         EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS),
         ));
     if (found_zynq)
-        write_item(ftdi, DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
+        write_item(DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
     else {
-        write_item(ftdi, DITEM(IDLE_TO_SHIFT_DR));
-        write_item(ftdi, command_ending);
+        write_item(DITEM(IDLE_TO_SHIFT_DR));
+        write_item(command_ending);
     }
     uint64_t ret40 = fetch32(ftdi, DITEM());
     uint32_t status = ret40 >> 8;
@@ -912,40 +912,40 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_DUMMY);
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN)));
+    write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_DUMMY);
     if (found_zynq)
-        write_item(ftdi, DITEM( DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-    write_item(ftdi, DITEM( DATAW(0, 4)));
-    swap32(ftdi, SMAP_SYNC);
-    write_item(ftdi, DITEM( DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_item(ftdi, DITEM( DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_READ, data, 1));
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_CMD_DESYNC),
-    write_item(ftdi, DITEM(DATAW(0, 4)));
-    swap32(ftdi, SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+        write_item(DITEM( DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_item(DITEM( DATAW(0, 4)));
+    swap32(SMAP_SYNC);
+    write_item(DITEM( DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(DITEM( DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_READ, data, 1));
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_CMD_DESYNC),
+    write_item(DITEM(DATAW(0, 4)));
+    swap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
     if (found_zynq)
-        write_item(ftdi, DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
+        write_item(DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
     else
-        write_item(ftdi, DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE,
+        write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
+    write_item(DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT)));
+    write_item(DITEM(EXIT1_TO_IDLE,
                  IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
-        write_item(ftdi, DITEM( TMSRW, 0x01, 0x01));
+        write_item(DITEM( TMSRW, 0x01, 0x01));
     else
-        write_item(ftdi, DITEM( SHIFT_TO_EXIT1(DREAD, 0)));
+        write_item(DITEM( SHIFT_TO_EXIT1(DREAD, 0)));
     return fetch40(ftdi, DITEM(SEND_IMMEDIATE));
 }
 
@@ -1025,9 +1025,9 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
      * Step 5: Check Device ID
      */
 
-    write_item(ftdi, idle_to_reset);
+    write_item(idle_to_reset);
     bypass_test(ftdi, 2 + number_of_devices, 0);
-    write_item(ftdi, idle_to_reset);
+    write_item(idle_to_reset);
     bypass_test(ftdi, 3, 1);
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
     ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
@@ -1035,7 +1035,7 @@ static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)
     ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
-    write_item(ftdi, DITEM(
+    write_item(DITEM(
              SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
@@ -1087,19 +1087,19 @@ int main(int argc, char **argv)
     ftdi = initialize(idcode, serialno);
 
     if (found_zynq) {
-        write_item(ftdi, DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
+        write_item(DITEM( FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-        write_item(ftdi, DITEM(
+        write_item(DITEM(
             EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS),
             IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0),
             SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
     else {
-        write_item(ftdi, DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
+        write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE,
               EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC),
               IDLE_TO_SHIFT_DR));
-        write_item(ftdi, command_ending);
+        write_item(command_ending);
         if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
             printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     }
@@ -1116,30 +1116,30 @@ int main(int argc, char **argv)
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
-    write_item(ftdi, idle_to_reset);
-    write_item(ftdi, cfg_in_command);
+    write_item(idle_to_reset);
+    write_item(cfg_in_command);
     read_status(ftdi, 0x30861900);
     ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
-    write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     bypass_test(ftdi, 3, 1);
     for (i = 0; i < 3; i++) {
-        write_item(ftdi, idle_to_reset);
+        write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
 
     /*
      * Step 2: Initialization
      */
-    write_item(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM)));
+    write_item(DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP)));
+    write_item(DITEM(EXIT1_TO_IDLE));
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     if (found_zynq)
-        write_item(ftdi, DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
     else
-        write_item(ftdi, DITEM(JTAG_IRREG(DREAD, IRREG_ISC_NOOP)));
+        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_ISC_NOOP)));
     if ((ret16 = fetch16(ftdi, DITEM( SEND_IMMEDIATE))) != 0x4488)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
@@ -1147,11 +1147,11 @@ int main(int argc, char **argv)
      */
     exit1_to_idle(ftdi);
     if (found_zynq)
-        write_item(ftdi, DITEM(
+        write_item(DITEM(
          EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
          IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_CFG_IN), TMSRW, 0x01, 0x01)); //JTAG_IRREG
     else
-        write_item(ftdi, DITEM(JTAG_IRREG(DREAD, IRREG_CFG_IN)));
+        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_CFG_IN)));
     if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0x458a)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
@@ -1163,53 +1163,53 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle(ftdi);
     if (found_zynq)
-        write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_JSTART)));
-    write_item(ftdi, DITEM(EXIT1_TO_IDLE));
-    write_item(ftdi, DITEM(TMSW_DELAY));
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+    write_item(DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_JSTART)));
+    write_item(DITEM(EXIT1_TO_IDLE));
+    write_item(DITEM(TMSW_DELAY));
     if (found_zynq)
-        write_item(ftdi, DITEM(
+        write_item(DITEM(
               IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81)); //JTAG_IRREG
     else
-        write_item(ftdi, DITEM(JTAG_IRREG(DREAD, IRREG_BYPASS)));
+        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_BYPASS)));
     if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     exit1_to_idle(ftdi);
     if (found_zynq)
-        write_item(ftdi, DITEM(
+        write_item(DITEM(
               EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     if (!found_zynq) {
-        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
-        write_item(ftdi, DITEM(JTAG_IRREG(0, IRREG_BYPASS)));
-        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+        write_item(DITEM(EXIT1_TO_IDLE));
+        write_item(DITEM(JTAG_IRREG(0, IRREG_BYPASS)));
+        write_item(DITEM(EXIT1_TO_IDLE));
         flush_write(ftdi);
     }
     if (found_zynq) {
-        write_item(ftdi, DITEM(EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-        write_item(ftdi, DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
-        write_item(ftdi, DITEM(EXIT1_TO_IDLE));
+        write_item(DITEM(EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+        write_item(DITEM(EXIT1_TO_IDLE));
     }
     if ((ret16 = fetch24(ftdi,
         DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE, SET_BYPASS, SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
-        write_item(ftdi, idle_to_reset);
+        write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
-    write_item(ftdi, idle_to_reset);
-    write_item(ftdi, DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
-    write_item(ftdi, cfg_in_command);
+    write_item(idle_to_reset);
+    write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
+    write_item(cfg_in_command);
     read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {
-        write_item(ftdi, idle_to_reset);
-        write_item(ftdi, DITEM(SHIFT_TO_EXIT1(0, 0)));
+        write_item(idle_to_reset);
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
         bypass_test(ftdi, 3, 1);
-        write_item(ftdi, idle_to_reset);
+        write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
     else

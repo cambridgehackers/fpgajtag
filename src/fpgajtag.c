@@ -201,13 +201,6 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
         memdumpfile(buf, actual_length, "READ");
     return actual_length;
 }
-static struct ftdi_context *ftdi_new(void)
-{
-static int foo;
-    if (logging)
-        printf("[%s:%d] funky version\n", __FUNCTION__, __LINE__);
-    return (struct ftdi_context *)&foo;
-}
 #endif //end if not USE_LIBFTDI
 
 static void openlogfile(void)
@@ -243,8 +236,9 @@ int i;
 struct ftdi_context *init_ftdi(void)
 {
 int i;
-    struct ftdi_context *ftdi = ftdi_new();
+    struct ftdi_context *ftdi = NULL;
 #ifdef USE_LIBFTDI
+    ftdi = ftdi_new();
     ftdi_set_usbdev(ftdi, usbhandle);
     ftdi->usb_ctx = usb_context;
     ftdi->max_packet_size = 512; //5000;
@@ -271,16 +265,6 @@ int i;
     return ftdi;
 }
 
-static void write_data(uint8_t *buf, int size)
-{
-    memcpy(usbreadbuffer_ptr, buf, size);
-    usbreadbuffer_ptr += size;
-}
-static void write_item(uint8_t *buf)
-{
-    write_data(buf+1, buf[0]);
-}
-
 static void flush_write(struct ftdi_context *ftdi)
 {
     int write_length = usbreadbuffer_ptr - usbreadbuffer;
@@ -297,6 +281,17 @@ static uint8_t *read_data(struct ftdi_context *ftdi, int size)
     if (size)
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
     return last_read_data;
+}
+
+static void write_data(uint8_t *buf, int size)
+{
+    memcpy(usbreadbuffer_ptr, buf, size);
+    usbreadbuffer_ptr += size;
+}
+
+static void write_item(uint8_t *buf)
+{
+    write_data(buf+1, buf[0]);
 }
 
 static uint64_t read_data_int(struct ftdi_context *ftdi, int size)

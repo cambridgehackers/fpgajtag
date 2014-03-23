@@ -64,14 +64,13 @@
 #define CLK_BYTES       0x8f
 #define SEND_IMMEDIATE  0x87
 struct ftdi_context;
-struct ftdi_transfer_control;
 #endif
 
 #define USB_TIMEOUT     5000
 #define ENDPOINT_IN     0x02
 #define ENDPOINT_OUT    0x81
 #define USB_CHUNKSIZE   4096
-#define USB_INDEX                     0
+#define USB_INDEX          0
 
 #define USBSIO_RESET                     0 /* Reset the port */
 #define USBSIO_RESET_PURGE_RX            1
@@ -584,6 +583,14 @@ static void write_jtag_irreg(int read, int command)
     write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
+static void write_combo_irreg(int command, int extra_bit)
+{
+    if (found_zynq)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG
+    else
+        write_jtag_irreg(DREAD, command);
+}
+
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
 {
     uint8_t *rdata;
@@ -822,17 +829,10 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 static void write_bypass(void)
 {
     if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
+                  DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
         write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
-}
-
-static void write_combo_irreg(int command, int extra_bit)
-{
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG
-    else
-        write_jtag_irreg(DREAD, command);
 }
 
 static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)

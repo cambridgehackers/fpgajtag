@@ -154,29 +154,11 @@ static void openlogfile(void);
 #define OPCODE_BITS 0x05
 #define IRREG_EXTRABIT 0x100
 #define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
-
 #else
 #define OPCODE_BITS 0x04
 #define IRREG_EXTRABIT 0
 #define EXTRA_BIT(READA, B)
 #endif
-
-#define JTAG_IRREG(READA, A)                             \
-     IDLE_TO_SHIFT_IR,                            \
-     DATAWBIT | (READA), 4, M(A),                        \
-     SHIFT_TO_EXIT1((READA), ((A) & 0x100)>>1)
-
-#define JTAG_IRREG_EXTRA(READA, A)                             \
-     IDLE_TO_SHIFT_IR,                            \
-     DATAWBIT | (READA), OPCODE_BITS, M(A),                        \
-     EXTRA_BIT(READA, IRREGA_BYPASS)                                      \
-     SHIFT_TO_EXIT1((READA), ((A) & 0x100)>>1)
-
-#define EXTENDED_COMMAND(READA, A, B)                       \
-     IDLE_TO_SHIFT_IR,                            \
-     DATAWBIT | (READA), OPCODE_BITS, M(A),                 \
-     EXTRA_BIT(READA, B)                                      \
-     SHIFT_TO_UPDATE_TO_IDLE((READA), ((A) & 0x100)>>1)
 
 static struct libusb_context *usb_context;
 static int number_of_devices = 1;
@@ -489,16 +471,7 @@ static uint8_t *initialize_sequence_232h = DITEM(
      FORCE_RETURN_TO_RESET
 );
 
-static void write_bypass(void)
-{
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
-    else
-        write_item(DITEM(EXTENDED_COMMAND(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)));
-}
-
 #ifdef USE_CORTEX_ADI
-
 #define TEMPLOADIR(A) \
     IDLE_TO_SHIFT_IR, DATAWBIT, 0x05, 0xff, EXTRA_BIT(0, (A))
 #define TEMPLOADDR(A) \
@@ -697,6 +670,13 @@ static void senddata23(struct ftdi_context *ftdi)
     tar_read(0x80092028);
 }
 #endif
+static void cortex_extra_shift(void)
+{
+#ifdef USE_CORTEX_ADI
+    if (found_zynq)
+        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+#endif
+}
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
 #ifdef USE_CORTEX_ADI
@@ -768,6 +748,51 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     }
 }
 
+static void write_extended_command(int read, int command, int extra)
+{
+#define UUEXTENDED_COMMAND(READA, A, B)                       \
+     IDLE_TO_SHIFT_IR,                            \
+     DATAWBIT | (READA), OPCODE_BITS, M(A),                 \
+     EXTRA_BIT(READA, B)                                      \
+     SHIFT_TO_UPDATE_TO_IDLE((READA), ((A) & 0x100)>>1)
+    write_item(DITEM(UUEXTENDED_COMMAND(read, command, extra)));
+}
+
+static void write_jtag_irreg_extra(int read, int command)
+{
+#define UUJTAG_IRREG_EXTRA(READA, A)                             \
+     IDLE_TO_SHIFT_IR,                            \
+     DATAWBIT | (READA), OPCODE_BITS, M(A),                        \
+     EXTRA_BIT(READA, IRREGA_BYPASS)                                      \
+     SHIFT_TO_EXIT1((READA), ((A) & 0x100)>>1)
+    write_item(DITEM(UUJTAG_IRREG_EXTRA(read, command)));
+}
+
+static void write_jtag_irreg(int read, int command)
+{
+#define UUJTAG_IRREG(READA, A)                             \
+     IDLE_TO_SHIFT_IR,                            \
+     DATAWBIT | (READA), 4, M(A),                        \
+     SHIFT_TO_EXIT1((READA), ((A) & 0x100)>>1)
+    write_item(DITEM(UUJTAG_IRREG(read, command)));
+}
+
+static void write_bypass(void)
+{
+    if (found_zynq)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff, DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
+    else
+        write_extended_command(DREAD, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS);
+}
+
+static void write_combo_irreg(int command, int extra_bit)
+{
+    if (found_zynq)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG
+    else
+        write_jtag_irreg(DREAD, command);
+}
+
 static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
 {
     int i;
@@ -776,8 +801,8 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS)));
-            write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS)));
+            write_extended_command(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS);
+            write_extended_command(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS);
             write_item(DITEM(IDLE_TO_SHIFT_DR));
             if (i > 1)
                 write_item(DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
@@ -843,8 +868,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE);
     exit1_to_idle();
-    if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    cortex_extra_shift();
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (found_zynq)
         write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
@@ -893,7 +917,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     else
         write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS)));
+    write_extended_command(0, EXTEND_EXTRA | IRREG_CFG_OUT, IRREGA_BYPASS);
     if (found_zynq)
         write_item(DITEM( IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
     else {
@@ -907,10 +931,9 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
 }
-
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN)));
+    write_jtag_irreg_extra(0, IRREG_CFG_IN);
     write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
     write_dataw(4); swap32(SMAP_DUMMY);
     if (found_zynq)
@@ -928,7 +951,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT)));
+    write_jtag_irreg_extra(0, IRREG_CFG_OUT);
     write_item(DITEM(EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(DITEM( TMSRW, 0x01, 0x01));
@@ -1077,13 +1100,13 @@ int main(int argc, char **argv)
         write_bypass();
         write_item(DITEM(SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
-        write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS)));
+        write_extended_command(0, EXTEND_EXTRA | 0x108, IRREGA_BYPASS);
         write_item(DITEM(IDLE_TO_SHIFT_DR, DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
         check_read_data(__LINE__, ftdi, DITEM(INT32(0xffffffff)));
     }
     else {
         write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-        write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC)));
+        write_extended_command(0, EXTEND_EXTRA | IRREG_USERCODE, IRREGA_APACC);
         write_item(DITEM(IDLE_TO_SHIFT_DR));
         write_item(command_ending);
         if ((ret40 = fetch32(ftdi, DITEM())) != 0xffffffffff)
@@ -1104,7 +1127,7 @@ int main(int argc, char **argv)
     }
     write_item(idle_to_reset);
     write_item(DITEM(RESET_TO_IDLE));
-    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS)));
+    write_extended_command(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x30861900);
     ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
@@ -1119,27 +1142,20 @@ int main(int argc, char **argv)
      * Step 2: Initialization
      */
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_JPROGRAM)));
+    write_jtag_irreg_extra(0, IRREG_JPROGRAM);
     exit1_to_idle();
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_ISC_NOOP)));
+    write_jtag_irreg_extra(0, IRREG_ISC_NOOP);
     exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_ISC_NOOP), TMSRW, 0x01, 0x01)); //JTAG_IRREG
-    else
-        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_ISC_NOOP)));
+    write_combo_irreg(IRREG_ISC_NOOP, 0);
     if ((ret16 = fetch16(ftdi, DITEM( SEND_IMMEDIATE))) != 0x4488)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
      * Step 6: Load Configuration Data Frames
      */
     exit1_to_idle();
-    if (found_zynq)
-        write_item(DITEM(
-         EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE, 
-         IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_CFG_IN), TMSRW, 0x01, 0x01)); //JTAG_IRREG
-    else
-        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_CFG_IN)));
+    cortex_extra_shift();
+    write_combo_irreg(IRREG_CFG_IN, 0);
     if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0x458a)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
@@ -1152,31 +1168,27 @@ int main(int argc, char **argv)
     exit1_to_idle();
     if (found_zynq)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+    write_jtag_irreg_extra(0, IRREG_BYPASS);
     exit1_to_idle();
-    write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_JSTART)));
+    write_jtag_irreg_extra(0, IRREG_JSTART);
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 0x04, M(IRREG_BYPASS), TMSRW, 0x01, 0x81)); //JTAG_IRREG
-    else
-        write_item(DITEM(JTAG_IRREG(DREAD, IRREG_BYPASS)));
+    write_combo_irreg(IRREG_BYPASS, 0x80);
     if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     exit1_to_idle();
-    if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(0, IRREGA_BYPASS) SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    cortex_extra_shift();
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle();
     if (found_zynq) {
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-        write_item(DITEM(JTAG_IRREG_EXTRA(0, IRREG_BYPASS)));
+        write_jtag_irreg_extra(0, IRREG_BYPASS);
         exit1_to_idle();
     }
     else {
-        write_item(DITEM(JTAG_IRREG(0, IRREG_BYPASS)));
+        write_jtag_irreg(0, IRREG_BYPASS);
         exit1_to_idle();
         flush_write(ftdi);
     }
@@ -1191,7 +1203,7 @@ int main(int argc, char **argv)
     write_item(idle_to_reset);
     write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
-    write_item(DITEM(EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS)));
+    write_extended_command(0, EXTEND_EXTRA | IRREG_CFG_IN, IRREGA_BYPASS);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0xf0fe7910);
     if (found_zynq) {

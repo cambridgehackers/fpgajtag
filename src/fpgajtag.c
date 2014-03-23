@@ -256,19 +256,6 @@ int i;
         printf("\n");
 }
 
-static uint8_t *catlist(uint8_t *arg[])
-{
-    static uint8_t prebuffer[BUFFER_MAX_LEN];
-    uint8_t *ptr = prebuffer + 1;
-    while (*arg) {
-        memcpy(ptr, *arg+1, (*arg)[0]);
-        ptr += (*arg)[0];
-        arg++;
-    }
-    prebuffer[0] = ptr - (prebuffer + 1);
-    return prebuffer;
-}
-
 static void write_data(struct ftdi_context *ftdi, uint8_t *buf, int size)
 {
     memcpy(usbreadbuffer_ptr, buf, size);
@@ -793,32 +780,24 @@ static void bypass_test(struct ftdi_context *ftdi, uint8_t *statep, int j, int c
 {
     int i;
     uint64_t ret40;
-    uint8_t *added_item[] = {
-        DITEM( DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00, 
-#ifdef USE_CORTEX_ADI
-        DATAWBIT, 0x00, 0x00,                                   
-#endif
-       ),
-        DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR)};
 
     write_item(ftdi, statep);
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
-        uint8_t *alist[5] = { DITEM( ), NULL, NULL, NULL, NULL};
-    #define ALEN (sizeof(alist)/sizeof(alist[0]))
         for (i = 0; i < 4; i++) {
             write_item(ftdi, DITEM( EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_BYPASS, IRREGA_BYPASS),
                    EXTENDED_COMMAND(0, EXTEND_EXTRA | IRREG_USER2, IRREGA_BYPASS),
                    IDLE_TO_SHIFT_DR));
-            write_item(ftdi, catlist(alist));
+            if (i > 1)
+                write_item(ftdi, DITEM( DATAWBIT, OPCODE_BITS, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+            if (i > 0) {
+                write_item(ftdi, DITEM( DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
+                if (found_zynq)
+                    write_item(ftdi, DITEM(DATAWBIT, 0x00, 0x00));
+            }
             write_item(ftdi, DITEM(COMMAND_ENDING));
             if ((ret40 = fetch32(ftdi, DITEM())) != 0)
                 printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-            if (i <= 1) {
-                alist[ALEN-2] = alist[ALEN-3];
-                alist[ALEN-3] = alist[ALEN-4];
-                alist[ALEN-4] = added_item[i];
-            }
         }
     }
     if (found_zynq)
@@ -943,41 +922,33 @@ static void read_status(struct ftdi_context *ftdi, uint8_t *stat2, uint8_t *stat
 
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_item(ftdi,
-          DITEM(JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE,
-                 IDLE_TO_SHIFT_DR,
-                 DATAW(0, 4), SWAP32(SMAP_DUMMY),
-#ifdef USE_CORTEX_ADI
-                 DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00, 
-#endif
+    write_item(ftdi, DITEM(
+                 JTAG_IRREG_EXTRA(0, IRREG_CFG_IN), EXIT1_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(ftdi, DITEM(DATAW(0, 4), SWAP32(SMAP_DUMMY)));
+    if (found_zynq)
+        write_item(ftdi, DITEM( DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_item(ftdi, DITEM(
                  DATAW(0, 4), SWAP32(SMAP_SYNC),
-                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
-                 DATAW(0, 4)));
-    write_item(ftdi,
-          (uint8_t []){4, SWAP32(SMAP_TYPE1(SMAP_OP_READ, data, 1))});
+                 DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))));
+    write_item(ftdi, DITEM( DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_READ, data, 1))));
     write_item(ftdi,
           DITEM(DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0)),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1)),
                  DATAW(0, 4), SWAP32(SMAP_CMD_DESYNC),
                  DATAW(0, 4), SWAP32(SMAP_TYPE1(SMAP_OP_NOP, 0,0))));
-    write_item(ftdi,
-          DITEM(
-#ifdef USE_CORTEX_ADI
-                 DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80),
-#else
-                 DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0),
-#endif
-                 EXIT1_TO_IDLE,
-                 JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT), EXIT1_TO_IDLE,
-                 IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00,
-#ifdef USE_CORTEX_ADI
-                 TMSRW, 0x01, 0x01,
-#else
-                 SHIFT_TO_EXIT1(DREAD, 0),
-#endif
-                 SEND_IMMEDIATE ));
-    return fetch40(ftdi, DITEM());
+    if (found_zynq)
+        write_item(ftdi, DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
+    else
+        write_item(ftdi, DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
+    write_item(ftdi, DITEM(
+                 EXIT1_TO_IDLE, JTAG_IRREG_EXTRA(0, IRREG_CFG_OUT), EXIT1_TO_IDLE,
+                 IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
+    if (found_zynq)
+        write_item(ftdi, DITEM( TMSRW, 0x01, 0x01));
+    else
+        write_item(ftdi, DITEM( SHIFT_TO_EXIT1(DREAD, 0)));
+    return fetch40(ftdi, DITEM(SEND_IMMEDIATE));
 }
 
 static struct ftdi_context *initialize(uint32_t idcode, const char *serialno)

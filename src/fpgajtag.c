@@ -131,6 +131,8 @@ static void openlogfile(void);
 #define IN_RESET_STATE     TMSW, 0x00, 0x7f  /* Marker for Reset */
 #define SHIFT_TO_EXIT1(READA, A) \
      TMSW | (READA), 0x00, ((A) | 0x01)             /* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_PAUSE(READA, A) \
+     TMSW | (READA), 0x01, ((A) | 0x01)             /* Shift-IR -> Pause-IR */
 #define SHIFT_TO_UPDATE(READA, A) \
      TMSW | (READA), 0x01, ((A) | 0x03)
 #define SHIFT_TO_UPDATE_TO_IDLE(READA, A) \
@@ -144,7 +146,6 @@ static void openlogfile(void);
          TMS_WAIT, TMS_WAIT, TMS_WAIT, TMS_WAIT, \
          TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x01, 0x00
 #define PAUSE_TO_SHIFT       TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
-#define SHIFT_TO_PAUSE       TMSW, 0x01, 0x01 /* Shift-DR -> Pause-DR */
 
 #define EXTEND_EXTRA            0xc0
 #define EXTRA_BIT_SHIFT         12
@@ -701,21 +702,10 @@ static void write_jtag_irreg(int read, int command)
     write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
-static uint32_t write_bypass(struct ftdi_context *ftdi)
-{
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
-                  DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
-    else
-        write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
-    write_item(DITEM(SEND_IMMEDIATE));
-    return fetch24(__LINE__, ftdi);
-}
-
 static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int extra_bit)
 {
     if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 4, M(command), TMSRW, 0x01, extra_bit | 0x01)); //JTAG_IRREG (to PAUSE??)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 4, M(command), SHIFT_TO_PAUSE(DREAD, extra_bit))); //JTAG_IRREG
     else
         write_jtag_irreg(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
@@ -725,6 +715,17 @@ static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int ex
         write_item(DITEM(EXTRA_BIT(0, 0xf) SHIFT_TO_EXIT1(0, 0x80)));
     }
     return ret16;
+}
+
+static uint32_t write_bypass(struct ftdi_context *ftdi)
+{
+    if (found_zynq)
+        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
+                  DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
+    else
+        write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
+    write_item(DITEM(SEND_IMMEDIATE));
+    return fetch24(__LINE__, ftdi);
 }
 
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
@@ -989,7 +990,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
 static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
-    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE);
+    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (found_zynq)
         write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));

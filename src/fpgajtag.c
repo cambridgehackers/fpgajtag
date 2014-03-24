@@ -689,8 +689,10 @@ static void write_jtag_irreg_extra(int read, int command, int goto_idle)
         write_item(DITEM(SHIFT_TO_UPDATE(0, 0x80)));
     else if (goto_idle)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
-    else
+    else {
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
+        exit1_to_idle();
+    }
 }
 
 static void write_jtag_irreg(int read, int command)
@@ -1036,7 +1038,6 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
     write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
-    exit1_to_idle();
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(SMAP_DUMMY);
     if (found_zynq)
@@ -1055,14 +1056,19 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
         write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
-    exit1_to_idle();
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(DITEM(TMSRW, 0x01, 0x01));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     write_item(DITEM(SEND_IMMEDIATE));
-    return read_data_int(__LINE__, ftdi, 5);
+    uint64_t ret = read_data_int(__LINE__, ftdi, 5);
+    exit1_to_idle();
+    if (found_zynq) {
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
+        exit1_to_idle();
+    }
+    return ret;
 }
 
 int main(int argc, char **argv)
@@ -1129,11 +1135,9 @@ int main(int argc, char **argv)
     bypass_test(ftdi, 2 + number_of_devices, 0);
     write_item(idle_to_reset);
     bypass_test(ftdi, 3, 1);
-    static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
-    write_data(i2resetin+1, i2resetin[0]);
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi);
-    uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
-    write_data(command_set_divisor, sizeof(command_set_divisor));
+    write_item(DITEM(SET_CLOCK_DIVISOR));
     flush_write(ftdi);
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
@@ -1180,9 +1184,7 @@ int main(int argc, char **argv)
      */
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_jtag_irreg_extra(0, IRREG_JPROGRAM, 0);
-    exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_ISC_NOOP, 0);
-    exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP, 0);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
@@ -1202,15 +1204,8 @@ int main(int argc, char **argv)
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
     if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    if (found_zynq) {
-        exit1_to_idle();
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
-    }
-    exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
-    exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_JSTART, 0);
-    exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     ret16 = write_combo_irreg(ftdi, IRREG_BYPASS, 0x80);
     if (ret16 != (found_zynq ? 0x17 : 0x2b))
@@ -1218,13 +1213,8 @@ int main(int argc, char **argv)
     exit1_to_idle();
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    exit1_to_idle();
-    if (found_zynq) {
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
-        exit1_to_idle();
+    if (found_zynq)
         write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
-        exit1_to_idle();
-    }
     else {
         write_jtag_irreg(0, IRREG_BYPASS);
         exit1_to_idle();

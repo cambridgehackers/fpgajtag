@@ -427,8 +427,10 @@ printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expec
                 }
                 p++;
             }
-            else
+            else {
                 p += read_size[i];
+                validbits = 0;
+            }
         }
     }
     return last_read_data;
@@ -989,7 +991,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
             }
             write_item(command_ending);
             if ((ret40 = fetch32(__LINE__, ftdi, DITEM())) != 0)
-                printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+                printf("[%s:%d] nonzero value %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
     }
     if (found_zynq)
@@ -1185,7 +1187,7 @@ int main(int argc, char **argv)
     write_item(DITEM(RESET_TO_IDLE));
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    read_status(ftdi, 0x30861900);
+    read_status(ftdi, 0x301900);
     write_data(idle_to_reset+1, idle_to_reset[0]);
     flush_write(ftdi);
     write_item(shift_to_exit1);
@@ -1236,7 +1238,7 @@ int main(int argc, char **argv)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     cortex_extra_shift();
-    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfcfe7910 << 8) | 0x40))
+    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfc7910 << 8) | 0x40))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle();
     if (found_zynq) {
@@ -1263,7 +1265,7 @@ int main(int argc, char **argv)
     write_item(DITEM(RESET_TO_IDLE));
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    read_status(ftdi, 0xf0fe7910);
+    read_status(ftdi, 0xf07910);
     write_item(idle_to_reset);
     if (found_zynq) {
         write_item(shift_to_exit1);

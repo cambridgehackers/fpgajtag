@@ -86,6 +86,7 @@ static int logging = 1;
 #else
 static int logging;
 #endif
+static int trace;
 
 static int dont_run_pciescan;
 static int skip_penultimate_byte = 1;
@@ -379,6 +380,8 @@ static uint64_t read_data_int(struct ftdi_context *ftdi, int size)
 
 static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf)
 {
+    if (trace)
+        printf("[%s:%d]\n", __FUNCTION__, linenumber);
     uint8_t *rdata = read_data(ftdi, buf[0]);
     if (last_read_data_length != buf[0] || memcmp(buf+1, rdata, buf[0])) {
         printf("[%s] mismatch on line %d\n", __FUNCTION__, linenumber);
@@ -512,14 +515,14 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
      (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
 
 /* FPGA registers */
-#define IRREG_USER2          COMBINE_IR_REG(0x003, 0xff)
-#define IRREG_CFG_OUT        COMBINE_IR_REG(0x004, 0xff)
-#define IRREG_CFG_IN         COMBINE_IR_REG(0x005, 0xff)
-#define IRREG_USERCODE       COMBINE_IR_REG(0x008, 0xff)
-#define IRREG_JPROGRAM       COMBINE_IR_REG(0x00b, 0xff)
-#define IRREG_JSTART         COMBINE_IR_REG(0x00c, 0xff)
-#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x014, 0xff)
-#define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xff) // even on PCIE, this has an extra bit
+#define IRREG_USER2          COMBINE_IR_REG(0x003, 0xf)
+#define IRREG_CFG_OUT        COMBINE_IR_REG(0x004, 0xf)
+#define IRREG_CFG_IN         COMBINE_IR_REG(0x005, 0xf)
+#define IRREG_USERCODE       COMBINE_IR_REG(0x008, 0xf)
+#define IRREG_JPROGRAM       COMBINE_IR_REG(0x00b, 0xf)
+#define IRREG_JSTART         COMBINE_IR_REG(0x00c, 0xf)
+#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x014, 0xf)
+#define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /* ARM JTAG-DP registers */
 #define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
@@ -629,6 +632,8 @@ static void cortex_extra_shift(void)
 
 static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
+    if (trace)
+        printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, goto_idle);
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
     if (found_zynq)
         write_item(DITEM(EXTRA_BIT(read, ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));

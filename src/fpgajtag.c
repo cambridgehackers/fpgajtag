@@ -645,7 +645,7 @@ static int idcode_setup;
 /****************** Cortex stuff ******************/
 #define LOADDR(AREAD, A, B) \
     IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00, \
-    DATAW((AREAD), 4), INT32(((A) << 3) | (B)), \
+    DATAW((AREAD), 4), INT32((((uint64_t)(A)) << 3) | (B)), \
     DATAWBIT | (AREAD), 0x01, (((A)>>29) & 0x3f),\
     SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((A)>>24) & 0x80))
 

@@ -408,8 +408,29 @@ static uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, size);
         exit(-1);
     }
-    if (size)
+    if (size) {
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
+        uint8_t *p = last_read_data;
+        int validbits = 0;
+        for (i = 0; i < read_size_ptr; i++) {
+            if (read_size[i] < 0) {
+                validbits -= read_size[i];
+                if (validbits < 0 || validbits > 8) {
+                    printf("[%s:%d] validbits %d\n", __FUNCTION__, __LINE__, validbits);
+                    exit(-1);
+                }
+//printf("[%s:%d] validbits %d %x\n", __FUNCTION__, __LINE__, validbits, *p);
+                //*p = (*p & (0xff << (8-validbits)));
+                if (i > 0 && read_size[i-1] < 0) {
+                    *(p-1) = *p;
+                    *p = 0;
+                }
+                p++;
+            }
+            else
+                p += read_size[i];
+        }
+    }
     return last_read_data;
 }
 
@@ -451,12 +472,7 @@ static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8
 static uint16_t fetch16(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
-#if 1
-    uint8_t *rdata = read_data(linenumber, ftdi, sizeof(uint16_t));
-    return rdata[0] | (rdata[1] << 8);
-#else
     return read_data_int(linenumber, ftdi, 2);
-#endif
 }
 
 static uint64_t fetch24(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
@@ -625,7 +641,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 
 #define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM(INT32(0), PATTERN1, 0x00); // starts with idcode
-static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0xff); // starts with idcode
+static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0x00); // starts with idcode
 static uint8_t *command_ending;
 static int idcode_setup;
 
@@ -1156,7 +1172,7 @@ int main(int argc, char **argv)
     for (i = 0; i < 3; i++) {
         write_bypass();
         ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE));
-        if (ret16 == 0x118f)
+        if (ret16 == 0x88)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
             printf("xjtag: bypass next times %x\n", ret16);
@@ -1189,21 +1205,21 @@ int main(int argc, char **argv)
     exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(IRREG_ISC_NOOP, 0);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x4488)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x22)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
      * Step 6: Load Configuration Data Frames
      */
     cortex_extra_shift();
     write_combo_irreg(IRREG_CFG_IN, 0);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x458a)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xa2)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
     /*
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x0100000000)
+    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x01000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     if (found_zynq) {
         exit1_to_idle();
@@ -1216,7 +1232,7 @@ int main(int argc, char **argv)
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(IRREG_BYPASS, 0x80);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x6b)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     cortex_extra_shift();
@@ -1236,7 +1252,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_bypass();
-    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xf5a9)
+    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xaf)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

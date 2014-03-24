@@ -548,10 +548,6 @@ static uint8_t *initialize_sequence_232h = DITEM(
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
 
-#define CORTEX_PAIR(A) \
-     LOADDR(0, (A), AP_TAR), \
-     LOADDR(DREAD, 0x0300c002, AP_DRW), LOADDR(DREAD, VAL2, AP_DRW)
-
 /* response */
 #define DPACC_RESPONSE_OK 0x2
 
@@ -656,6 +652,11 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     return rdata;
 }
 
+static void cortex_pair(uint32_t v)
+{
+    write_item(DITEM(LOADDR(0, v, AP_TAR), LOADDR(DREAD, 0x0300c002, AP_DRW), LOADDR(DREAD, VAL2, AP_DRW)));
+}
+
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
 static uint8_t *waitreq[2] = {DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00),
                               DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x02, 0x00)};
@@ -675,7 +676,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
         write_jtag_irreg_extra(0, IRREGA_APACC, 2);
-        write_item(DITEM(CORTEX_PAIR(0x80092088)));
+        cortex_pair(0x80092088);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     if (!wait)
@@ -754,7 +755,7 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
     tar_read(0x80090028);
     check_read_cortex(__LINE__, ftdi, creturn1, 1);
     write_jtag_irreg_extra(0, IRREGA_APACC, 2);
-    write_item(DITEM(CORTEX_PAIR(0x80090088)));
+    cortex_pair(0x80090088);
     tar_read(0x80092000);
     tar_read(0x80092314);
     tar_read(0x80092088);
@@ -778,7 +779,7 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
         (uint32_t[]){12, 0, 0, 0, 0,
             VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,});
     write_jtag_irreg_extra(0, IRREGA_APACC, 2);
-    write_item(DITEM(CORTEX_PAIR(0x80092088)));
+    cortex_pair(0x80092088);
     tar_read(0x80090314);
     tar_read(0x80090088);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
@@ -1195,15 +1196,15 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0xf0fe7910);
+    write_item(idle_to_reset);
     if (found_zynq) {
-        write_item(idle_to_reset);
         write_item(shift_to_exit1);
         bypass_test(ftdi, 3, 1);
         write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
     else
-        ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
+        flush_write(ftdi);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

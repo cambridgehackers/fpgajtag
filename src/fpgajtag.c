@@ -419,8 +419,7 @@ printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expec
                     printf("[%s:%d] validbits %d\n", __FUNCTION__, __LINE__, validbits);
                     exit(-1);
                 }
-//printf("[%s:%d] validbits %d %x\n", __FUNCTION__, __LINE__, validbits, *p);
-                //*p = (*p & (0xff << (8-validbits)));
+                *p &= (0xff << (8-validbits));
                 if (i > 0 && read_size[i-1] < 0) {
                     *(p-1) = *p;
                     *p = 0;
@@ -1174,11 +1173,11 @@ int main(int argc, char **argv)
     for (i = 0; i < 3; i++) {
         write_bypass();
         ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE));
-        if (ret16 == 0x88)
+        if (ret16 == 0x8)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
             printf("xjtag: bypass next times %x\n", ret16);
-        else if (ret16 == 0xf5af)
+        else if (ret16 == 0x2f)
             printf("xjtag: bypass already programmed %x\n", ret16);
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
@@ -1214,7 +1213,7 @@ int main(int argc, char **argv)
      */
     cortex_extra_shift();
     write_combo_irreg(IRREG_CFG_IN, 0);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xa2)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x22)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
     /*
@@ -1234,7 +1233,7 @@ int main(int argc, char **argv)
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(IRREG_BYPASS, 0x80);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x6b)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x2b)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     cortex_extra_shift();
@@ -1254,7 +1253,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_bypass();
-    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xaf)
+    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x2f)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

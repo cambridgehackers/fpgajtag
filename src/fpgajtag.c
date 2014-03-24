@@ -167,8 +167,8 @@ static uint8_t bitswap[256];
 static int last_read_data_length;
 static int found_232H;
 static int found_zynq;
-static unsigned char usbreadbuffer[USB_CHUNKSIZE];
-static unsigned char *usbreadbuffer_ptr = usbreadbuffer;
+static uint8_t usbreadbuffer[USB_CHUNKSIZE];
+static uint8_t *usbreadbuffer_ptr = usbreadbuffer;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -182,7 +182,7 @@ static void openlogfile(void)
         datafile_fd = creat("/tmp/xx.datafile2", 0666);
 }
 
-static void memdump(uint8_t *p, int len, char *title)
+static void memdump(const uint8_t *p, int len, char *title)
 {
 int i;
 
@@ -350,10 +350,10 @@ static void flush_write(struct ftdi_context *ftdi)
     ftdi_write_data(ftdi, usbreadbuffer, write_length);
     read_size_ptr = 0;
 
-    const unsigned char *p = usbreadbuffer;
+    const uint8_t *p = usbreadbuffer;
     while (write_length > 0) {
         int plen = 1;
-        unsigned char ch = *p;
+        uint8_t ch = *p;
         unsigned tlen = (p[2] << 8 | p[1]) + 1;
         switch(ch) {
         case 0x85: case 0x87: case 0x8a: case 0xaa: case 0xab:
@@ -391,21 +391,21 @@ static void flush_write(struct ftdi_context *ftdi)
     }
 }
 
-static uint8_t *read_data(struct ftdi_context *ftdi, int size)
+static uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
     int i, expected_len = 0;
     flush_write(ftdi);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {
-//printf("[%s:%d] %d\n", __FUNCTION__, __LINE__, read_size[i]);
+//printf("[%s:%d] %d\n", __FUNCTION__, linenumber, read_size[i]);
         if (read_size[i] < 0)
             expected_len++;
         else
             expected_len += read_size[i];
     }
     if (expected_len != size) {
-printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, __LINE__, expected_len, expected_len, size);
+printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, size);
         exit(-1);
     }
     if (size)
@@ -424,10 +424,10 @@ static void write_item(uint8_t *buf)
     write_data(buf+1, buf[0]);
 }
 
-static uint64_t read_data_int(struct ftdi_context *ftdi, int size)
+static uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
 {
     uint64_t ret = 0;
-    uint8_t *bufp = read_data(ftdi, size);
+    uint8_t *bufp = read_data(linenumber, ftdi, size);
     uint8_t *backp = bufp + size;
 //skip_penultimate_byte = 0;
     while (backp > bufp)
@@ -439,7 +439,7 @@ static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8
 {
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, linenumber);
-    uint8_t *rdata = read_data(ftdi, buf[0]);
+    uint8_t *rdata = read_data(linenumber, ftdi, buf[0]);
     if (last_read_data_length != buf[0] || memcmp(buf+1, rdata, buf[0])) {
         printf("[%s] mismatch on line %d\n", __FUNCTION__, linenumber);
         memdump(buf+1, buf[0], "EXPECT");
@@ -448,33 +448,33 @@ static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8
     return rdata;
 }
 
-static uint16_t fetch16(struct ftdi_context *ftdi, uint8_t *req)
+static uint16_t fetch16(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
 #if 1
-    uint8_t *rdata = read_data(ftdi, sizeof(uint16_t));
+    uint8_t *rdata = read_data(linenumber, ftdi, sizeof(uint16_t));
     return rdata[0] | (rdata[1] << 8);
 #else
-    return read_data_int(ftdi, 2);
+    return read_data_int(linenumber, ftdi, 2);
 #endif
 }
 
-static uint64_t fetch24(struct ftdi_context *ftdi, uint8_t *req)
+static uint64_t fetch24(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
-    return read_data_int(ftdi, 2 + found_zynq);
+    return read_data_int(linenumber, ftdi, 2 + found_zynq);
 }
 
-static uint64_t fetch32(struct ftdi_context *ftdi, uint8_t *req)
+static uint64_t fetch32(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
-    return read_data_int(ftdi, 4+skip_penultimate_byte);
+    return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
 }
 
-static uint64_t fetch40(struct ftdi_context *ftdi, uint8_t *req)
+static uint64_t fetch40(int linenumber, struct ftdi_context *ftdi, uint8_t *req)
 {
     write_item(req);
-    return read_data_int(ftdi, 5);
+    return read_data_int(linenumber, ftdi, 5);
 }
 
 static void write_dataw(uint32_t value)
@@ -729,7 +729,7 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     write_item(DITEM(LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE)));
     read_rdbuff();
     write_item(DITEM(SEND_IMMEDIATE));
-    rdata = read_data(ftdi, buf[0] * 6);
+    rdata = read_data(linenumber, ftdi, buf[0] * 6);
     if (last_read_data_length != buf[0]*6) {
         err = 1;
         printf("[%s] mismatch on line %d act %d exp %d\n", __FUNCTION__, linenumber, last_read_data_length/6, buf[0]);
@@ -915,7 +915,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999, NULL);
-    uint8_t *rdata = read_data(ftdi, idcode_pattern1[0]);
+    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_pattern1[0]);
     if (!idcode_setup) {    // only setup idcode patterns on first call!
         memcpy(&returnedid, rdata, sizeof(returnedid));
         idcode |= 0xf0000000 & returnedid;
@@ -972,7 +972,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
                     write_item(DITEM(DATAWBIT, 0x00, 0x00));
             }
             write_item(command_ending);
-            if ((ret40 = fetch32(ftdi, DITEM())) != 0)
+            if ((ret40 = fetch32(__LINE__, ftdi, DITEM())) != 0)
                 printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
     }
@@ -1026,7 +1026,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_OUT, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_item(command_ending);
-    uint64_t ret40 = fetch32(ftdi, DITEM());
+    uint64_t ret40 = fetch32(__LINE__, ftdi, DITEM());
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
         printf("[%s:%d] expect %x mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, expected, ret40);
@@ -1061,7 +1061,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
         write_item(DITEM(TMSRW, 0x01, 0x01));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
-    return fetch40(ftdi, DITEM(SEND_IMMEDIATE));
+    return fetch40(__LINE__, ftdi, DITEM(SEND_IMMEDIATE));
 }
 
 int main(int argc, char **argv)
@@ -1150,12 +1150,12 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_item(command_ending);
-    if (((ret40 = fetch32(ftdi, DITEM())) & 0xffffffff) != 0xffffffff)
+    if (((ret40 = fetch32(__LINE__, ftdi, DITEM())) & 0xffffffff) != 0xffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 
     for (i = 0; i < 3; i++) {
         write_bypass();
-        ret16 = fetch24(ftdi, DITEM(SEND_IMMEDIATE));
+        ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE));
         if (ret16 == 0x118f)
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x1188)
@@ -1189,14 +1189,14 @@ int main(int argc, char **argv)
     exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(IRREG_ISC_NOOP, 0);
-    if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0x4488)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x4488)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
      * Step 6: Load Configuration Data Frames
      */
     cortex_extra_shift();
     write_combo_irreg(IRREG_CFG_IN, 0);
-    if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0x458a)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x458a)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
     /*
@@ -1216,7 +1216,7 @@ int main(int argc, char **argv)
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(IRREG_BYPASS, 0x80);
-    if ((ret16 = fetch16(ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xd6ac)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     cortex_extra_shift();
@@ -1236,7 +1236,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_bypass();
-    if ((ret16 = fetch24(ftdi, DITEM(SEND_IMMEDIATE))) != 0xf5a9)
+    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0xf5a9)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

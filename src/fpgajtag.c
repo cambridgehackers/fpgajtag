@@ -446,15 +446,18 @@ static void write_item(uint8_t *buf)
     write_data(buf+1, buf[0]);
 }
 
-static uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
+static uint64_t extract_int(uint8_t *bufp, int size)
 {
     uint64_t ret = 0;
-    uint8_t *bufp = read_data(linenumber, ftdi, size);
     uint8_t *backp = bufp + size;
-//skip_penultimate_byte = 0;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
     return ret;
+}
+
+static uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
+{
+    return extract_int(read_data(linenumber, ftdi, size), size);
 }
 
 static uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf)
@@ -655,12 +658,12 @@ static int idcode_setup;
     DATAWBIT | (AREAD), 0x01, (((A)>>29) & 0x3f),\
     SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((A)>>24) & 0x80))
 
-#define VAL1          0x75137030
+#define VAL1          0x15137030
 #define VAL2          0x0310c002
-#define VAL3          0x3f000200
+#define VAL3          0x1f000200
 #define VAL4          0x03008002
 #define VAL5          0x00028000
-#define VAL6          0x8001b400
+#define VAL6          0xe001b400
 #define SELECT_DEBUG  0x01000000
 
 /* request */
@@ -675,7 +678,7 @@ static int idcode_setup;
 
 /* response */
 #define DPACC_RESPONSE_OK 0x2
-#define DEFAULT_CSW   0x42
+#define DEFAULT_CSW   0xe0000042
                       // Coresight: Table 2-20
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
@@ -754,21 +757,18 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     int i;
     uint8_t *bufp = rdata;
     for (i = 0; i < last_read_data_length/6; i++) {
-        uint8_t *backp = bufp + 5; /* byte 6 has extra bits; don't use byte 5 */
-        uint64_t ret = *backp-- >> 2; /* only 5 MSB are relevant */
-        while (backp > bufp)
-            ret = (ret << 8) | *--backp;
+        uint64_t ret = 0;
+        *(bufp+4) >>= 5; // only 3 bits valid in MSB byte
+        memcpy(&ret, bufp, 5);
         int bottom = ret & 0x7;
         if (bottom != DPACC_RESPONSE_OK) /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
             printf("[%s:%d] Error in cortex response %x \n", __FUNCTION__, linenumber, bottom);
         ret >>= 3;
-        int top = ret >> 32;
-        if (top && top != 7)
-            printf("[%s:%d] Error in cortex msb %x \n", __FUNCTION__, linenumber, top);
-        uint32_t ret32 = ret & 0xffffffff;
+        uint32_t ret32 = ret;
         tempdata[tempdata_index++] = ret32;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error in cortex data[%ld] %x != %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            printf("[%s:%d] Error in cortex data[%ld] actual %x expected %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            memdump(bufp, 6, "RX");
             err = 1;
         }
         testp++;
@@ -811,12 +811,13 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     if (!wait)
-        cresp[1] = (uint32_t[]){3, 0, 0x00800000/*SPIStatus=High*/ | DEFAULT_CSW, CORTEX_DEFAULT_STATUS};
+        cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
     else
-        cresp[1] = (uint32_t[]){3, 0, 0x83800000 | DEFAULT_CSW, CORTEX_DEFAULT_STATUS,};
+        cresp[1] = (uint32_t[]){3, 0, 0x00800042, CORTEX_DEFAULT_STATUS,};
     write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
     for (i = 0; i < 2; i++) {
+printf("[%s:%d] wait %d i %d\n", __FUNCTION__, __LINE__, wait, i);
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
         write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
         write_item(selreq[i]);
@@ -1173,9 +1174,9 @@ int main(int argc, char **argv)
     for (i = 0; i < 3; i++) {
         write_bypass();
         ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE));
-        if (ret16 == 0x8)
+        if (ret16 == 0x8 || (found_zynq && ret16 == 0x8a))
             printf("xjtag: bypass first time %x\n", ret16);
-        else if (ret16 == 0x1188)
+        else if (ret16 == 0x11)
             printf("xjtag: bypass next times %x\n", ret16);
         else if (ret16 == 0x2f)
             printf("xjtag: bypass already programmed %x\n", ret16);
@@ -1206,21 +1207,21 @@ int main(int argc, char **argv)
     exit1_to_idle();
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(IRREG_ISC_NOOP, 0);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x22)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     /*
      * Step 6: Load Configuration Data Frames
      */
     cortex_extra_shift();
     write_combo_irreg(IRREG_CFG_IN, 0);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x22)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
     /*
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x01000000)
+    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     if (found_zynq) {
         exit1_to_idle();
@@ -1233,11 +1234,11 @@ int main(int argc, char **argv)
     exit1_to_idle();
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(IRREG_BYPASS, 0x80);
-    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x2b)
+    if ((ret16 = fetch16(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != (found_zynq ? 0x17 : 0x2b))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     cortex_extra_shift();
-    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (((uint64_t)0xfc7910 << 8) | 0x40))
+    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     exit1_to_idle();
     if (found_zynq) {
@@ -1253,7 +1254,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_bypass();
-    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != 0x2f)
+    if ((ret16 = fetch24(__LINE__, ftdi, DITEM(SEND_IMMEDIATE))) != (found_zynq ? 0xae : 0x2f))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

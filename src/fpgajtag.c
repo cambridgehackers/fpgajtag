@@ -105,14 +105,6 @@ static void openlogfile(void);
 #define INT32(A)           INT16(A), INT16((A) >> 16)
 #define BSWAP(A) ((((A) & 1) << 7) | (((A) & 2) << 5) | (((A) & 4) << 3) | (((A) & 8) << 1) \
          | (((A) & 0x10) >> 1) | (((A) & 0x20) >> 3) | (((A) & 0x40) >> 5) | (((A) & 0x80) >> 7))
-#define MS(A)              BSWAP(M(A))
-#define SWAP32(A)          MS((A) >> 24), MS((A) >> 16), MS((A) >> 8), MS(A)
-#define SWAP32B(A)         MS(A), MS((A) >> 8), MS((A) >> 16), MS((A) >> 24)
-#define C2BIT40(A)       (  ((uint64_t)(A)[0])        \
-                         | (((uint64_t)(A)[1]) <<  8) \
-                         | (((uint64_t)(A)[2]) << 16) \
-                         | (((uint64_t)(A)[3]) << 24) \
-                         | (((uint64_t)(A)[4]) << 32) )
 
 /*
  * FTDI constants
@@ -483,11 +475,6 @@ static uint64_t fetch24(int linenumber, struct ftdi_context *ftdi)
     return read_data_int(linenumber, ftdi, 2 + found_zynq);
 }
 
-static uint64_t fetch32(int linenumber, struct ftdi_context *ftdi)
-{
-    return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
-}
-
 static void write_dataw(uint32_t value)
 {
     write_item(DITEM(DATAW(0, value)));
@@ -495,6 +482,8 @@ static void write_dataw(uint32_t value)
 
 static void swap32(uint32_t value)
 {
+#define MS(A)              BSWAP(M(A))
+#define SWAP32(A)          MS((A) >> 24), MS((A) >> 16), MS((A) >> 8), MS(A)
     write_item(DITEM(SWAP32(value)));
 }
 static void write_dswap32(uint32_t value)
@@ -710,7 +699,7 @@ static void write_jtag_irreg(int read, int command)
     write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
-static void write_bypass(void)
+static uint32_t write_bypass(struct ftdi_context *ftdi)
 {
     if (found_zynq)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
@@ -718,6 +707,7 @@ static void write_bypass(void)
     else
         write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
     write_item(DITEM(SEND_IMMEDIATE));
+    return fetch24(__LINE__, ftdi);
 }
 
 static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int extra_bit)
@@ -962,6 +952,21 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     }
 }
 
+static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
+{
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | irreg, 1);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    if (i > 1)
+        write_item(DITEM(DATAWBIT, opcode_bits, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+    if (i > 0) {
+        write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
+        if (found_zynq)
+            write_item(DITEM(DATAWBIT, 0x00, 0x00));
+    }
+    write_item(command_ending);
+    return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
+}
+
 static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
 {
     int i;
@@ -971,17 +976,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
             write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USER2, 1);
-            write_item(DITEM(IDLE_TO_SHIFT_DR));
-            if (i > 1)
-                write_item(DITEM(DATAWBIT, opcode_bits, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
-            if (i > 0) {
-                write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
-                if (found_zynq)
-                    write_item(DITEM(DATAWBIT, 0x00, 0x00));
-            }
-            write_item(command_ending);
-            if ((ret40 = fetch32(__LINE__, ftdi)) != 0)
+            if ((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USER2, i)) != 0)
                 printf("[%s:%d] nonzero value %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
     }
@@ -1031,10 +1026,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     else
         write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_OUT, 1);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_item(command_ending);
-    uint64_t ret40 = fetch32(__LINE__, ftdi);
+    uint64_t ret40 = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
     uint32_t status = ret40 >> 8;
     if (M(ret40) != 0x40 || status != expected)
         printf("[%s:%d] expect %x mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, expected, ret40);
@@ -1152,18 +1144,14 @@ int main(int argc, char **argv)
 
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_zynq) {
-        write_bypass();
-        check_read_data(__LINE__, ftdi, DITEM(0x51, 0x28, 0x05));
+        ret16 = write_bypass(ftdi);
+        printf("[%s:%d] write_bypass return %x\n", __FUNCTION__, __LINE__, ret16);
     }
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_USERCODE, 1);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_item(command_ending);
-    if (((ret40 = fetch32(__LINE__, ftdi)) & 0xffffffff) != 0xffffffff)
+    if (((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) & 0xffffffff) != 0xffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 
     for (i = 0; i < 3; i++) {
-        write_bypass();
-        ret16 = fetch24(__LINE__, ftdi);
+        ret16 = write_bypass(ftdi);
         if (ret16 == 0x8 || (found_zynq && ret16 == 0x8a))
             printf("xjtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x11)
@@ -1243,8 +1231,8 @@ int main(int argc, char **argv)
         flush_write(ftdi);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    write_bypass();
-    if ((ret16 = fetch24(__LINE__, ftdi)) != (found_zynq ? 0xae : 0x2f))
+    ret16 = write_bypass(ftdi);
+    if (ret16 != (found_zynq ? 0xae : 0x2f))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq) {
         write_item(idle_to_reset);

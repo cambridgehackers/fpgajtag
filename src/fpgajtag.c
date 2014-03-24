@@ -138,6 +138,8 @@ static void openlogfile(void);
 #define IN_RESET_STATE     TMSW, 0x00, 0x7f  /* Marker for Reset */
 #define SHIFT_TO_EXIT1(READA, A) \
      TMSW | (READA), 0x00, ((A) | 0x01)             /* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_UPDATE(READA, A) \
+     TMSW | (READA), 0x01, ((A) | 0x03)
 #define SHIFT_TO_UPDATE_TO_IDLE(READA, A) \
      TMSW | (READA), 0x02, ((A) | 0x03)    /* Shift-DR -> Update-DR -> Idle */
 #define FORCE_RETURN_TO_RESET TMSW, 0x04, 0x1f /* go back to TMS reset state */
@@ -150,10 +152,9 @@ static void openlogfile(void);
          TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x01, 0x00
 #define PAUSE_TO_SHIFT       TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
 #define SHIFT_TO_PAUSE       TMSW, 0x01, 0x01 /* Shift-DR -> Pause-DR */
-#define TMS_RESET_WEIRD      TMSW, 0x04, 0x7f /* Reset????? */
 
 #define EXTEND_EXTRA            0xc0
-#define EXTRA_BIT_SHIFT         12 //8
+#define EXTRA_BIT_SHIFT         12
 #define EXTRA_IRREG_BIT_SHIFT    8
 #define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
 #define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)
@@ -171,6 +172,105 @@ static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
+
+static void openlogfile(void)
+{
+    if (!logfile)
+        logfile = fopen("/tmp/xx.logfile2", "w");
+    if (datafile_fd < 0)
+        datafile_fd = creat("/tmp/xx.datafile2", 0666);
+}
+
+static void memdump(uint8_t *p, int len, char *title)
+{
+int i;
+
+    i = 0;
+    while (len > 0) {
+        if (title && !(i & 0xf)) {
+            if (i > 0)
+                printf("\n");
+            printf("%s: ",title);
+        }
+        printf("0x%02x, ", *p++);
+        i++;
+        len--;
+    }
+    if (title)
+        printf("\n");
+}
+
+/*
+ * USB interface
+ */
+static void init_usb(const char *serialno)
+{
+    int cfg, type = 0, i = 0, baudrate = 9600;
+    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
+    int best_divisor = 12000000*8 / baudrate;
+    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
+    libusb_device **device_list, *dev, *usbdev = NULL;
+    struct libusb_device_descriptor desc;
+    struct libusb_config_descriptor *config_descrip;
+
+    /*
+     * Locate USB interface for JTAG
+     */
+    if (libusb_init(&usb_context) < 0
+     || libusb_get_device_list(usb_context, &device_list) < 0) {
+        printf("libusb_init failed\n");
+        exit(-1);
+    }
+    while ((dev = device_list[i++]) ) {
+        if (libusb_get_device_descriptor(dev, &desc) < 0)
+            break;
+        if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
+         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
+            unsigned char serial[64], manuf[64], descrip[128];
+            libusb_ref_device(dev);
+            if (libusb_open(dev, &usbhandle) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iManufacturer, manuf, sizeof(manuf)) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iProduct, descrip, sizeof(descrip)) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iSerialNumber, serial, sizeof(serial)) < 0)
+                goto error;
+            printf("[%s] %s:%s:%s\n", __FUNCTION__, manuf, descrip, serial);
+            if (!serialno || !strcmp(serialno, (char *)serial)) {
+                usbdev = dev;
+                break;
+            }
+            libusb_close (usbhandle);
+        }
+    }
+    libusb_free_device_list(device_list,1);
+    if (!usbdev || libusb_get_config_descriptor(usbdev, 0, &config_descrip) < 0)
+        goto error;
+    int configv = config_descrip->bConfigurationValue;
+    libusb_free_config_descriptor (config_descrip);
+    libusb_detach_kernel_driver(usbhandle, 0);
+#define USBCTRL(A,B,C) \
+     libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
+           | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
+
+    if (libusb_get_configuration (usbhandle, &cfg) < 0
+     || (desc.bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
+     || libusb_claim_interface(usbhandle, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
+     || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
+     || USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0
+     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0
+     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
+        goto error;
+    //(desc.bcdDevice == 0x700) //kc       TYPE_2232H
+    printf("[%s:%d] bcd %x type %d\n", __FUNCTION__, __LINE__, desc.bcdDevice, type);
+    if (desc.bcdDevice == 0x900) //zedboard TYPE_232H
+        found_232H = 1;
+    return;
+error:
+    printf("Can't find usable usb interface\n");
+    exit(-1);
+}
 
 #ifndef USE_LIBFTDI
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
@@ -201,33 +301,6 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     return actual_length;
 }
 #endif //end if not USE_LIBFTDI
-
-static void openlogfile(void)
-{
-    if (!logfile)
-        logfile = fopen("/tmp/xx.logfile2", "w");
-    if (datafile_fd < 0)
-        datafile_fd = creat("/tmp/xx.datafile2", 0666);
-}
-
-static void memdump(uint8_t *p, int len, char *title)
-{
-int i;
-
-    i = 0;
-    while (len > 0) {
-        if (title && !(i & 0xf)) {
-            if (i > 0)
-                printf("\n");
-            printf("%s: ",title);
-        }
-        printf("0x%02x, ", *p++);
-        i++;
-        len--;
-    }
-    if (title)
-        printf("\n");
-}
 
 /*
  * FTDI generic initialization
@@ -438,6 +511,7 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 #define COMBINE_IR_REG(FPGAREG, CORTEXREG) \
      (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
 
+/* FPGA registers */
 #define IRREG_USER2          COMBINE_IR_REG(0x003, 0xff)
 #define IRREG_CFG_OUT        COMBINE_IR_REG(0x004, 0xff)
 #define IRREG_CFG_IN         COMBINE_IR_REG(0x005, 0xff)
@@ -448,7 +522,6 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 #define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xff) // even on PCIE, this has an extra bit
 
 /* ARM JTAG-DP registers */
-
 #define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
 #define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
 #define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
@@ -497,26 +570,6 @@ static uint8_t *command_ending;
 static int idcode_setup;
 
 #define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
-static uint8_t *initialize_sequence = DITEM(
-     LOOPBACK_END, // Disconnect TDI/DO from loopback
-     DIS_DIV_5, // Disable clk divide by 5
-     SET_CLOCK_DIVISOR,
-     SET_BITS_LOW, 0xe8, 0xeb,
-     SET_BITS_HIGH, 0x20, 0x30,
-     SET_BITS_HIGH, 0x30, 0x00,
-     SET_BITS_HIGH, 0x00, 0x00,
-     FORCE_RETURN_TO_RESET
-);
-static uint8_t *initialize_sequence_232h = DITEM(
-     LOOPBACK_END, // Disconnect TDI/DO from loopback
-     DIS_DIV_5, // Disable clk divide by 5
-     SET_CLOCK_DIVISOR,
-     SET_BITS_LOW, 0xe8, 0xeb,
-     SET_BITS_HIGH, 0x20, 0x30,
-     //SET_BITS_HIGH, 0x30, 0x00,
-     //SET_BITS_HIGH, 0x00, 0x00,
-     FORCE_RETURN_TO_RESET
-);
 
 /****************** Cortex stuff ******************/
 #define LOADDR(AREAD, A, B) \
@@ -534,22 +587,21 @@ static uint8_t *initialize_sequence_232h = DITEM(
 #define SELECT_DEBUG  0x01000000
 
 /* request */
-#define DPACC_WRITE         0x1
 #define DPACC_CTRL     (1 << 1)
     // Coresight: Figure 2-14
     #define CORTEX_DEFAULT_STATUS 0xf0000001
     // CSYSPWRUPACK,CSYSPWRUPREQ,CDBGPWRUPACK,CDBGPWRUPREQ,ORUNDETECT
 #define DPACC_SELECT   (2 << 1)
-
 #define DPACC_RDBUFF   (3 << 1)
 
+#define DPACC_WRITE        0x1
+
+/* response */
+#define DPACC_RESPONSE_OK 0x2
 #define DEFAULT_CSW   0x42
                       // Coresight: Table 2-20
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
-
-/* response */
-#define DPACC_RESPONSE_OK 0x2
 
 /* Addresses from ug585-Zynq-7000-TRM.pdf */
 #define ADDRESS_DEVCFG_MCTRL      0xf8007080
@@ -581,7 +633,7 @@ static void write_jtag_irreg_extra(int read, int command, int goto_idle)
     if (found_zynq)
         write_item(DITEM(EXTRA_BIT(read, ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (goto_idle == 2)
-        write_item(DITEM(TMSW, 0x01, 0x83));
+        write_item(DITEM(SHIFT_TO_UPDATE(0, 0x80)));
     else if (goto_idle)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
     else
@@ -798,7 +850,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
     uint32_t returnedid;
 
-    write_item(DITEM(TMS_RESET_WEIRD, RESET_TO_SHIFT_DR));
+    write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999, NULL);
     uint8_t *rdata = read_data(ftdi, idcode_pattern1[0]);
@@ -950,75 +1002,6 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     return fetch40(ftdi, DITEM(SEND_IMMEDIATE));
 }
 
-static void init_usb(const char *serialno)
-{
-    int cfg, type = 0, i = 0, baudrate = 9600;
-    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
-    int best_divisor = 12000000*8 / baudrate;
-    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
-    libusb_device **device_list, *dev, *usbdev = NULL;
-    struct libusb_device_descriptor desc;
-    struct libusb_config_descriptor *config_descrip;
-
-    /*
-     * Locate USB interface for JTAG
-     */
-    if (libusb_init(&usb_context) < 0
-     || libusb_get_device_list(usb_context, &device_list) < 0) {
-        printf("libusb_init failed\n");
-        exit(-1);
-    }
-    while ((dev = device_list[i++]) ) {
-        if (libusb_get_device_descriptor(dev, &desc) < 0)
-            break;
-        if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
-         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
-            unsigned char serial[64], manuf[64], descrip[128];
-            libusb_ref_device(dev);
-            if (libusb_open(dev, &usbhandle) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iManufacturer, manuf, sizeof(manuf)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iProduct, descrip, sizeof(descrip)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iSerialNumber, serial, sizeof(serial)) < 0)
-                goto error;
-            printf("[%s] %s:%s:%s\n", __FUNCTION__, manuf, descrip, serial);
-            if (!serialno || !strcmp(serialno, (char *)serial)) {
-                usbdev = dev;
-                break;
-            }
-            libusb_close (usbhandle);
-        }
-    }
-    libusb_free_device_list(device_list,1);
-    if (!usbdev || libusb_get_config_descriptor(usbdev, 0, &config_descrip) < 0)
-        goto error;
-    int configv = config_descrip->bConfigurationValue;
-    libusb_free_config_descriptor (config_descrip);
-    libusb_detach_kernel_driver(usbhandle, 0);
-#define USBCTRL(A,B,C) \
-     libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
-           | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
-
-    if (libusb_get_configuration (usbhandle, &cfg) < 0
-     || (desc.bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
-     || libusb_claim_interface(usbhandle, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
-     || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
-     || USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
-        goto error;
-    //(desc.bcdDevice == 0x700) //kc       TYPE_2232H
-    printf("[%s:%d] bcd %x type %d\n", __FUNCTION__, __LINE__, desc.bcdDevice, type);
-    if (desc.bcdDevice == 0x900) //zedboard TYPE_232H
-        found_232H = 1;
-    return;
-error:
-    printf("Can't find usable usb interface\n");
-    exit(-1);
-}
-
 int main(int argc, char **argv)
 {
     logfile = stdout;
@@ -1054,8 +1037,12 @@ int main(int argc, char **argv)
     lseek(inputfd, 0, SEEK_SET);
     init_usb(serialno);             /*** Initialize USB interface ***/
     ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
-    uint8_t *initialstr = (found_232H) ? initialize_sequence_232h : initialize_sequence;
-    ftdi_write_data(ftdi, initialstr+1, initialstr[0]);
+    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
+                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+    if (!found_232H)
+        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    write_item(DITEM(FORCE_RETURN_TO_RESET));
+    flush_write(ftdi);
     write_item(shift_to_exit1);
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     if (found_zynq) {
@@ -1153,11 +1140,11 @@ int main(int argc, char **argv)
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
     if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != 0x0100000000)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    exit1_to_idle();
     if (found_zynq) {
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
         exit1_to_idle();
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
     }
+    exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_JSTART, 0);
@@ -1203,8 +1190,7 @@ int main(int argc, char **argv)
         write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
-    else
-        flush_write(ftdi);
+    flush_write(ftdi);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

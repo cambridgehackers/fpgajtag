@@ -338,19 +338,76 @@ struct ftdi_context *init_ftdi(void)
     return ftdi;
 }
 
+#define MAX_ITEM_LENGTH 2000
+static int read_size[MAX_ITEM_LENGTH];
+static int read_size_ptr;
 static void flush_write(struct ftdi_context *ftdi)
 {
     int write_length = usbreadbuffer_ptr - usbreadbuffer;
-    if (write_length)
-        ftdi_write_data(ftdi, usbreadbuffer, write_length);
     usbreadbuffer_ptr = usbreadbuffer;
+    if (!write_length)
+        return;
+    ftdi_write_data(ftdi, usbreadbuffer, write_length);
+    read_size_ptr = 0;
+
+    const unsigned char *p = usbreadbuffer;
+    while (write_length > 0) {
+        int plen = 1;
+        unsigned char ch = *p;
+        unsigned tlen = (p[2] << 8 | p[1]) + 1;
+        switch(ch) {
+        case 0x85: case 0x87: case 0x8a: case 0xaa: case 0xab:
+            break;
+        case 0x2e:
+            plen = 2;
+            break;
+        case 0x19: case 0x1b: case 0x2c: case 0x3d: case 0x3f: case 0x4b:
+        case 0x6f: case 0x80: case 0x82: case 0x86: case 0x8f:
+            plen = 3;
+            break;
+        default:
+            memdump(p-1, write_length, "FOO");
+            exit(-1);
+        }
+        if (ch & MPSSE_DO_READ) {
+            if (ch & MPSSE_BITMODE) {
+                int bitsize = *(p+1)+1;
+                if (ch & MPSSE_WRITE_TMS)
+                    bitsize = 1;
+                read_size[read_size_ptr] = -bitsize; /* number of bits */
+            }
+            else if (ch == 0x2c || ch == 0x3d)       /* DATAR or DATARW */
+                read_size[read_size_ptr] = tlen;     /* number of bytes */
+            else
+                read_size[read_size_ptr] = *(p+1);   /* number of bytes */
+            read_size_ptr++;
+        }
+        p += plen;
+        write_length -= plen;
+        if (ch == 0x19 || ch == 0x3d) {
+            p += tlen;
+            write_length -= tlen;
+        }
+    }
 }
 
 static uint8_t *read_data(struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
+    int i, expected_len = 0;
     flush_write(ftdi);
-    last_read_data_length = size;
+    last_read_data_length = 0;
+    for (i = 0; i < read_size_ptr; i++) {
+//printf("[%s:%d] %d\n", __FUNCTION__, __LINE__, read_size[i]);
+        if (read_size[i] < 0)
+            expected_len++;
+        else
+            expected_len += read_size[i];
+    }
+    if (expected_len != size) {
+printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, __LINE__, expected_len, expected_len, size);
+        exit(-1);
+    }
     if (size)
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
     return last_read_data;
@@ -1072,9 +1129,11 @@ int main(int argc, char **argv)
     write_item(idle_to_reset);
     bypass_test(ftdi, 3, 1);
     static uint8_t i2resetin[] = DITEM(IDLE_TO_RESET, IN_RESET_STATE);
-    ftdi_write_data(ftdi, i2resetin+1, i2resetin[0]);
+    write_data(i2resetin+1, i2resetin[0]);
+    flush_write(ftdi);
     uint8_t command_set_divisor[] = { SET_CLOCK_DIVISOR };
-    ftdi_write_data(ftdi, command_set_divisor, sizeof(command_set_divisor));
+    write_data(command_set_divisor, sizeof(command_set_divisor));
+    flush_write(ftdi);
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
@@ -1111,7 +1170,8 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x30861900);
-    ftdi_write_data(ftdi, idle_to_reset+1, idle_to_reset[0]);
+    write_data(idle_to_reset+1, idle_to_reset[0]);
+    flush_write(ftdi);
     write_item(shift_to_exit1);
     bypass_test(ftdi, 3, 1);
     for (i = 0; i < 3; i++) {

@@ -331,11 +331,24 @@ struct ftdi_context *init_ftdi(void)
     return ftdi;
 }
 
+static void write_data(uint8_t *buf, int size)
+{
+    memcpy(usbreadbuffer_ptr, buf, size);
+    usbreadbuffer_ptr += size;
+}
+
+static void write_item(uint8_t *buf)
+{
+    write_data(buf+1, buf[0]);
+}
+
 #define MAX_ITEM_LENGTH 2000
 static int read_size[MAX_ITEM_LENGTH];
 static int read_size_ptr;
-static void flush_write(struct ftdi_context *ftdi)
+static void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 {
+    if (req)
+        write_item(req);
     int write_length = usbreadbuffer_ptr - usbreadbuffer;
     usbreadbuffer_ptr = usbreadbuffer;
     if (!write_length)
@@ -388,7 +401,7 @@ static uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
     int i, expected_len = 0;
-    flush_write(ftdi);
+    flush_write(ftdi, NULL);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {
 //printf("[%s:%d] %d\n", __FUNCTION__, linenumber, read_size[i]);
@@ -426,17 +439,6 @@ printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expec
         }
     }
     return last_read_data;
-}
-
-static void write_data(uint8_t *buf, int size)
-{
-    memcpy(usbreadbuffer_ptr, buf, size);
-    usbreadbuffer_ptr += size;
-}
-
-static void write_item(uint8_t *buf)
-{
-    write_data(buf+1, buf[0]);
 }
 
 static uint64_t extract_int(uint8_t *bufp, int size)
@@ -531,7 +533,7 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
             write_data(temp, tail[0]);
         }
-        flush_write(ftdi);
+        flush_write(ftdi, NULL);
         size -= limit_len+1;
     }
 }
@@ -1097,8 +1099,7 @@ int main(int argc, char **argv)
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
     if (!found_232H)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-    write_item(DITEM(FORCE_RETURN_TO_RESET));
-    flush_write(ftdi);
+    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
     write_item(shift_to_exit1);
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     if (found_zynq) {
@@ -1119,10 +1120,8 @@ int main(int argc, char **argv)
     bypass_test(ftdi, 2 + number_of_devices, 0);
     write_item(idle_to_reset);
     bypass_test(ftdi, 3, 1);
-    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE));
-    flush_write(ftdi);
-    write_item(DITEM(SET_CLOCK_DIVISOR));
-    flush_write(ftdi);
+    flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
 
     static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
@@ -1156,7 +1155,7 @@ int main(int argc, char **argv)
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x301900);
     write_item(idle_to_reset);
-    flush_write(ftdi);
+    flush_write(ftdi, NULL);
     write_item(shift_to_exit1);
     bypass_test(ftdi, 3, 1);
     for (i = 0; i < 3; i++) {
@@ -1200,7 +1199,7 @@ int main(int argc, char **argv)
     else {
         write_jtag_irreg_short(0, IRREG_BYPASS, 0);
         exit1_to_idle();
-        flush_write(ftdi);
+        flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     ret16 = write_bypass(ftdi);
@@ -1223,7 +1222,7 @@ int main(int argc, char **argv)
         write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
-    flush_write(ftdi);
+    flush_write(ftdi, NULL);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

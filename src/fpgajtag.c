@@ -510,42 +510,30 @@ static void pulse_gpio(struct ftdi_context *ftdi, int delay)
                      SET_LSB_DIRECTION(GPIO_01)));
 }
 
-static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
-    uint8_t *tail, uint8_t *ptrin, int size, int limit_len, uint8_t *checkdata)
+static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
+    uint8_t *tail, uint8_t *ptrin, int size, int limit_len)
 {
-    int i;
-    static uint8_t packetbuffer[BUFFER_MAX_LEN];
-    uint8_t *readptr = packetbuffer;
-
     while (size > 0) {
         int rlen = size-1;
         if (rlen > limit_len)
             rlen = limit_len;
         if (rlen < limit_len)
             rlen--;                   // last byte is actually loaded with DATAW command
-        *readptr++ = DWRITE | read_param;
-        *readptr++ = rlen;
-        *readptr++ = rlen >> 8;
-        for (i = 0; i <= rlen; i++)
-            *readptr++ = *ptrin++;
+        write_item(DITEM(DWRITE | read_param, INT16(rlen)));
+        write_data(ptrin, rlen+1);
+        ptrin += rlen+1;
         if (rlen < limit_len) {
+            uint8_t temp[200];
             uint8_t ch = *ptrin++;
-            *readptr++ = DATAWBIT | read_param;
-            *readptr++ = 0x06;
-            *readptr++ = ch;        // 7 bits of data here
-            memcpy(readptr, tail+1, tail[0]);
-            *readptr |= read_param; // this is a TMS instruction to shift state
-            *(readptr+2) |= 0x80 & ch; // insert 1 bit of data here
-            readptr += tail[0];
+            write_item(DITEM(DATAWBIT | read_param, 0x06, ch)); // 7 bits of data here
+            memcpy(temp, tail+1, tail[0]);
+            *temp |= read_param; // this is a TMS instruction to shift state
+            *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
+            write_data(temp, tail[0]);
         }
-        write_data(packetbuffer, readptr - packetbuffer);
         flush_write(ftdi);
         size -= limit_len+1;
-        readptr = packetbuffer;
     }
-    if(checkdata)
-        return check_read_data(__LINE__, ftdi, checkdata);
-    return NULL;
 }
 
 /*
@@ -910,7 +898,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
-        patdata, sizeof(patdata), 9999, NULL);
+        patdata, sizeof(patdata), 9999);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_pattern1[0]);
     if (!idcode_setup) {    // only setup idcode patterns on first call!
         memcpy(&returnedid, rdata, sizeof(returnedid));
@@ -1000,15 +988,15 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     do {
         static uint8_t filebuffer[FILE_READSIZE];
         size = read(inputfd, filebuffer, FILE_READSIZE);
+        for (i = 0; i < size; i++)
+            filebuffer[i] = bitswap[filebuffer[i]];
         if (size < FILE_READSIZE) {
             if (found_zynq)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
         }
-        for (i = 0; i < size; i++)
-            filebuffer[i] = bitswap[filebuffer[i]];
-        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, NULL);
+        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len);
         if (size != FILE_READSIZE)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -1140,7 +1128,8 @@ int main(int argc, char **argv)
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
-        iddata, sizeof(iddata), 9999, idcode_pattern2);
+        iddata, sizeof(iddata), 9999);
+    check_read_data(__LINE__, ftdi, idcode_pattern2);
 
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_zynq) {

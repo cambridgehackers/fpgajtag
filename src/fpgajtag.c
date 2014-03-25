@@ -573,13 +573,13 @@ static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
      (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
 
 /* FPGA registers */
-#define IRREG_USER2          COMBINE_IR_REG(0x003, 0xf)
-#define IRREG_CFG_OUT        COMBINE_IR_REG(0x004, 0xf)
-#define IRREG_CFG_IN         COMBINE_IR_REG(0x005, 0xf)
-#define IRREG_USERCODE       COMBINE_IR_REG(0x008, 0xf)
-#define IRREG_JPROGRAM       COMBINE_IR_REG(0x00b, 0xf)
-#define IRREG_JSTART         COMBINE_IR_REG(0x00c, 0xf)
-#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x014, 0xf)
+#define IRREG_USER2          COMBINE_IR_REG(0x03, 0xf)
+#define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
+#define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
+#define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
+#define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
+#define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
+#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
 #define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /* ARM JTAG-DP registers */
@@ -714,6 +714,7 @@ static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int ex
         write_item(DITEM(PAUSE_TO_SHIFT));
         write_item(DITEM(EXTRA_BIT(0, 0xf) SHIFT_TO_EXIT1(0, 0x80)));
     }
+    exit1_to_idle();
     return ret16;
 }
 
@@ -987,13 +988,26 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
         cortex_bypass(ftdi, cortex_nowait);
 }
 
+static void write_one_word(int value)
+{
+    if (found_zynq)
+        write_item(DITEM(INT32(value)));
+    else
+        write_item(DITEM(value, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+}
+
+static void write_eight_bytes(void)
+{
+    if (found_zynq)
+        write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+}
+
 static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (found_zynq)
-        write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_eight_bytes();
     write_dswap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - (usbreadbuffer_ptr - usbreadbuffer);
     printf("Starting to send file\n");
@@ -1024,10 +1038,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     swap32(SMAP_SYNC);
     swap32(SMAP_TYPE2(0));
     swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
-    if (found_zynq)
-        write_item(DITEM(INT32(0)));
-    else
-        write_item(DITEM(0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_one_word(0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     uint64_t ret40 = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
     uint32_t status = ret40 >> 8;
@@ -1041,8 +1052,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(SMAP_DUMMY);
-    if (found_zynq)
-        write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    write_eight_bytes();
     write_dswap32(SMAP_SYNC);
     write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
     write_dswap32(SMAP_TYPE1(SMAP_OP_READ, data, 1));
@@ -1051,15 +1061,17 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
     write_dswap32(SMAP_CMD_DESYNC);
     write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
+    int temp = 0;
+    write_item(DITEM(DATAW(0, 3+found_zynq)));
     if (found_zynq)
-        write_item(DITEM(DATAW(0, 4), INT32(0x04), SHIFT_TO_EXIT1(0, 0x80)));
-    else
-        write_item(DITEM(DATAW(0, 3), 0x04, 0x00, 0x00, DATAWBIT, 0x06, 0x00, SHIFT_TO_EXIT1(0, 0)));
+        temp = 0x80;
+    write_one_word(4);
+    write_item(DITEM(SHIFT_TO_EXIT1(0, temp)));
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
-        write_item(DITEM(TMSRW, 0x01, 0x01));
+        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     write_item(DITEM(SEND_IMMEDIATE));
@@ -1179,11 +1191,11 @@ int main(int argc, char **argv)
         write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
      * Step 2: Initialization
      */
-    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_jtag_irreg_extra(0, IRREG_JPROGRAM, 0);
     write_jtag_irreg_extra(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
@@ -1193,11 +1205,9 @@ int main(int argc, char **argv)
     /*
      * Step 6: Load Configuration Data Frames
      */
-    exit1_to_idle();
     ret16 = write_combo_irreg(ftdi, IRREG_CFG_IN, 0);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
-    exit1_to_idle();
     send_data_file(ftdi, inputfd);
     /*
      * Step 8: Startup
@@ -1211,7 +1221,6 @@ int main(int argc, char **argv)
     ret16 = write_combo_irreg(ftdi, IRREG_BYPASS, 0x80);
     if (ret16 != (found_zynq ? 0x17 : 0x2b))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
-    exit1_to_idle();
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     if (found_zynq)

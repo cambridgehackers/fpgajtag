@@ -499,29 +499,15 @@ static void pulse_gpio(struct ftdi_context *ftdi, int delay)
 #define GPIO_01              0x01
 #define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
 
-    static uint8_t prebuffer[BUFFER_MAX_LEN];
-    static uint8_t pulsepre[] =
-      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-            SET_LSB_DIRECTION(GPIO_DONE));
-    static uint8_t pulse65k[] = DITEM(CLK_BYTES, INT16(65536 - 1));
-    static uint8_t pulsepost[] =
-      DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-            SET_LSB_DIRECTION(GPIO_01));
-    uint8_t *ptr = prebuffer+1;
-    memcpy(ptr, pulsepre+1, pulsepre[0]);
-    ptr += pulsepre[0];
+    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+                     SET_LSB_DIRECTION(GPIO_DONE)));
     while(delay > 65536) {
-        memcpy(ptr, pulse65k+1, pulse65k[0]);
-        ptr += pulse65k[0];
+        write_item(DITEM(CLK_BYTES, INT16(65536 - 1)));
         delay -= 65536;
     }
-    *ptr++ = CLK_BYTES;
-    *ptr++ = M(delay-1);
-    *ptr++ = M((delay-1)>>8);
-    memcpy(ptr, pulsepost+1, pulsepost[0]);
-    ptr += pulsepost[0];
-    prebuffer[0] = ptr - (prebuffer + 1);
-    write_item( prebuffer);
+    write_item(DITEM(CLK_BYTES, INT16(delay-1)));
+    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+                     SET_LSB_DIRECTION(GPIO_01)));
 }
 
 static uint8_t *send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,

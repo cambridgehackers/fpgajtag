@@ -1007,8 +1007,14 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     printf("Done sending file\n");
 }
 
-static void read_status(struct ftdi_context *ftdi, uint32_t expected)
+static void write_cfg_in(struct ftdi_context *ftdi, uint32_t expected, int after)
 {
+    write_item(idle_to_reset);
+    if (after)
+        write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
+    write_item(DITEM(RESET_TO_IDLE));
+    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dataw(19 + found_zynq);
     swap32(SMAP_DUMMY);
     swap32(SMAP_SYNC);
@@ -1022,6 +1028,14 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
         printf("[%s:%d] expect %x mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, expected, ret40);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+    write_item(idle_to_reset);
+    if (after && found_zynq) {
+        write_item(shift_to_exit1);
+        bypass_test(ftdi, 3, 1);
+        write_item(idle_to_reset);
+        bypass_test(ftdi, 3, 1);
+    }
+    flush_write(ftdi, NULL);
 }
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
@@ -1149,13 +1163,7 @@ int main(int argc, char **argv)
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
-    write_item(idle_to_reset);
-    write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    read_status(ftdi, 0x301900);
-    write_item(idle_to_reset);
-    flush_write(ftdi, NULL);
+    write_cfg_in(ftdi, 0x301900, 0);
     write_item(shift_to_exit1);
     bypass_test(ftdi, 3, 1);
     for (i = 0; i < 3; i++) {
@@ -1209,20 +1217,7 @@ int main(int argc, char **argv)
         write_item(idle_to_reset);
         bypass_test(ftdi, 3, 1);
     }
-    write_item(idle_to_reset);
-    write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
-    write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    read_status(ftdi, 0xf07910);
-    write_item(idle_to_reset);
-    if (found_zynq) {
-        write_item(shift_to_exit1);
-        bypass_test(ftdi, 3, 1);
-        write_item(idle_to_reset);
-        bypass_test(ftdi, 3, 1);
-    }
-    flush_write(ftdi, NULL);
+    write_cfg_in(ftdi, 0xf07910, 1);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

@@ -38,11 +38,7 @@
 #include <fcntl.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-
 #include "util.h"
-
-static int dont_run_pciescan;
-static int skip_penultimate_byte = 1;
 
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
@@ -102,12 +98,76 @@ static int skip_penultimate_byte = 1;
 #define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)
 #define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
 
+/*
+ * Xilinx constants
+ */
+//#define CLOCK_FREQUENCY      15000000
+#define CLOCK_FREQUENCY      30000000
+#define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
+
+#define COMBINE_IR_REG(FPGAREG, CORTEXREG) \
+     (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
+
+/* FPGA registers */
+#define IRREG_USER2          COMBINE_IR_REG(0x03, 0xf)
+#define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
+#define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
+#define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
+#define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
+#define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
+#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
+#define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
+
+/* ARM JTAG-DP registers */
+#define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
+#define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
+#define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
+    #define AP_CSW           0
+    #define AP_TAR           2
+    #define AP_DRW           6
+#define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
+#define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
+
+#define SMAP_DUMMY           0xffffffff
+#define SMAP_SYNC            0xaa995566
+
+// Type 1 Packet
+#define SMAP_TYPE1(OPCODE,REG,COUNT) \
+    (0x20000000 | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
+#define SMAP_OP_NOP         0
+#define SMAP_OP_READ        1
+#define SMAP_OP_WRITE       2
+#define SMAP_REG_CMD     0x04  // CMD register, Table 5-22
+#define     SMAP_CMD_DESYNC 0x0000000d  // end of configuration
+#define SMAP_REG_STAT    0x07  // STAT register, Table 5-25
+#define SMAP_REG_BOOTSTS 0x16  // BOOTSTS register, Table 5-35
+
+// Type 2 Packet
+#define SMAP_TYPE2(LEN) (0x40000000 | (LEN))
+
+/*
+ * ARM Cortex constants
+ */
+#define CORTEX_IDCODE 0x4ba00477
+
+#define LOADDR(AREAD, VALUE32BITS, EXTRA3BITS) \
+    IDLE_TO_SHIFT_DR, \
+    DATAWBIT, 0x00, 0x00, \
+    DATAW((AREAD), 4), \
+    INT32((((uint64_t)(VALUE32BITS)) << 3) | (EXTRA3BITS)), \
+    DATAWBIT | (AREAD), 0x01, (((VALUE32BITS)>>29) & 0x3f),\
+    SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((VALUE32BITS)>>24) & 0x80))
+
 static int number_of_devices = 1;
 static int found_zynq;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
+static int dont_run_pciescan;
+static int skip_penultimate_byte = 1;
+static uint8_t *command_ending;
+static int first_time_idcode_read = 1;
 
 static uint16_t fetch16(int linenumber, struct ftdi_context *ftdi)
 {
@@ -179,53 +239,6 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     }
 }
 
-/*
- * Xilinx constants
- */
-//#define CLOCK_FREQUENCY      15000000
-#define CLOCK_FREQUENCY      30000000
-#define MAX_PACKET_STRING    10
-
-#define COMBINE_IR_REG(FPGAREG, CORTEXREG) \
-     (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
-
-/* FPGA registers */
-#define IRREG_USER2          COMBINE_IR_REG(0x03, 0xf)
-#define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
-#define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
-#define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
-#define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
-#define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
-#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
-#define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
-
-/* ARM JTAG-DP registers */
-#define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
-#define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
-#define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
-    #define AP_CSW           0
-    #define AP_TAR           2
-    #define AP_DRW           6
-#define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
-#define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
-
-#define SMAP_DUMMY           0xffffffff
-#define SMAP_SYNC            0xaa995566
-
-// Type 1 Packet
-#define SMAP_TYPE1(OPCODE,REG,COUNT) \
-    (0x20000000 | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
-#define SMAP_OP_NOP         0
-#define SMAP_OP_READ        1
-#define SMAP_OP_WRITE       2
-#define SMAP_REG_CMD     0x04  // CMD register, Table 5-22
-#define     SMAP_CMD_DESYNC 0x0000000d  // end of configuration
-#define SMAP_REG_STAT    0x07  // STAT register, Table 5-25
-#define SMAP_REG_BOOTSTS 0x16  // BOOTSTS register, Table 5-35
-
-// Type 2 Packet
-#define SMAP_TYPE2(LEN) (0x40000000 | (LEN))
-
 #define PATTERN1 \
          INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
          INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
@@ -241,20 +254,8 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
 
-#define CORTEX_IDCODE 0x4ba00477
 static uint8_t idcode_pattern1[] = DITEM(INT32(0), PATTERN1, 0x00); // starts with idcode
 static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0x00); // starts with idcode
-static uint8_t *command_ending;
-static int idcode_setup;
-
-#define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
-
-/****************** Cortex stuff ******************/
-#define LOADDR(AREAD, A, B) \
-    IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00, \
-    DATAW((AREAD), 4), INT32((((uint64_t)(A)) << 3) | (B)), \
-    DATAWBIT | (AREAD), 0x01, (((A)>>29) & 0x3f),\
-    SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((A)>>24) & 0x80))
 
 #define VAL1          0x15137030
 #define VAL2          0x0310c002
@@ -543,7 +544,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
         patdata, sizeof(patdata), 9999);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_pattern1[0]);
-    if (!idcode_setup) {    // only setup idcode patterns on first call!
+    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         memcpy(&returnedid, rdata, sizeof(returnedid));
         idcode |= 0xf0000000 & returnedid;
         memcpy(idcode_pattern2+1, rdata, sizeof(returnedid)); // copy returned idcode
@@ -558,7 +559,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
             memcpy(idcode_pattern2+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             number_of_devices++;
         }
-        idcode_setup = 1;
+        first_time_idcode_read = 0;
         if (idcode != returnedid) {
             printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, returnedid);
             exit(1);
@@ -586,11 +587,15 @@ static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
     return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
 }
 
-static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
+static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
 {
     int i;
     uint64_t ret40;
 
+    if (input_shift)
+        write_item(shift_to_exit1);
+    else
+        write_item(idle_to_reset);
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
@@ -648,7 +653,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     printf("Done sending file\n");
 }
 
-static void write_cfg_in(struct ftdi_context *ftdi, uint32_t expected, int after)
+static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after)
 {
     write_item(idle_to_reset);
     if (after)
@@ -656,6 +661,10 @@ static void write_cfg_in(struct ftdi_context *ftdi, uint32_t expected, int after
     write_item(DITEM(RESET_TO_IDLE));
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
+    /*
+     * Read Xilinx configuration status register
+     * See: ug470_7Series_Config.pdf, Chapter 6
+     */
     write_dataw(19 + found_zynq);
     swap32(SMAP_DUMMY);
     swap32(SMAP_SYNC);
@@ -671,10 +680,8 @@ static void write_cfg_in(struct ftdi_context *ftdi, uint32_t expected, int after
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
     write_item(idle_to_reset);
     if (after && found_zynq) {
-        write_item(shift_to_exit1);
-        bypass_test(ftdi, 3, 1);
-        write_item(idle_to_reset);
-        bypass_test(ftdi, 3, 1);
+        bypass_test(ftdi, 3, 1, 1);
+        bypass_test(ftdi, 3, 1, 0);
     }
     flush_write(ftdi, NULL);
 }
@@ -775,10 +782,8 @@ int main(int argc, char **argv)
     /*
      * Step 5: Check Device ID
      */
-    write_item(idle_to_reset);
-    bypass_test(ftdi, 2 + number_of_devices, 0);
-    write_item(idle_to_reset);
-    bypass_test(ftdi, 3, 1);
+    bypass_test(ftdi, 2 + number_of_devices, 0, 0);
+    bypass_test(ftdi, 3, 1, 0);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
 
@@ -808,13 +813,10 @@ int main(int argc, char **argv)
         else
             printf("xjtag: bypass mismatch %x\n", ret16);
     }
-    write_cfg_in(ftdi, 0x301900, 0);
-    write_item(shift_to_exit1);
-    bypass_test(ftdi, 3, 1);
-    for (i = 0; i < 3; i++) {
-        write_item(idle_to_reset);
-        bypass_test(ftdi, 3, 1);
-    }
+    check_status(ftdi, 0x301900, 0);
+    bypass_test(ftdi, 3, 1, 1);
+    for (i = 0; i < 3; i++)
+        bypass_test(ftdi, 3, 1, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -860,11 +862,9 @@ int main(int argc, char **argv)
     ret16 = write_bypass(ftdi);
     if (ret16 != (found_zynq ? 0xae : 0x2f))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
-    if (!found_zynq) {
-        write_item(idle_to_reset);
-        bypass_test(ftdi, 3, 1);
-    }
-    write_cfg_in(ftdi, 0xf07910, 1);
+    if (!found_zynq)
+        bypass_test(ftdi, 3, 1, 0);
+    check_status(ftdi, 0xf07910, 1);
 
     /*
      * Cleanup and free USB device

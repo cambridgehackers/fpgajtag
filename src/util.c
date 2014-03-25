@@ -29,10 +29,10 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <libusb.h>
+#include "util.h"
 
 // for using libftdi.so
 //#define USE_LIBFTDI
-#include "util.h"
 
 #define USB_TIMEOUT     5000
 #define ENDPOINT_IN     0x02
@@ -46,6 +46,7 @@
 #define USBSIO_SET_BAUD_RATE             3 /* Set baud rate */
 #define USBSIO_SET_LATENCY_TIMER_REQUEST 9
 #define USBSIO_SET_BITMODE_REQUEST       11
+#define MAX_ITEM_LENGTH 2000
 
 static int logall = 1;
 static int datafile_fd = -1;
@@ -68,8 +69,10 @@ static libusb_device_handle *usbhandle = NULL;
 static struct libusb_context *usb_context;
 static uint8_t usbreadbuffer[USB_CHUNKSIZE];
 static uint8_t *usbreadbuffer_ptr = usbreadbuffer;
+static int read_size[MAX_ITEM_LENGTH];
+static int read_size_ptr;
 
-void openlogfile(void)
+static void openlogfile(void)
 {
     if (!logfile)
         logfile = fopen("/tmp/xx.logfile2", "w");
@@ -244,6 +247,9 @@ struct ftdi_context *init_ftdi(void)
     return ftdi;
 }
 
+/*
+ * Write utility functions
+ */
 void write_data(uint8_t *buf, int size)
 {
     memcpy(usbreadbuffer_ptr, buf, size);
@@ -255,14 +261,16 @@ void write_item(uint8_t *buf)
     write_data(buf+1, buf[0]);
 }
 
-#define MAX_ITEM_LENGTH 2000
-static int read_size[MAX_ITEM_LENGTH];
-static int read_size_ptr;
+int buffer_current_size(void)
+{
+    return usbreadbuffer_ptr - usbreadbuffer;
+}
+
 void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 {
     if (req)
         write_item(req);
-    int write_length = usbreadbuffer_ptr - usbreadbuffer;
+    int write_length = buffer_current_size();
     usbreadbuffer_ptr = usbreadbuffer;
     if (!write_length)
         return;
@@ -310,6 +318,9 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
     }
 }
 
+/*
+ * Read utility functions
+ */
 uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
@@ -354,18 +365,14 @@ printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expec
     return last_read_data;
 }
 
-static uint64_t extract_int(uint8_t *bufp, int size)
+uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
 {
+    uint8_t *bufp = read_data(linenumber, ftdi, size);
     uint64_t ret = 0;
     uint8_t *backp = bufp + size;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
     return ret;
-}
-
-uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
-{
-    return extract_int(read_data(linenumber, ftdi, size), size);
 }
 
 uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf)
@@ -379,9 +386,4 @@ uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
     return rdata;
-}
-
-int buffer_current_size(void)
-{
-    return usbreadbuffer_ptr - usbreadbuffer;
 }

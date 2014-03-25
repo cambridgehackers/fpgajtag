@@ -696,18 +696,18 @@ static void write_jtag_irreg_extra(int read, int command, int goto_idle)
     }
 }
 
-static void write_jtag_irreg(int read, int command)
+static void write_jtag_irreg_short(int read, int command, int extra_bit)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
-    write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
+    if (found_zynq)
+        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extra_bit)));
+    else
+        write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
 static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int extra_bit)
 {
-    if (found_zynq)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATARWBIT, 4, M(command), SHIFT_TO_PAUSE(DREAD, extra_bit))); //JTAG_IRREG
-    else
-        write_jtag_irreg(DREAD, command);
+    write_jtag_irreg_short(DREAD, command, extra_bit);
     write_item(DITEM(SEND_IMMEDIATE));
     uint16_t ret16 = fetch16(__LINE__, ftdi);
     if (found_zynq) {
@@ -1217,7 +1217,7 @@ int main(int argc, char **argv)
     if (found_zynq)
         write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
     else {
-        write_jtag_irreg(0, IRREG_BYPASS);
+        write_jtag_irreg_short(0, IRREG_BYPASS, 0);
         exit1_to_idle();
         flush_write(ftdi);
     }

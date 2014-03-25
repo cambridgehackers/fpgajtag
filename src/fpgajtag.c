@@ -108,7 +108,7 @@
 #define COMBINE_IR_REG(FPGAREG, CORTEXREG) \
      (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
 
-/* FPGA registers */
+/* FPGA JTAG registers */
 #define IRREG_USER2          COMBINE_IR_REG(0x03, 0xf)
 #define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
 #define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
@@ -118,16 +118,9 @@
 #define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
 #define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
-/* ARM JTAG-DP registers */
-#define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
-#define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
-#define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
-    #define AP_CSW           0
-    #define AP_TAR           2
-    #define AP_DRW           6
-#define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
-#define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
-
+/*
+ * SMAP registers
+ */
 #define SMAP_DUMMY           0xffffffff
 #define SMAP_SYNC            0xaa995566
 
@@ -150,6 +143,16 @@
  */
 #define CORTEX_IDCODE 0x4ba00477
 
+/* ARM JTAG-DP registers */
+#define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
+#define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
+#define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
+    #define AP_CSW           0
+    #define AP_TAR           2
+    #define AP_DRW           6
+#define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
+#define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
+
 #define LOADDR(AREAD, VALUE32BITS, EXTRA3BITS) \
     IDLE_TO_SHIFT_DR, \
     DATAWBIT, 0x00, 0x00, \
@@ -157,6 +160,34 @@
     INT32((((uint64_t)(VALUE32BITS)) << 3) | (EXTRA3BITS)), \
     DATAWBIT | (AREAD), 0x01, (((VALUE32BITS)>>29) & 0x3f),\
     SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((VALUE32BITS)>>24) & 0x80))
+
+/* Cortex request extra 3 bit field */
+/* 2 bits of register selector */
+#define DPACC_CTRL     (1 << 1)
+    // Coresight: Figure 2-14
+    #define CORTEX_DEFAULT_STATUS 0xf0000001
+    // CSYSPWRUPACK,CSYSPWRUPREQ,CDBGPWRUPACK,CDBGPWRUPREQ,ORUNDETECT
+#define DPACC_SELECT   (2 << 1)
+#define DPACC_RDBUFF   (3 << 1)
+/* 1 bit of Write/nRead */
+#define DPACC_WRITE        0x1
+
+/* Cortex response extra 3 bit field */
+#define DPACC_RESPONSE_OK 0x2
+
+#define DEFAULT_CSW   0xe0000042
+                      // Coresight: Table 2-20
+                      // DbgStatus=1 -> AHB transfers permitted
+                      // Size=2      -> 32 bits
+#define SELECT_DEBUG  0x01000000
+
+/*
+ * Zynq constants
+ * (Addresses from ug585-Zynq-7000-TRM.pdf)
+ */
+#define ADDRESS_DEVCFG_MCTRL      0xf8007080
+#define ADDRESS_SLCR_ARM_PLL_CTRL 0xf8000100
+#define ADDRESS_SLCR_ARM_CLK_CTRL 0xf8000120
 
 static int number_of_devices = 1;
 static int found_zynq;
@@ -168,6 +199,23 @@ static int dont_run_pciescan;
 static int skip_penultimate_byte = 1;
 static uint8_t *command_ending;
 static int first_time_idcode_read = 1;
+
+static void pulse_gpio(struct ftdi_context *ftdi, int delay)
+{
+#define GPIO_DONE            0x10
+#define GPIO_01              0x01
+#define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
+
+    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+                     SET_LSB_DIRECTION(GPIO_DONE)));
+    while(delay > 65536) {
+        write_item(DITEM(CLK_BYTES, INT16(65536 - 1)));
+        delay -= 65536;
+    }
+    write_item(DITEM(CLK_BYTES, INT16(delay-1)));
+    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+                     SET_LSB_DIRECTION(GPIO_01)));
+}
 
 static uint16_t fetch16(int linenumber, struct ftdi_context *ftdi)
 {
@@ -190,27 +238,37 @@ static void swap32(uint32_t value)
 #define SWAP32(A)          MS((A) >> 24), MS((A) >> 16), MS((A) >> 8), MS(A)
     write_item(DITEM(SWAP32(value)));
 }
+
 static void write_dswap32(uint32_t value)
 {
     write_dataw(4);
     swap32(value);
 }
 
-static void pulse_gpio(struct ftdi_context *ftdi, int delay)
+static void write_one_word(int short_format, int value)
 {
-#define GPIO_DONE            0x10
-#define GPIO_01              0x01
-#define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
+    if (short_format)
+        write_item(DITEM(INT32(value)));
+    else
+        write_item(DITEM(value, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+}
 
-    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-                     SET_LSB_DIRECTION(GPIO_DONE)));
-    while(delay > 65536) {
-        write_item(DITEM(CLK_BYTES, INT16(65536 - 1)));
-        delay -= 65536;
+static void write_eight_bytes(void)
+{
+    if (found_zynq) {
+        write_item(DITEM(DATAW(0, 7), INT32(0)));
+        write_one_word(0, 0);
     }
-    write_item(DITEM(CLK_BYTES, INT16(delay-1)));
-    write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
-                     SET_LSB_DIRECTION(GPIO_01)));
+}
+
+static void read_rdbuff(void)
+{
+    write_item(DITEM(LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)));
+}
+
+static void exit1_to_idle(void)
+{
+    write_item(DITEM(EXIT1_TO_IDLE));
 }
 
 static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
@@ -239,64 +297,38 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     }
 }
 
-#define PATTERN1 \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
-
-#define PATTERN2 \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
-
-static uint8_t idcode_pattern1[] = DITEM(INT32(0), PATTERN1, 0x00); // starts with idcode
-static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0x00); // starts with idcode
-
-#define VAL1          0x15137030
-#define VAL2          0x0310c002
-#define VAL3          0x1f000200
-#define VAL4          0x03008002
-#define VAL5          0x00028000
-#define VAL6          0xe001b400
-#define SELECT_DEBUG  0x01000000
-
-/* request */
-#define DPACC_CTRL     (1 << 1)
-    // Coresight: Figure 2-14
-    #define CORTEX_DEFAULT_STATUS 0xf0000001
-    // CSYSPWRUPACK,CSYSPWRUPREQ,CDBGPWRUPACK,CDBGPWRUPREQ,ORUNDETECT
-#define DPACC_SELECT   (2 << 1)
-#define DPACC_RDBUFF   (3 << 1)
-
-#define DPACC_WRITE        0x1
-
-/* response */
-#define DPACC_RESPONSE_OK 0x2
-#define DEFAULT_CSW   0xe0000042
-                      // Coresight: Table 2-20
-                      // DbgStatus=1 -> AHB transfers permitted
-                      // Size=2      -> 32 bits
-
-/* Addresses from ug585-Zynq-7000-TRM.pdf */
-#define ADDRESS_DEVCFG_MCTRL      0xf8007080
-#define ADDRESS_SLCR_ARM_PLL_CTRL 0xf8000100
-#define ADDRESS_SLCR_ARM_CLK_CTRL 0xf8000120
-
-static void read_rdbuff(void)
+static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
-    write_item(DITEM(LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)));
+    int size, i;
+    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_eight_bytes();
+    write_dswap32(0);
+    int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
+    printf("Starting to send file\n");
+    do {
+        static uint8_t filebuffer[FILE_READSIZE];
+        size = read(inputfd, filebuffer, FILE_READSIZE);
+        for (i = 0; i < size; i++)
+            filebuffer[i] = bitswap[filebuffer[i]];
+        if (size < FILE_READSIZE) {
+            if (found_zynq)
+                tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
+            else
+                tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
+        }
+        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len);
+        if (size != FILE_READSIZE)
+            break;
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        limit_len = MAX_SINGLE_USB_DATA;
+    } while(size == FILE_READSIZE);
+    printf("Done sending file\n");
 }
 
-static void exit1_to_idle(void)
-{
-    write_item(DITEM(EXIT1_TO_IDLE));
-}
-
+/*
+ * Functions for setting Instruction Register(IR)
+ */
 static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
     if (trace)
@@ -347,6 +379,9 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
     return fetch24(__LINE__, ftdi);
 }
 
+/*
+ * Functions used in testing Cortex core
+ */
 static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
 {
     uint8_t *rdata;
@@ -393,6 +428,13 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     }
     return rdata;
 }
+
+#define VAL1          0x15137030
+#define VAL2          0x0310c002
+#define VAL3          0x1f000200
+#define VAL4          0x03008002
+#define VAL5          0x00028000
+#define VAL6          0xe001b400
 
 static void cortex_pair(uint32_t v)
 {
@@ -504,6 +546,7 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
     tar_read(0x80092028);
     check_read_cortex(__LINE__, ftdi, creturn2, 1);
 }
+
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
     cortex_csw(ftdi, 1-cortex_nowait, 0);
@@ -535,6 +578,27 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
+#define PATTERN1 \
+         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
+         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
+         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
+
+#define PATTERN2 \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
+
+static uint8_t idcode_pattern1[] = DITEM(INT32(0), PATTERN1, 0x00); // starts with idcode
+static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0x00); // starts with idcode
+
+/*
+ * Read/validate IDCODE from device to be programmed
+ */
 static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 {
     static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
@@ -606,51 +670,6 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int
     }
     if (found_zynq)
         cortex_bypass(ftdi, cortex_nowait);
-}
-
-static void write_one_word(int short_format, int value)
-{
-    if (short_format)
-        write_item(DITEM(INT32(value)));
-    else
-        write_item(DITEM(value, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
-}
-
-static void write_eight_bytes(void)
-{
-    if (found_zynq) {
-        write_item(DITEM(DATAW(0, 7), INT32(0)));
-        write_one_word(0, 0);
-    }
-}
-
-static void send_data_file(struct ftdi_context *ftdi, int inputfd)
-{
-    int size, i;
-    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_eight_bytes();
-    write_dswap32(0);
-    int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
-    printf("Starting to send file\n");
-    do {
-        static uint8_t filebuffer[FILE_READSIZE];
-        size = read(inputfd, filebuffer, FILE_READSIZE);
-        for (i = 0; i < size; i++)
-            filebuffer[i] = bitswap[filebuffer[i]];
-        if (size < FILE_READSIZE) {
-            if (found_zynq)
-                tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
-            else
-                tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
-        }
-        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len);
-        if (size != FILE_READSIZE)
-            break;
-        write_item(DITEM(PAUSE_TO_SHIFT));
-        limit_len = MAX_SINGLE_USB_DATA;
-    } while(size == FILE_READSIZE);
-    printf("Done sending file\n");
 }
 
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after)

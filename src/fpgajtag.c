@@ -1101,12 +1101,11 @@ int main(int argc, char **argv)
         }
     }
 
+    /*
+     * Initialization
+     */
     for (i = 0; i < sizeof(bitswap); i++)
         bitswap[i] = BSWAP(i);
-    lseek(inputfd, 0x80, SEEK_SET); /*** Read idcode from file to be programmed ***/
-    read(inputfd, &idcode, sizeof(idcode));
-    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
-    lseek(inputfd, 0, SEEK_SET);
     init_usb(serialno);             /*** Initialize USB interface ***/
     ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
@@ -1114,8 +1113,14 @@ int main(int argc, char **argv)
     if (!found_232H)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
+
+    lseek(inputfd, 0x80, SEEK_SET); /*** Read idcode from file to be programmed ***/
+    read(inputfd, &idcode, sizeof(idcode));
+    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
+    lseek(inputfd, 0, SEEK_SET);
     write_item(shift_to_exit1);
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
+    /*** Depending on the idcode read, change some default actions ***/
     if (found_zynq) {
         dont_run_pciescan = 1;
         skip_penultimate_byte = 0;
@@ -1129,7 +1134,6 @@ int main(int argc, char **argv)
     /*
      * Step 5: Check Device ID
      */
-
     write_item(idle_to_reset);
     bypass_test(ftdi, 2 + number_of_devices, 0);
     write_item(idle_to_reset);
@@ -1181,6 +1185,7 @@ int main(int argc, char **argv)
     ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP, 0);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
+
     /*
      * Step 6: Load Configuration Data Frames
      */
@@ -1188,6 +1193,7 @@ int main(int argc, char **argv)
     if (ret16 != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
+
     /*
      * Step 8: Startup
      */
@@ -1218,6 +1224,10 @@ int main(int argc, char **argv)
         bypass_test(ftdi, 3, 1);
     }
     write_cfg_in(ftdi, 0xf07910, 1);
+
+    /*
+     * Cleanup and free USB device
+     */
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else

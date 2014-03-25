@@ -746,7 +746,7 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
         uint32_t ret32 = ret;
         tempdata[tempdata_index++] = ret32;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error in cortex data[%ld] actual %x expected %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            printf("[%s:%d] Error [%ld] actual %x expect %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
             memdump(bufp, 6, "RX");
             err = 1;
         }
@@ -798,10 +798,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cortex_pair(0x80092088);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
-    if (!wait)
-        cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
-    else
-        cresp[1] = (uint32_t[]){3, 0, 0x00800042, CORTEX_DEFAULT_STATUS,};
+    cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
     write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
     for (i = 0; i < 2; i++) {
@@ -975,9 +972,9 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait)
         cortex_bypass(ftdi, cortex_nowait);
 }
 
-static void write_one_word(int value)
+static void write_one_word(int short_format, int value)
 {
-    if (found_zynq)
+    if (short_format)
         write_item(DITEM(INT32(value)));
     else
         write_item(DITEM(value, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
@@ -985,8 +982,10 @@ static void write_one_word(int value)
 
 static void write_eight_bytes(void)
 {
-    if (found_zynq)
-        write_item(DITEM(DATAW(0, 7), INT32(0), 0x00, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+    if (found_zynq) {
+        write_item(DITEM(DATAW(0, 7), INT32(0)));
+        write_one_word(0, 0);
+    }
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int inputfd)
@@ -1025,7 +1024,7 @@ static void read_status(struct ftdi_context *ftdi, uint32_t expected)
     swap32(SMAP_SYNC);
     swap32(SMAP_TYPE2(0));
     swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
-    write_one_word(0);
+    write_one_word(found_zynq, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     uint64_t ret40 = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
     uint32_t status = ret40 >> 8;
@@ -1052,7 +1051,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_item(DITEM(DATAW(0, 3+found_zynq)));
     if (found_zynq)
         temp = 0x80;
-    write_one_word(4);
+    write_one_word(found_zynq, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, temp)));
     exit1_to_idle();
     write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
@@ -1167,7 +1166,7 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     read_status(ftdi, 0x301900);
-    write_data(idle_to_reset+1, idle_to_reset[0]);
+    write_item(idle_to_reset);
     flush_write(ftdi);
     write_item(shift_to_exit1);
     bypass_test(ftdi, 3, 1);

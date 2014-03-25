@@ -194,7 +194,6 @@ static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
-static int dont_run_pciescan;
 static int skip_penultimate_byte = 1;
 static uint8_t *command_ending;
 static int first_time_idcode_read = 1;
@@ -789,7 +788,6 @@ int main(int argc, char **argv)
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
     if (found_zynq) {
-        dont_run_pciescan = 1;
         skip_penultimate_byte = 0;
         command_ending = DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
         opcode_bits = 0x05;
@@ -824,13 +822,13 @@ int main(int argc, char **argv)
     for (i = 0; i < 3; i++) {
         ret16 = write_bypass(ftdi);
         if (ret16 == 0x8 || (found_zynq && ret16 == 0x8a))
-            printf("xjtag: bypass first time %x\n", ret16);
+            printf("fpgajtag: bypass first time %x\n", ret16);
         else if (ret16 == 0x11)
-            printf("xjtag: bypass next times %x\n", ret16);
+            printf("fpgajtag: bypass next times %x\n", ret16);
         else if (ret16 == 0x2f)
-            printf("xjtag: bypass already programmed %x\n", ret16);
+            printf("fpgajtag: bypass already programmed %x\n", ret16);
         else
-            printf("xjtag: bypass mismatch %x\n", ret16);
+            printf("fpgajtag: bypass mismatch %x\n", ret16);
     }
     check_status(ftdi, 0x301900, 0);
     bypass_test(ftdi, 3, 1, 1);
@@ -889,7 +887,6 @@ int main(int argc, char **argv)
      * Cleanup and free USB device
      */
     close_usb(ftdi);
-    if (!dont_run_pciescan)
-        execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+    execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

@@ -180,6 +180,8 @@ void close_usb(struct ftdi_context *ftdi)
     libusb_exit(usb_context);
 #endif
     fflush(stdout);
+    fclose(logfile);
+    close(datafile_fd);
 }
 
 #ifndef USE_LIBFTDI

@@ -115,7 +115,7 @@
 #define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
 #define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
 #define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
-#define IRREG_BYPASS         COMBINE_IR_REG(((1<<EXTRA_BIT_SHIFT) | 0x3f), 0xf) // even on PCIE, this has an extra bit
+#define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /*
  * SMAP registers
@@ -355,9 +355,9 @@ static void write_jtag_irreg_short(int read, int command, int extra_bit)
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
-static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int extra_bit)
+static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
 {
-    write_jtag_irreg_short(DREAD, command, extra_bit);
+    write_jtag_irreg_short(DREAD, command, EXTRA_BIT_ADDITION(command));
     write_item(DITEM(SEND_IMMEDIATE));
     uint16_t ret16 = fetch16(__LINE__, ftdi);
     if (found_zynq) {
@@ -844,14 +844,14 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, IRREG_JPROGRAM, 0);
     write_jtag_irreg_extra(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP, 0);
+    ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    ret16 = write_combo_irreg(ftdi, IRREG_CFG_IN, 0);
+    ret16 = write_combo_irreg(ftdi, IRREG_CFG_IN & ~EXTRA_BIT_MASK);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
@@ -865,7 +865,7 @@ int main(int argc, char **argv)
     write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
     write_jtag_irreg_extra(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
-    ret16 = write_combo_irreg(ftdi, IRREG_BYPASS, 0x80);
+    ret16 = write_combo_irreg(ftdi, IRREG_BYPASS);
     if (ret16 != (found_zynq ? 0x17 : 0x2b))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))

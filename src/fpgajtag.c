@@ -53,13 +53,12 @@
 /*
  * FTDI constants
  */
-#define MREAD   (MPSSE_LSB|MPSSE_READ_NEG)
-#define MWRITE  (MPSSE_LSB|MPSSE_WRITE_NEG)
-#define DREAD   (MPSSE_DO_READ  | MREAD)
-#define DWRITE  (MPSSE_DO_WRITE | MWRITE)
+#define MWRITE    (MPSSE_LSB|MPSSE_WRITE_NEG)
+#define DWRITE    (MPSSE_DO_WRITE | MWRITE)
+#define DREAD     (MPSSE_DO_READ  | MPSSE_LSB|MPSSE_READ_NEG)
 
-#define TMSW  (MPSSE_WRITE_TMS      |MWRITE|MPSSE_BITMODE)//4b
-#define TMSRW (MPSSE_WRITE_TMS|DREAD|MWRITE|MPSSE_BITMODE)//6f
+#define TMSW      (MPSSE_WRITE_TMS      |MWRITE|MPSSE_BITMODE)//4b
+#define TMSRW     (MPSSE_WRITE_TMS|DREAD|MWRITE|MPSSE_BITMODE)//6f
 
 #define DATAWBIT  (DWRITE|MPSSE_BITMODE)       //1b
 #define DATARBIT  (DREAD |MPSSE_BITMODE)       //2e
@@ -73,30 +72,30 @@
 #define IDLE_TO_RESET      TMSW, 0x02, 0x07  /* Idle -> Reset */
 #define RESET_TO_IDLE      TMSW, 0x00, 0x00  /* Reset -> Idle */
 #define IN_RESET_STATE     TMSW, 0x00, 0x7f  /* Marker for Reset */
+#define PAUSE_TO_SHIFT     TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
+#define FORCE_RETURN_TO_RESET TMSW, 0x04, 0x1f /* go back to TMS reset state */
+#define RESET_TO_SHIFT_DR     TMSW, 0x03, 0x02  /* Reset -> Shift-DR */
+
+#define TMS_WAIT           TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x06, 0x00
+#define TMSW_DELAY                                             \
+         RESET_TO_IDLE,  /* Hang out in Idle for a while */ \
+         TMS_WAIT, TMS_WAIT, TMS_WAIT, TMS_WAIT, \
+         TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x01, 0x00
+
 #define SHIFT_TO_EXIT1(READA, A) \
      TMSW | (READA), 0x00, ((A) | 0x01)             /* Shift-IR -> Exit1-IR */
 #define SHIFT_TO_PAUSE(READA, A) \
      TMSW | (READA), 0x01, ((A) | 0x01)             /* Shift-IR -> Pause-IR */
 #define SHIFT_TO_UPDATE(READA, A) \
-     TMSW | (READA), 0x01, ((A) | 0x03)
+     TMSW | (READA), 0x01, ((A) | 0x03)             /* Shift-DR -> Update-DR */
 #define SHIFT_TO_UPDATE_TO_IDLE(READA, A) \
      TMSW | (READA), 0x02, ((A) | 0x03)    /* Shift-DR -> Update-DR -> Idle */
-#define FORCE_RETURN_TO_RESET TMSW, 0x04, 0x1f /* go back to TMS reset state */
-#define RESET_TO_SHIFT_DR     TMSW, 0x03, 0x02  /* Reset -> Shift-DR */
-#define TMS_WAIT \
-         TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x06, 0x00
-#define TMSW_DELAY                                             \
-         RESET_TO_IDLE,  /* Hang out in Idle for a while */ \
-         TMS_WAIT, TMS_WAIT, TMS_WAIT, TMS_WAIT, \
-         TMSW, 0x06, 0x00, TMSW, 0x06, 0x00, TMSW, 0x01, 0x00
-#define PAUSE_TO_SHIFT       TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
 
 #define EXTEND_EXTRA            0xc0
 #define EXTRA_BIT_SHIFT         12
 #define EXTRA_IRREG_BIT_SHIFT    8
 #define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
 #define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)
-#define EXTRA_BIT(READA, B)     DATAWBIT | (READA), 0x02, M((IRREG_BYPASS<<4) | (B)),
 
 /*
  * Xilinx constants
@@ -333,9 +332,10 @@ static void write_jtag_irreg_extra(int read, int command, int goto_idle)
 {
     if (trace)
         printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, goto_idle);
+    /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
-    if (found_zynq)
-        write_item(DITEM(EXTRA_BIT(read, ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
+    if (found_zynq)     /* 3 extra bits of IR are sent here */
+        write_item(DITEM(DATAWBIT | read, 0x02, M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (goto_idle == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, 0x80)));
     else if (goto_idle)
@@ -362,7 +362,7 @@ static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command, int ex
     uint16_t ret16 = fetch16(__LINE__, ftdi);
     if (found_zynq) {
         write_item(DITEM(PAUSE_TO_SHIFT));
-        write_item(DITEM(EXTRA_BIT(0, 0xf) SHIFT_TO_EXIT1(0, 0x80)));
+        write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
     }
     exit1_to_idle();
     return ret16;

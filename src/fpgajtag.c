@@ -139,6 +139,7 @@
 
 /*
  * ARM Cortex constants
+ * IHI0031C_debug_interface_as.pdf, Figure 7-1
  */
 #define CORTEX_IDCODE 0x4ba00477
 
@@ -146,7 +147,7 @@
 #define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
 #define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
 #define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
-    #define AP_CSW           0
+    #define AP_CSW           0                           /* MEM-AP registers */
     #define AP_TAR           2
     #define AP_DRW           6
 #define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
@@ -179,6 +180,18 @@
                       // DbgStatus=1 -> AHB transfers permitted
                       // Size=2      -> 32 bits
 #define SELECT_DEBUG  0x01000000
+
+// MEM-AP accessable registers
+// From DDI0388I_cortex_a9_r4p1_trm.pdf, Table 10-1
+// Detailed description of each register is also in:
+//   DDI0406B_arm_architecture_reference_manual_errata_markup_10_0.pdf (but no table!!)
+#define DEBUG_REGISTER_BASE 0x80090000
+
+#define DBGDIDR    0x000  /* ARMARM, C10.2.1: Debug ID */
+#define DBGPRSR    0x314  /* ARMARM, C10.3.5: Device Power-down and Reset Status */
+#define DBGITR     0x084  /* ARMARM, C10.4.3: Instruction Transfer */
+#define DBGDSCRext 0x088  /* ARMARM, C10.3.1: Debug Status and Control */
+#define DBGPCSR    0x028  /* ARMARM, C10.3.6: Program Counter Sampling */
 
 /*
  * Zynq constants
@@ -429,15 +442,17 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
 }
 
 #define VAL1          0x15137030
-#define VAL2          0x0310c002
+#define ARM_INSTRUCTION2  0x0310c002   /* ARM instruction?? or could be DebugID output */
 #define VAL3          0x1f000200
-#define VAL4          0x03008002
+#define VAL4          0x03008002       /* ARM instruction?? or could be DebugID output */
 #define VAL5          0x00028000
 #define VAL6          0xe001b400
 
 static void cortex_pair(uint32_t v)
 {
-    write_item(DITEM(LOADDR(0, v, AP_TAR), LOADDR(DREAD, 0x0300c002, AP_DRW), LOADDR(DREAD, VAL2, AP_DRW)));
+    write_item(DITEM(LOADDR(0, v, AP_TAR),
+        LOADDR(DREAD, 0x0300c002, AP_DRW),     /* ARM instruction: MOVW R12, #2 */
+        LOADDR(DREAD, ARM_INSTRUCTION2, AP_DRW)));
 }
 
 static void write_select(int bus)
@@ -463,12 +478,12 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     write_jtag_irreg(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
-    // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
+    //CSYSPWRUPREQ,CDBGPWRUPREQ,STICKYERR,STICKYCMP,STICKYORUN,ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
         write_jtag_irreg(0, IRREGA_APACC, 2);
-        cortex_pair(0x80092088);
+        cortex_pair(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
@@ -532,17 +547,17 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
     write_select(1);
-    tar_read(0x80090000);
-    tar_read(0x80090314);
-    tar_read(0x80090088);
-    tar_read(0x80090028);
+    tar_read(DEBUG_REGISTER_BASE | DBGDIDR);
+    tar_read(DEBUG_REGISTER_BASE | DBGPRSR);
+    tar_read(DEBUG_REGISTER_BASE | DBGDSCRext);
+    tar_read(DEBUG_REGISTER_BASE | DBGPCSR);
     check_read_cortex(__LINE__, ftdi, creturn1, 1);
     write_jtag_irreg(0, IRREGA_APACC, 2);
-    cortex_pair(0x80090088);
-    tar_read(0x80092000);
-    tar_read(0x80092314);
-    tar_read(0x80092088);
-    tar_read(0x80092028);
+    cortex_pair(DEBUG_REGISTER_BASE | DBGDSCRext);
+    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDIDR);
+    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
+    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
+    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGPCSR);
     check_read_cortex(__LINE__, ftdi, creturn2, 1);
 }
 
@@ -559,22 +574,22 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
             cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0, (uint32_t[]){10, SELECT_DEBUG,
-            VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,},
+            VAL3, VAL1, VAL1, 1, 1, ARM_INSTRUCTION2, ARM_INSTRUCTION2, 0, CORTEX_DEFAULT_STATUS,},
         (uint32_t[]){12, 0, 0, 0, 0,
-            VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,});
+            VAL1, VAL1, 1, 1, ARM_INSTRUCTION2, ARM_INSTRUCTION2, 0, CORTEX_DEFAULT_STATUS,});
     write_jtag_irreg(0, IRREGA_APACC, 2);
-    cortex_pair(0x80092088);
-    tar_read(0x80090314);
-    tar_read(0x80090088);
+    cortex_pair(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
+    tar_read(DEBUG_REGISTER_BASE | DBGPRSR);
+    tar_read(DEBUG_REGISTER_BASE | DBGDSCRext);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
-            VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(0x80090084);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(0x80092314);
-    tar_read(0x80092088);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, VAL2, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(0x80092084);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+            ARM_INSTRUCTION2, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(DEBUG_REGISTER_BASE | DBGITR);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, ARM_INSTRUCTION2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
+    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, ARM_INSTRUCTION2, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGITR);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, ARM_INSTRUCTION2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
 #define PATTERN1 \

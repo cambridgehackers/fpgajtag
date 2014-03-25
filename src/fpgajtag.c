@@ -328,7 +328,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static void write_jtag_irreg_extra(int read, int command, int goto_idle)
+static void write_jtag_irreg(int read, int command, int goto_idle)
 {
     if (trace)
         printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, goto_idle);
@@ -346,18 +346,18 @@ static void write_jtag_irreg_extra(int read, int command, int goto_idle)
     }
 }
 
-static void write_jtag_irreg_short(int read, int command, int extra_bit)
+static void write_jtag_irreg_short(int read, int command)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
     if (found_zynq)
-        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extra_bit)));
+        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
     else
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
 static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
 {
-    write_jtag_irreg_short(DREAD, command, EXTRA_BIT_ADDITION(command));
+    write_jtag_irreg_short(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
     uint16_t ret16 = fetch16(__LINE__, ftdi);
     if (found_zynq) {
@@ -374,7 +374,7 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
                   DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
-        write_jtag_irreg_extra(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
+        write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
     write_item(DITEM(SEND_IMMEDIATE));
     return fetch24(__LINE__, ftdi);
 }
@@ -391,7 +391,7 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     uint32_t *testp = buf+1;
 
     if (load)
-        write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
+        write_jtag_irreg(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE)));
     read_rdbuff();
     write_item(DITEM(SEND_IMMEDIATE));
@@ -446,9 +446,9 @@ static void write_select(int bus)
     // Coresight: Table 2-11
     static uint32_t selreq[] = {0,       /* main system bus */
                      SELECT_DEBUG};      /* dedicated Debug Bus */
-    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
+    write_jtag_irreg(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(0, selreq[bus], DPACC_SELECT)));
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_jtag_irreg(0, IRREGA_APACC, 2);
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
@@ -459,21 +459,21 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_jtag_irreg_extra(0, IRREGA_ABORT, 2);
+    write_jtag_irreg(0, IRREGA_ABORT, 2);
     write_item(DITEM(LOADDR(0, 1, 0)));
-    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
+    write_jtag_irreg(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(0, 0x50000033, DPACC_CTRL)));
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     // CSYSPWRUPREQ, CDBGPWRUPREQ, STICKYERR, STICKYCMP, STICKYORUN, ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
-        write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+        write_jtag_irreg(0, IRREGA_APACC, 2);
         cortex_pair(0x80092088);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
-    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
+    write_jtag_irreg(0, IRREGA_DPACC, 2);
     write_item(DITEM(LOADDR(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
     for (i = 0; i < 2; i++) {
         if (trace)
@@ -494,7 +494,7 @@ static void tar_read(uint32_t v)
 }
 static void tar_write(uint32_t v)
 {
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_jtag_irreg(0, IRREGA_APACC, 2);
     write_item(DITEM(LOADDR(0, v, AP_TAR)));
     read_rdbuff();
 }
@@ -538,7 +538,7 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
     tar_read(0x80090088);
     tar_read(0x80090028);
     check_read_cortex(__LINE__, ftdi, creturn1, 1);
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_jtag_irreg(0, IRREGA_APACC, 2);
     cortex_pair(0x80090088);
     tar_read(0x80092000);
     tar_read(0x80092314);
@@ -563,7 +563,7 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
             VAL3, VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,},
         (uint32_t[]){12, 0, 0, 0, 0,
             VAL1, VAL1, 1, 1, VAL2, VAL2, 0, CORTEX_DEFAULT_STATUS,});
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_jtag_irreg(0, IRREGA_APACC, 2);
     cortex_pair(0x80092088);
     tar_read(0x80090314);
     tar_read(0x80090088);
@@ -638,7 +638,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 
 static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
 {
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | irreg, 1);
+    write_jtag_irreg(0, EXTEND_EXTRA | irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (i > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
@@ -663,7 +663,7 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int
     check_idcode(ftdi, 0); // idcode parameter ignored, since this is not the first invocation
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
+            write_jtag_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
             if ((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USER2, i)) != 0)
                 printf("[%s:%d] nonzero value %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
         }
@@ -678,7 +678,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
     if (after)
         write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg_extra(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
+    write_jtag_irreg(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     /*
      * Read Xilinx configuration status register
@@ -706,7 +706,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
 }
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_jtag_irreg_extra(0, IRREG_CFG_IN, 0);
+    write_jtag_irreg(0, IRREG_CFG_IN, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(SMAP_DUMMY);
     write_eight_bytes();
@@ -725,7 +725,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_one_word(found_zynq, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, temp)));
     exit1_to_idle();
-    write_jtag_irreg_extra(0, IRREG_CFG_OUT, 0);
+    write_jtag_irreg(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
     if (found_zynq)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
@@ -841,8 +841,8 @@ int main(int argc, char **argv)
     /*
      * Step 2: Initialization
      */
-    write_jtag_irreg_extra(0, IRREG_JPROGRAM, 0);
-    write_jtag_irreg_extra(0, IRREG_ISC_NOOP, 0);
+    write_jtag_irreg(0, IRREG_JPROGRAM, 0);
+    write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK);
     if (ret16 != (found_zynq ? 0x04 : 0x22))
@@ -862,8 +862,8 @@ int main(int argc, char **argv)
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
     if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
-    write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
-    write_jtag_irreg_extra(0, IRREG_JSTART, 0);
+    write_jtag_irreg(0, IRREG_BYPASS, 0);
+    write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
     ret16 = write_combo_irreg(ftdi, IRREG_BYPASS);
     if (ret16 != (found_zynq ? 0x17 : 0x2b))
@@ -871,9 +871,9 @@ int main(int argc, char **argv)
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
     if (found_zynq)
-        write_jtag_irreg_extra(0, IRREG_BYPASS, 0);
+        write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
-        write_jtag_irreg_short(0, IRREG_BYPASS, 0);
+        write_jtag_irreg_short(0, IRREG_BYPASS);
         exit1_to_idle();
         flush_write(ftdi, NULL);
     }

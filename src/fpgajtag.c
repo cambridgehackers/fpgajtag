@@ -767,10 +767,19 @@ static void cortex_pair(uint32_t v)
     write_item(DITEM(LOADDR(0, v, AP_TAR), LOADDR(DREAD, 0x0300c002, AP_DRW), LOADDR(DREAD, VAL2, AP_DRW)));
 }
 
+static void write_select(int bus)
+{
+    // Coresight: Table 2-11
+    static uint32_t selreq[] = {0,       /* main system bus */
+                     SELECT_DEBUG};      /* dedicated Debug Bus */
+    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
+    write_item(DITEM(LOADDR(0, selreq[bus], DPACC_SELECT)));
+    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+}
+
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
 static uint8_t *waitreq[2] = {DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00),
                               DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x02, 0x00)};
-static uint8_t *selreq[2];
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
     uint32_t *cresp[2];
@@ -799,9 +808,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         if (trace)
             printf("[%s:%d] wait %d i %d\n", __FUNCTION__, __LINE__, wait, i);
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
-        write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
-        write_item(selreq[i]);
-        write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+        write_select(i);
         write_item(DITEM(LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)));
         if (wait)
            write_item(waitreq[i]);
@@ -830,17 +837,13 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
 static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
 
     for (i = 0; i < 2; i++) {
-        write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
-        write_item(selreq[i]);
-        write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+        write_select(i);
         write_item(DITEM(LOADDR(DREAD,cread[i], AP_CSW)));
         if (wait)
             write_item(waitreq[i]);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
-    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
-    write_item(selreq[0]);
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_select(0);
     for (i = 0; i < 2; i++) {
         write_item(DITEM(LOADDR(DREAD, address_table[i], AP_TAR)));
         if (wait)
@@ -858,9 +861,7 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
         write_item(cortex_reset);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
-    write_jtag_irreg_extra(0, IRREGA_DPACC, 2);
-    write_item(selreq[1]);
-    write_jtag_irreg_extra(0, IRREGA_APACC, 2);
+    write_select(1);
     tar_read(0x80090000);
     tar_read(0x80090314);
     tar_read(0x80090088);
@@ -1119,9 +1120,6 @@ int main(int argc, char **argv)
         command_ending = DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
         opcode_bits = 0x05;
         irreg_extrabit = EXTRA_BIT_MASK;
-        // Coresight: Table 2-11
-        selreq[0] = DITEM(LOADDR(0,            0, DPACC_SELECT), ); /* main system bus */
-        selreq[1] = DITEM(LOADDR(0, SELECT_DEBUG, DPACC_SELECT), ); /* dedicated Debug Bus */
     }
     else
         command_ending = DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);

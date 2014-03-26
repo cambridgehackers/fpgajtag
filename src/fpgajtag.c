@@ -781,7 +781,7 @@ int main(int argc, char **argv)
     if (strcmp(argv[i], "-")) {
         inputfd = open(argv[i], O_RDONLY);
         if (inputfd == -1) {
-            printf("Unable to open file '%s'\n", argv[1]);
+            printf("Unable to open file '%s'\n", argv[i]);
             exit(-1);
         }
     }

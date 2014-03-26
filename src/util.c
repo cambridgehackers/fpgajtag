@@ -161,9 +161,9 @@ void init_usb(const char *serialno)
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
-    //(desc.bcdDevice == 0x700) //kc       TYPE_2232H
+    //(desc.bcdDevice == 0x700) //kc,vc,ac701       TYPE_2232H
     printf("[%s:%d] bcd %x type %d\n", __FUNCTION__, __LINE__, desc.bcdDevice, type);
-    if (desc.bcdDevice == 0x900) //zedboard TYPE_232H
+    if (desc.bcdDevice == 0x900) //zedboard, zc706 TYPE_232H
         found_232H = 1;
     return;
 error:

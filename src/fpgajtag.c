@@ -394,12 +394,11 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
 /*
  * Functions used in testing Cortex core
  */
-static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
+static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_t *buf, int load)
 {
+    int i;
     uint8_t *rdata;
-    int err = 0;
-    uint32_t tempdata[100];
-    uint32_t tempdata_index = 0;
+    uint32_t tempdata[100], tempdata_index = 0;
     uint32_t *testp = buf+1;
 
     if (load)
@@ -408,60 +407,45 @@ static uint8_t *check_read_cortex(int linenumber, struct ftdi_context *ftdi, uin
     read_rdbuff();
     write_item(DITEM(SEND_IMMEDIATE));
     rdata = read_data(linenumber, ftdi, buf[0] * 6);
-    if (last_read_data_length != buf[0]*6) {
-        err = 1;
-        printf("[%s] mismatch on line %d act %d exp %d\n", __FUNCTION__, linenumber, last_read_data_length/6, buf[0]);
-    }
-    int i;
-    uint8_t *bufp = rdata;
     for (i = 0; i < last_read_data_length/6; i++) {
         uint64_t ret = 0;
-        *(bufp+4) >>= 5; // only 3 bits valid in MSB byte
-        memcpy(&ret, bufp, 5);
+        *(rdata+4) >>= 5; // only 3 bits valid in MSB byte
+        memcpy(&ret, rdata, 5);
         int bottom = ret & 0x7;
-        if (bottom != DPACC_RESPONSE_OK) /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
+        if (bottom != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
             printf("[%s:%d] Error in cortex response %x \n", __FUNCTION__, linenumber, bottom);
         ret >>= 3;
         uint32_t ret32 = ret;
         tempdata[tempdata_index++] = ret32;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error [%ld] actual %x expect %x \n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
-            memdump(bufp, 6, "RX");
-            err = 1;
+            printf("[%s:%d] Error [%ld] act %x expect %x\n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            memdump(rdata, 6, "RX");
         }
         testp++;
-        bufp += 6;
+        rdata += 6;
     }
-    if (err) {
-        printf("[%s:%d]\n    cresp = (uint32_t[]){%d,", __FUNCTION__, linenumber, tempdata_index);
-        for (i = 0; i < tempdata_index; i++)
-            printf(" 0x%08x,", tempdata[i]);
-        printf("};\n");
-    }
-    return rdata;
 }
 
 #define VAL1          0x15137030
-#define ARM_INSTRUCTION2  0x0310c002   /* ARM instruction?? or could be DebugID output */
+#define DEBUGID_VAL1  0x0310c002   /* DebugID output? */
 #define VAL3          0x1f000200
-#define VAL4          0x03008002       /* ARM instruction?? or could be DebugID output */
+#define DEBUGID_VAL2  0x03008002   /* DebugID output? */
 #define VAL5          0x00028000
 #define VAL6          0xe001b400
 
 static void cortex_pair(uint32_t v)
 {
-    write_item(DITEM(LOADDR(0, v, AP_TAR),
+    write_item(DITEM(LOADDR(0, DEBUG_REGISTER_BASE | v, AP_TAR),
         LOADDR(DREAD, 0x0300c002, AP_DRW),     /* ARM instruction: MOVW R12, #2 */
-        LOADDR(DREAD, ARM_INSTRUCTION2, AP_DRW)));
+        LOADDR(DREAD, DEBUGID_VAL1, AP_DRW)));
 }
 
 static void write_select(int bus)
 {
-    // Coresight: Table 2-11
-    static uint32_t selreq[] = {0,       /* main system bus */
-                     SELECT_DEBUG};      /* dedicated Debug Bus */
     write_jtag_irreg(0, IRREGA_DPACC, 2);
-    write_item(DITEM(LOADDR(0, selreq[bus], DPACC_SELECT)));
+    write_item(DITEM(LOADDR(0,      // Coresight: Table 2-11
+        bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
+        DPACC_SELECT)));
     write_jtag_irreg(0, IRREGA_APACC, 2);
 }
 
@@ -483,7 +467,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
         write_jtag_irreg(0, IRREGA_APACC, 2);
-        cortex_pair(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
+        cortex_pair(0x2000 | DBGDSCRext);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
@@ -503,7 +487,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 
 static void tar_read(uint32_t v)
 {
-    write_item(DITEM(LOADDR(DREAD, v, AP_TAR)));
+    write_item(DITEM(LOADDR(DREAD, DEBUG_REGISTER_BASE | v, AP_TAR)));
     read_rdbuff();
 }
 static void tar_write(uint32_t v)
@@ -547,17 +531,17 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
     write_select(1);
-    tar_read(DEBUG_REGISTER_BASE | DBGDIDR);
-    tar_read(DEBUG_REGISTER_BASE | DBGPRSR);
-    tar_read(DEBUG_REGISTER_BASE | DBGDSCRext);
-    tar_read(DEBUG_REGISTER_BASE | DBGPCSR);
+    tar_read(DBGDIDR);
+    tar_read(DBGPRSR);
+    tar_read(DBGDSCRext);
+    tar_read(DBGPCSR);
     check_read_cortex(__LINE__, ftdi, creturn1, 1);
     write_jtag_irreg(0, IRREGA_APACC, 2);
-    cortex_pair(DEBUG_REGISTER_BASE | DBGDSCRext);
-    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDIDR);
-    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
-    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
-    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGPCSR);
+    cortex_pair(DBGDSCRext);
+    tar_read(0x2000 | DBGDIDR);
+    tar_read(0x2000 | DBGPRSR);
+    tar_read(0x2000 | DBGDSCRext);
+    tar_read(0x2000 | DBGPCSR);
     check_read_cortex(__LINE__, ftdi, creturn2, 1);
 }
 
@@ -566,30 +550,30 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
         read_csw(ftdi, 1, (uint32_t[]){10, SELECT_DEBUG, 0,
-                VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,},
+                VAL1, VAL1, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,},
             (uint32_t[]){12, 0, 0, 0, 0,
-                VAL1, VAL1, 1, 1, VAL4, VAL4, 0, CORTEX_DEFAULT_STATUS,});
+                VAL1, VAL1, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,});
         int count = number_of_devices - 1;
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0, (uint32_t[]){10, SELECT_DEBUG,
-            VAL3, VAL1, VAL1, 1, 1, ARM_INSTRUCTION2, ARM_INSTRUCTION2, 0, CORTEX_DEFAULT_STATUS,},
+            VAL3, VAL1, VAL1, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
         (uint32_t[]){12, 0, 0, 0, 0,
-            VAL1, VAL1, 1, 1, ARM_INSTRUCTION2, ARM_INSTRUCTION2, 0, CORTEX_DEFAULT_STATUS,});
+            VAL1, VAL1, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
     write_jtag_irreg(0, IRREGA_APACC, 2);
-    cortex_pair(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
-    tar_read(DEBUG_REGISTER_BASE | DBGPRSR);
-    tar_read(DEBUG_REGISTER_BASE | DBGDSCRext);
+    cortex_pair(0x2000 | DBGDSCRext);
+    tar_read(DBGPRSR);
+    tar_read(DBGDSCRext);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
-            ARM_INSTRUCTION2, CORTEX_DEFAULT_STATUS,}, 1);
+            DEBUGID_VAL1, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(DEBUG_REGISTER_BASE | DBGITR);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, ARM_INSTRUCTION2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
-    tar_read(DEBUG_REGISTER_BASE | 0x2000 | DBGDSCRext);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, ARM_INSTRUCTION2, CORTEX_DEFAULT_STATUS,}, 1);
+    tar_read(0x2000 | DBGDSCRext);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, DEBUGID_VAL1, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGITR);
-    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, ARM_INSTRUCTION2, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
+    check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
 #define PATTERN1 \

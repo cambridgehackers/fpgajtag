@@ -314,6 +314,8 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             *temp |= read_param; // this is a TMS instruction to shift state
             *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
             write_data(temp, tail[0]);
+            if (read_param)      // we will be waiting for the result
+                write_item(DITEM(SEND_IMMEDIATE));
         }
         flush_write(ftdi, NULL);
         size -= limit_len+1;
@@ -383,7 +385,6 @@ static void write_jtag_sirreg(int read, int command)
 static void write_combo_irreg(struct ftdi_context *ftdi, int command, uint32_t expect)
 {
     write_jtag_sirreg(DREAD, command);
-    write_item(DITEM(SEND_IMMEDIATE));
     uint16_t ret = read_data_int(__LINE__, ftdi, 1);
     if (found_zynq) {
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -401,7 +402,6 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
                   DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
         write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
-    write_item(DITEM(SEND_IMMEDIATE));
     return read_data_int(__LINE__, ftdi, 1 + found_zynq);
 }
 
@@ -418,7 +418,6 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
         write_jtag_irreg(0, IRREGA_DPACC, 2);
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
-    write_item(DITEM(SEND_IMMEDIATE));
     rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
     for (i = 0; i < last_read_data_length/6; i++) {
         uint64_t ret = 0;              // Clear out MSB before copy
@@ -612,7 +611,7 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 {
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
+    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), 9999);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -656,9 +655,9 @@ static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
     if (found_zynq)
-        write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
+        write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     else
-        write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE));
+        write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
     return read_data_int(linenumber, ftdi, 4);
 }
 
@@ -750,7 +749,6 @@ static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
-    write_item(DITEM(SEND_IMMEDIATE));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
     exit1_to_idle();
     if (found_zynq) {
@@ -826,7 +824,7 @@ int main(int argc, char **argv)
      */
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
+    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
 

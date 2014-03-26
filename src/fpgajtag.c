@@ -248,19 +248,19 @@ static void write_dswap32(uint32_t value)
     swap32(value);
 }
 
-static void write_one_word(int short_format, int value)
+static void write_one_word(int dread, int short_format, int value)
 {
     if (short_format)
         write_item(DITEM(INT32(value)));
     else
-        write_item(DITEM(value, 0x00, 0x00, DATAWBIT, 0x06, 0x00));
+        write_item(DITEM(value, 0x00, 0x00, DATAWBIT | dread, 0x06, 0x00));
 }
 
 static void write_eight_bytes(void)
 {
     if (found_zynq) {
         write_item(DITEM(DATAW(0, 7), INT32(0)));
-        write_one_word(0, 0);
+        write_one_word(0, 0, 0);
     }
 }
 
@@ -425,12 +425,8 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     }
 }
 
-#define VAL1          0x15137030
 #define DEBUGID_VAL1  0x0310c002   /* DebugID output? */
-#define VAL3          0x1f000200
 #define DEBUGID_VAL2  0x03008002   /* DebugID output? */
-#define VAL5          0x00028000
-#define VAL6          0xe001b400
 
 static void cortex_pair(uint32_t v)
 {
@@ -500,18 +496,20 @@ static void read_csw(struct ftdi_context *ftdi, int wait, uint32_t *creturn1, ui
 {
 int i;
 static uint32_t cread[] = {2, 0x80000002};
+static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
 uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
           (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}};
-static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
 
     for (i = 0; i < 2; i++) {
         write_select(i);
-        loaddr(DREAD,cread[i], AP_CSW);
+        loaddr(DREAD, cread[i], AP_CSW);
         if (wait)
             write_item(waitreq[i]);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
     write_select(0);
+#define VAL3          0x1f000200
+#define VAL5          0x00028000
     for (i = 0; i < 2; i++) {
         loaddr(DREAD, address_table[i], AP_TAR);
         if (wait)
@@ -547,25 +545,27 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
     cortex_csw(ftdi, 1-cortex_nowait, 0);
+#define VALC          0x15137030
     if (!cortex_nowait) {
         read_csw(ftdi, 1, (uint32_t[]){10, SELECT_DEBUG, 0,
-                VAL1, VAL1, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,},
+                VALC, VALC, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,},
             (uint32_t[]){12, 0, 0, 0, 0,
-                VAL1, VAL1, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,});
+                VALC, VALC, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,});
         int count = number_of_devices - 1;
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
-    read_csw(ftdi, 0, (uint32_t[]){10, SELECT_DEBUG,
-            VAL3, VAL1, VAL1, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
+    read_csw(ftdi, 0, (uint32_t[]){10, SELECT_DEBUG, VAL3,
+            VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
         (uint32_t[]){12, 0, 0, 0, 0,
-            VAL1, VAL1, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
+            VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
     write_jtag_irreg(0, IRREGA_APACC, 2);
     cortex_pair(0x2000 | DBGDSCRext);
     tar_read(DBGPRSR);
     tar_read(DBGDSCRext);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
             DEBUGID_VAL1, CORTEX_DEFAULT_STATUS,}, 1);
+#define VAL6          0xe001b400
     tar_write(DEBUG_REGISTER_BASE | DBGITR);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
     tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
@@ -686,7 +686,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
     swap32(SMAP_SYNC);
     swap32(SMAP_TYPE2(0));
     swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
-    write_one_word(found_zynq, 0);
+    write_one_word(0, found_zynq, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     uint64_t ret40 = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
     uint32_t status = ret40 >> 8;
@@ -719,11 +719,12 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_item(DITEM(DATAW(0, 3+found_zynq)));
     if (found_zynq)
         temp = 0x80;
-    write_one_word(found_zynq, 4);
+    write_one_word(0, found_zynq, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, temp)));
     exit1_to_idle();
     write_jtag_irreg(0, IRREG_CFG_OUT, 0);
-    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3), 0x00, 0x00, 0x00, DATARWBIT, 0x06, 0x00));
+    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3)));
+    write_one_word(DREAD, 0, 0);
     if (found_zynq)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else

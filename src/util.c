@@ -361,7 +361,9 @@ printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenum
                 }
                 *p &= (0xff << (8-validbits));
                 if (i > 0 && read_size[i-1] < 0) {
-                    *(p-1) = *p;
+                    *(p-1) = *p >> (8-validbits);    /* put result into LSBs */
+                    /* Note: union datatypes work correctly, but read_data_int needs the data as MSBs! */
+
                     /* delete unused byte from read result */
                     last_read_data_length--;
                     for (j = 0; j < size; j++)  /* copies too much, but... */

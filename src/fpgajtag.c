@@ -420,7 +420,6 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
     for (i = 0; i < last_read_data_length/6; i++) {
         uint64_t ret = 0;              // Clear out MSB before copy
-        *(rdata+4) >>= 5;              // only 3 bits valid in MSB byte
         memcpy(&ret, rdata, 5);        // copy into bottom of uint64 data target
         if ((ret & 7) != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
             printf("fpgajtag:%d Error in cortex response %x \n", linenumber, (int)(ret & 7));
@@ -441,7 +440,7 @@ static void cortex_pair(uint32_t v)
 {
     loaddr(0, DEBUG_REGISTER_BASE | v, AP_TAR);
     loaddr(DREAD, 0x0300c002, AP_DRW);     /* ARM instruction: MOVW R12, #2 */
-    loaddr(DREAD, DEBUGID_VAL1, AP_DRW);
+    loaddr(DREAD, 0x0310c002, AP_DRW);
 }
 
 static void write_select(int bus)
@@ -557,9 +556,9 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 #define VALC          0x15137030
     if (!cortex_nowait) {
         read_csw(ftdi, 1, (uint32_t[]){10, SELECT_DEBUG, 0,
-                VALC, VALC, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,},
+                VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
             (uint32_t[]){12, 0, 0, 0, 0,
-                VALC, VALC, 1, 1, DEBUGID_VAL2, DEBUGID_VAL2, 0, CORTEX_DEFAULT_STATUS,});
+                VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
         int count = number_of_devices - 1;
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
@@ -841,11 +840,9 @@ int main(int argc, char **argv)
 
     for (i = 0; i < 3; i++) {
         ret16 = write_bypass(ftdi);
-        if (ret16 == 0x8 || (found_zynq && ret16 == 0x8a))
+        if (ret16 == 0x20 || (found_zynq && ret16 == 0x8a))
             printf("fpgajtag: bypass first time %x\n", ret16);
-        else if (ret16 == 0x11)
-            printf("fpgajtag: bypass next times %x\n", ret16);
-        else if (ret16 == 0x2f)
+        else if (ret16 == 0xbc || (found_zynq && ret16 == 0xae))
             printf("fpgajtag: bypass already programmed %x\n", ret16);
         else
             printf("fpgajtag: bypass mismatch %x\n", ret16);
@@ -863,14 +860,14 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK);
-    if (ret16 != (found_zynq ? 0x04 : 0x22))
+    if (ret16 != (found_zynq ? 0x10 : 0x88))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
     ret16 = write_combo_irreg(ftdi, IRREG_CFG_IN & ~EXTRA_BIT_MASK);
-    if (ret16 != (found_zynq ? 0x04 : 0x22))
+    if (ret16 != (found_zynq ? 0x10 : 0x88))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     send_data_file(ftdi, inputfd);
 
@@ -884,7 +881,7 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
     ret16 = write_combo_irreg(ftdi, IRREG_BYPASS);
-    if (ret16 != (found_zynq ? 0x17 : 0x2b))
+    if (ret16 != (found_zynq ? 0x5c : 0xac))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
@@ -897,7 +894,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     ret16 = write_bypass(ftdi);
-    if (ret16 != (found_zynq ? 0xae : 0x2f))
+    if (ret16 != (found_zynq ? 0xae : 0xbc))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
     if (!found_zynq)
         bypass_test(ftdi, 3, 1, 0);

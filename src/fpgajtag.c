@@ -359,9 +359,10 @@ static void write_jtag_irreg(int read, int command, int goto_idle)
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
     if (found_zynq)     /* 3 extra bits of IR are sent here */
-        write_item(DITEM(DATAWBIT | read, 0x02, M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
+        write_item(DITEM(DATAWBIT | read, 0x02,
+            M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (goto_idle == 2)
-        write_item(DITEM(SHIFT_TO_UPDATE(0, 0x80)));
+        write_item(DITEM(SHIFT_TO_UPDATE(0, EXTRA_BIT_ADDITION(command))));
     else if (goto_idle)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
     else {
@@ -370,7 +371,7 @@ static void write_jtag_irreg(int read, int command, int goto_idle)
     }
 }
 
-static void write_jtag_irreg_short(int read, int command)
+static void write_jtag_sirreg(int read, int command)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
     if (found_zynq)
@@ -381,7 +382,7 @@ static void write_jtag_irreg_short(int read, int command)
 
 static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
 {
-    write_jtag_irreg_short(DREAD, command);
+    write_jtag_sirreg(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
     uint16_t ret16 = read_data_int(__LINE__, ftdi, 1);
     if (found_zynq) {
@@ -888,7 +889,7 @@ int main(int argc, char **argv)
     if (found_zynq)
         write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
-        write_jtag_irreg_short(0, IRREG_BYPASS);
+        write_jtag_sirreg(0, IRREG_BYPASS);
         exit1_to_idle();
         flush_write(ftdi, NULL);
     }

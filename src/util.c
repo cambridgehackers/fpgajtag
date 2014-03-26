@@ -327,6 +327,8 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
+if (usbreadbuffer_ptr != usbreadbuffer && *(usbreadbuffer_ptr-1) != SEND_IMMEDIATE)
+printf("[%s:%d] doesnt end in IMM %x, %x\n", __FUNCTION__, __LINE__, *(usbreadbuffer_ptr-1), *(usbreadbuffer_ptr));
     flush_write(ftdi, NULL);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {

@@ -380,17 +380,18 @@ static void write_jtag_sirreg(int read, int command)
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
 }
 
-static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
+static void write_combo_irreg(struct ftdi_context *ftdi, int command, uint32_t expect)
 {
     write_jtag_sirreg(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
-    uint16_t ret16 = read_data_int(__LINE__, ftdi, 1);
+    uint16_t ret = read_data_int(__LINE__, ftdi, 1);
     if (found_zynq) {
         write_item(DITEM(PAUSE_TO_SHIFT));
         write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
     }
     exit1_to_idle();
-    return ret16;
+    if (ret != expect)
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
 }
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
@@ -585,29 +586,30 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 }
 
 #define IDCODE_PROBE_PATTERN \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-         INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
+    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
+    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
+    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
 
 #define PATTERN2 \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-         INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
+    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
 
-static uint8_t idcode_probe_result[] = DITEM(INT32(0), IDCODE_PROBE_PATTERN); // starts with idcode
-static uint8_t idcode_validate_result[] = DITEM(INT32(0), PATTERN2); // starts with idcode
+static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
+static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
+static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
+static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
 
 /*
  * Read/validate IDCODE from device to be programmed
  */
 static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 {
-    static uint8_t idcode_probe_pattern[] =  {INT32(0xff), IDCODE_PROBE_PATTERN};
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
@@ -723,7 +725,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
  * Configuration Register Read Procedure (SelectMAP), ug470_7Series_Config.pdf,
  * Table 6-1.
  */
-static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
+static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
     write_jtag_irreg(0, IRREG_CFG_IN, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
@@ -762,9 +764,7 @@ int main(int argc, char **argv)
 {
     logfile = stdout;
     struct ftdi_context *ftdi;
-    uint32_t idcode;
-    uint16_t ret16;
-    uint64_t ret40;
+    uint32_t idcode, ret;
     int i = 1;
     int inputfd = 0;   /* default input for '-' is stdin */
     const char *serialno = NULL;
@@ -824,7 +824,6 @@ int main(int argc, char **argv)
      * devices in the JTAG chain.  (this list was set up in check_idcode()
      * on the first call
      */
-    static uint8_t idcode_validate_pattern[] = {INT32(0xffffffff),  PATTERN2};
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
@@ -833,25 +832,24 @@ int main(int argc, char **argv)
 
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_zynq) {
-        ret16 = write_bypass(ftdi);
-        printf("[%s:%d] write_bypass return %x\n", __FUNCTION__, __LINE__, ret16);
+        ret = write_bypass(ftdi);
+        printf("[%s:%d] write_bypass return %x\n", __FUNCTION__, __LINE__, ret);
     }
-    if ((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
-        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+    if ((ret = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
     for (i = 0; i < 3; i++) {
-        ret16 = write_bypass(ftdi);
-        if (ret16 == 0x20 || (found_zynq && ret16 == 0x8a))
-            printf("fpgajtag: bypass first time %x\n", ret16);
-        else if (ret16 == 0xbc || (found_zynq && ret16 == 0xae))
-            printf("fpgajtag: bypass already programmed %x\n", ret16);
+        ret = write_bypass(ftdi);
+        if (ret == 0x20 || (found_zynq && ret == 0x8a))
+            printf("fpgajtag: bypass first time %x\n", ret);
+        else if (ret == 0xbc || (found_zynq && ret == 0xae))
+            printf("fpgajtag: bypass already programmed %x\n", ret);
         else
-            printf("fpgajtag: bypass mismatch %x\n", ret16);
+            printf("fpgajtag: bypass mismatch %x\n", ret);
     }
     check_status(ftdi, 0x301900, 0);
-    bypass_test(ftdi, 3, 1, 1);
-    for (i = 0; i < 3; i++)
-        bypass_test(ftdi, 3, 1, 0);
+    for (i = 0; i < 4; i++)
+        bypass_test(ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -860,32 +858,26 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_JPROGRAM, 0);
     write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    ret16 = write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK);
-    if (ret16 != (found_zynq ? 0x10 : 0x88))
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
+    write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, found_zynq ? 0x10 : 0x88);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    ret16 = write_combo_irreg(ftdi, IRREG_CFG_IN & ~EXTRA_BIT_MASK);
-    if (ret16 != (found_zynq ? 0x10 : 0x88))
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
+    write_combo_irreg(ftdi, IRREG_CFG_IN & ~EXTRA_BIT_MASK, found_zynq ? 0x10 : 0x88);
     send_data_file(ftdi, inputfd);
 
     /*
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret40 = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
-        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+    if ((ret = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_jtag_irreg(0, IRREG_BYPASS, 0);
     write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
-    ret16 = write_combo_irreg(ftdi, IRREG_BYPASS);
-    if (ret16 != (found_zynq ? 0x5c : 0xac))
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
-    if ((ret40 = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
-        printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+    write_combo_irreg(ftdi, IRREG_BYPASS, found_zynq ? 0x5c : 0xac);
+    if ((ret = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (found_zynq)
         write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
@@ -894,9 +886,9 @@ int main(int argc, char **argv)
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    ret16 = write_bypass(ftdi);
-    if (ret16 != (found_zynq ? 0xae : 0xbc))
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret16);
+    ret = write_bypass(ftdi);
+    if (ret != (found_zynq ? 0xae : 0xbc))
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (!found_zynq)
         bypass_test(ftdi, 3, 1, 0);
     check_status(ftdi, 0xf07910, 1);

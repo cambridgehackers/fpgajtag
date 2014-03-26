@@ -153,14 +153,6 @@
 #define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
 #define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
 
-#define LOADDR(AREAD, VALUE32BITS, EXTRA3BITS) \
-    IDLE_TO_SHIFT_DR, \
-    DATAWBIT, 0x00, 0x00, \
-    DATAW((AREAD), 4), \
-    INT32((((uint64_t)(VALUE32BITS)) << 3) | (EXTRA3BITS)), \
-    DATAWBIT | (AREAD), 0x01, (((VALUE32BITS)>>29) & 0x3f),\
-    SHIFT_TO_UPDATE_TO_IDLE((AREAD),(((VALUE32BITS)>>24) & 0x80))
-
 /* Cortex request extra 3 bit field */
 /* 2 bits of register selector */
 #define DPACC_CTRL     (1 << 1)
@@ -272,9 +264,16 @@ static void write_eight_bytes(void)
     }
 }
 
+static void loaddr(int aread, uint32_t v, int extra3bits)
+{
+    uint64_t temp = (((uint64_t)v) << 3) | extra3bits;
+    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00,
+                     DATAW(aread, 4), INT32(temp), (DATAWBIT | aread), 0x01, (v>>29) & 0x3f,
+                     SHIFT_TO_UPDATE_TO_IDLE(aread,((v>>24) & 0x80))));
+}
 static void read_rdbuff(void)
 {
-    write_item(DITEM(LOADDR(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE)));
+    loaddr(DREAD, 0, DPACC_RDBUFF | DPACC_WRITE);
 }
 
 static void exit1_to_idle(void)
@@ -403,7 +402,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
 
     if (load)
         write_jtag_irreg(0, IRREGA_DPACC, 2);
-    write_item(DITEM(LOADDR(DREAD, 0, DPACC_CTRL | DPACC_WRITE)));
+    loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
     write_item(DITEM(SEND_IMMEDIATE));
     rdata = read_data(linenumber, ftdi, buf[0] * 6);
@@ -435,17 +434,17 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
 
 static void cortex_pair(uint32_t v)
 {
-    write_item(DITEM(LOADDR(0, DEBUG_REGISTER_BASE | v, AP_TAR),
-        LOADDR(DREAD, 0x0300c002, AP_DRW),     /* ARM instruction: MOVW R12, #2 */
-        LOADDR(DREAD, DEBUGID_VAL1, AP_DRW)));
+    loaddr(0, DEBUG_REGISTER_BASE | v, AP_TAR);
+    loaddr(DREAD, 0x0300c002, AP_DRW);     /* ARM instruction: MOVW R12, #2 */
+    loaddr(DREAD, DEBUGID_VAL1, AP_DRW);
 }
 
 static void write_select(int bus)
 {
     write_jtag_irreg(0, IRREGA_DPACC, 2);
-    write_item(DITEM(LOADDR(0,      // Coresight: Table 2-11
+    loaddr(0,      // Coresight: Table 2-11
         bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
-        DPACC_SELECT)));
+        DPACC_SELECT);
     write_jtag_irreg(0, IRREGA_APACC, 2);
 }
 
@@ -458,9 +457,9 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     int i;
 
     write_jtag_irreg(0, IRREGA_ABORT, 2);
-    write_item(DITEM(LOADDR(0, 1, 0)));
+    loaddr(0, 1, 0);
     write_jtag_irreg(0, IRREGA_DPACC, 2);
-    write_item(DITEM(LOADDR(0, 0x50000033, DPACC_CTRL)));
+    loaddr(0, 0x50000033, DPACC_CTRL);
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     //CSYSPWRUPREQ,CDBGPWRUPREQ,STICKYERR,STICKYCMP,STICKYORUN,ORUNDETECT
     if (!clear_wait)
@@ -472,13 +471,13 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
     write_jtag_irreg(0, IRREGA_DPACC, 2);
-    write_item(DITEM(LOADDR(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE)));
+    loaddr(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE);
     for (i = 0; i < 2; i++) {
         if (trace)
             printf("[%s:%d] wait %d i %d\n", __FUNCTION__, __LINE__, wait, i);
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
         write_select(i);
-        write_item(DITEM(LOADDR(DREAD, 0, AP_CSW | DPACC_WRITE)));
+        loaddr(DREAD, 0, AP_CSW | DPACC_WRITE);
         if (wait)
            write_item(waitreq[i]);
     }
@@ -487,13 +486,13 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 
 static void tar_read(uint32_t v)
 {
-    write_item(DITEM(LOADDR(DREAD, DEBUG_REGISTER_BASE | v, AP_TAR)));
+    loaddr(DREAD, DEBUG_REGISTER_BASE | v, AP_TAR);
     read_rdbuff();
 }
 static void tar_write(uint32_t v)
 {
     write_jtag_irreg(0, IRREGA_APACC, 2);
-    write_item(DITEM(LOADDR(0, v, AP_TAR)));
+    loaddr(0, v, AP_TAR);
     read_rdbuff();
 }
 
@@ -507,14 +506,14 @@ static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_C
 
     for (i = 0; i < 2; i++) {
         write_select(i);
-        write_item(DITEM(LOADDR(DREAD,cread[i], AP_CSW)));
+        loaddr(DREAD,cread[i], AP_CSW);
         if (wait)
             write_item(waitreq[i]);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
     write_select(0);
     for (i = 0; i < 2; i++) {
-        write_item(DITEM(LOADDR(DREAD, address_table[i], AP_TAR)));
+        loaddr(DREAD, address_table[i], AP_TAR);
         if (wait)
             write_item(waitreq[0]);
         read_rdbuff();

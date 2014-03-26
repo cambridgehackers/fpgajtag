@@ -805,6 +805,10 @@ int main(int argc, char **argv)
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
     write_item(shift_to_exit1);
+
+    /*
+     * Step 5: Check Device ID
+     */
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
     if (found_zynq) {
@@ -812,14 +816,10 @@ int main(int argc, char **argv)
         irreg_extrabit = EXTRA_BIT_MASK;
     }
 
-    /*
-     * Step 5: Check Device ID
-     */
     bypass_test(ftdi, 2 + number_of_devices, 0, 0);
     bypass_test(ftdi, 3, 1, 0);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
-
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in check_idcode()
@@ -830,15 +830,11 @@ int main(int argc, char **argv)
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
-
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    if (found_zynq) {
-        ret = write_bypass(ftdi);
-        printf("[%s:%d] write_bypass return %x\n", __FUNCTION__, __LINE__, ret);
-    }
+    if (found_zynq)
+        write_bypass(ftdi);
     if ((ret = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-
     for (i = 0; i < 3; i++) {
         ret = write_bypass(ftdi);
         if (ret == FIRST_TIME)

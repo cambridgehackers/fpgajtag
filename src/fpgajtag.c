@@ -117,6 +117,12 @@
 #define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
 #define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
+/* Status values */
+#define FIRST_TIME    (found_zynq ? 0x8a : 0x20)
+#define INPROGRAMMING (found_zynq ? 0x10 : 0x88)
+#define PROGRAMMED    (found_zynq ? 0xae : 0xbc)
+#define FINISHED      (found_zynq ? 0x5c : 0xac)
+
 /*
  * Xilinx Configuration Packets
  *
@@ -373,26 +379,23 @@ static void write_jtag_irreg(int read, int command, int next_state)
     }
 }
 
-static void write_jtag_sirreg(int read, int command)
+static void write_combo_irreg(struct ftdi_context *ftdi, int read, int command, uint32_t expect)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
     if (found_zynq)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
     else
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
-}
-
-static void write_combo_irreg(struct ftdi_context *ftdi, int command, uint32_t expect)
-{
-    write_jtag_sirreg(DREAD, command);
-    uint16_t ret = read_data_int(__LINE__, ftdi, 1);
-    if (found_zynq) {
-        write_item(DITEM(PAUSE_TO_SHIFT));
-        write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
+    if (read) {
+        uint16_t ret = read_data_int(__LINE__, ftdi, 1);
+        if (found_zynq) {
+            write_item(DITEM(PAUSE_TO_SHIFT));
+            write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
+        }
+        if (ret != expect)
+            printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     }
     exit1_to_idle();
-    if (ret != expect)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
 }
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
@@ -838,9 +841,9 @@ int main(int argc, char **argv)
 
     for (i = 0; i < 3; i++) {
         ret = write_bypass(ftdi);
-        if (ret == 0x20 || (found_zynq && ret == 0x8a))
+        if (ret == FIRST_TIME)
             printf("fpgajtag: bypass first time %x\n", ret);
-        else if (ret == 0xbc || (found_zynq && ret == 0xae))
+        else if (ret == PROGRAMMED)
             printf("fpgajtag: bypass already programmed %x\n", ret);
         else
             printf("fpgajtag: bypass mismatch %x\n", ret);
@@ -856,12 +859,12 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_JPROGRAM, 0);
     write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    write_combo_irreg(ftdi, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, found_zynq ? 0x10 : 0x88);
+    write_combo_irreg(ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    write_combo_irreg(ftdi, IRREG_CFG_IN & ~EXTRA_BIT_MASK, found_zynq ? 0x10 : 0x88);
+    write_combo_irreg(ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
     send_data_file(ftdi, inputfd);
 
     /*
@@ -873,19 +876,17 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_BYPASS, 0);
     write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
-    write_combo_irreg(ftdi, IRREG_BYPASS, found_zynq ? 0x5c : 0xac);
+    write_combo_irreg(ftdi, DREAD, IRREG_BYPASS, FINISHED);
     if ((ret = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (found_zynq)
         write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
-        write_jtag_sirreg(0, IRREG_BYPASS);
-        exit1_to_idle();
+        write_combo_irreg(ftdi, 0, IRREG_BYPASS, 0);
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    ret = write_bypass(ftdi);
-    if (ret != (found_zynq ? 0xae : 0xbc))
+    if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (!found_zynq)
         bypass_test(ftdi, 3, 1, 0);

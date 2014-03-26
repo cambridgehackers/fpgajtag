@@ -208,7 +208,6 @@ static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
-static int skip_penultimate_byte = 1;
 static int first_time_idcode_read = 1;
 
 /*
@@ -384,7 +383,7 @@ static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
 {
     write_jtag_irreg_short(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
-    uint16_t ret16 = read_data_int(__LINE__, ftdi, 2);
+    uint16_t ret16 = read_data_int(__LINE__, ftdi, 1);
     if (found_zynq) {
         write_item(DITEM(PAUSE_TO_SHIFT));
         write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
@@ -401,7 +400,7 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
     else
         write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
     write_item(DITEM(SEND_IMMEDIATE));
-    return read_data_int(__LINE__, ftdi, 2 + found_zynq);
+    return read_data_int(__LINE__, ftdi, 1 + found_zynq);
 }
 
 /*
@@ -418,7 +417,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
     write_item(DITEM(SEND_IMMEDIATE));
-    rdata = read_data(linenumber, ftdi, buf[0] * 6);
+    rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
     for (i = 0; i < last_read_data_length/6; i++) {
         uint64_t ret = 0;              // Clear out MSB before copy
         *(rdata+4) >>= 5;              // only 3 bits valid in MSB byte
@@ -428,10 +427,10 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
         uint32_t ret32 = ret >> 3;
         if (ret32 != *testp) {
             printf("fpgajtag:%d Error [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
-            memdump(rdata, 6, "RX");
+            memdump(rdata, 5, "RX");
         }
         testp++;
-        rdata += 6;
+        rdata += 5;
     }
 }
 
@@ -585,7 +584,7 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
-#define PATTERN1 \
+#define IDCODE_PROBE_PATTERN \
          INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
          INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
          INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
@@ -600,34 +599,34 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
          INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
 
-static uint8_t idcode_pattern1[] = DITEM(INT32(0), PATTERN1, 0x00); // starts with idcode
-static uint8_t idcode_pattern2[] = DITEM(INT32(0), PATTERN2, 0x00); // starts with idcode
+static uint8_t idcode_probe_result[] = DITEM(INT32(0), IDCODE_PROBE_PATTERN); // starts with idcode
+static uint8_t idcode_validate_result[] = DITEM(INT32(0), PATTERN2); // starts with idcode
 
 /*
  * Read/validate IDCODE from device to be programmed
  */
 static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
 {
-    static uint8_t patdata[] =  {INT32(0xff), PATTERN1};
-    uint32_t returnedid;
+    static uint8_t idcode_probe_pattern[] =  {INT32(0xff), IDCODE_PROBE_PATTERN};
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE),
-        patdata, sizeof(patdata), 9999);
-    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_pattern1[0]);
+        idcode_probe_pattern, sizeof(idcode_probe_pattern), 9999);
+    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
+        uint32_t returnedid;
         memcpy(&returnedid, rdata, sizeof(returnedid));
         idcode |= 0xf0000000 & returnedid;
-        memcpy(idcode_pattern2+1, rdata, sizeof(returnedid)); // copy returned idcode
-        memcpy(idcode_pattern1+1, rdata, sizeof(returnedid));       // copy returned idcode
-        if (memcmp(idcode_pattern1+1, rdata, idcode_pattern1[0])) {
+        memcpy(idcode_validate_result+1, rdata, sizeof(returnedid)); // copy returned idcode
+        memcpy(idcode_probe_result+1, rdata, sizeof(returnedid));       // copy returned idcode
+        if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
             uint32_t anotherid;
             memcpy(&anotherid, rdata+4, sizeof(anotherid));
             printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, anotherid);
             if (anotherid == CORTEX_IDCODE)
                 found_zynq = 1;
-            memcpy(idcode_pattern1+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
-            memcpy(idcode_pattern2+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
+            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
+            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             number_of_devices++;
         }
         first_time_idcode_read = 0;
@@ -636,14 +635,14 @@ static void check_idcode(struct ftdi_context *ftdi, uint32_t idcode)
             exit(1);
         }
     }
-    if (memcmp(idcode_pattern1+1, rdata, idcode_pattern1[0])) {
+    if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
         printf("[%s]\n", __FUNCTION__);
-        memdump(idcode_pattern1+1, idcode_pattern1[0], "EXPECT");
-        memdump(rdata, idcode_pattern1[0], "ACTUAL");
+        memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
+        memdump(rdata, idcode_probe_result[0], "ACTUAL");
     }
 }
 
-static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
+static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
 {
     write_jtag_irreg(0, EXTEND_EXTRA | irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
@@ -658,13 +657,13 @@ static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
         write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
     else
         write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE));
-    return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
+    return read_data_int(linenumber, ftdi, 4);
 }
 
 static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
 {
     int i;
-    uint64_t ret40;
+    uint32_t ret;
 
     if (input_shift)
         write_item(shift_to_exit1);
@@ -674,8 +673,8 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
             write_jtag_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            if ((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USER2, i)) != 0)
-                printf("[%s:%d] nonzero value %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
+            if ((ret = fetch_config_word(__LINE__, ftdi, IRREG_USER2, i)) != 0)
+                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
         }
     }
     if (found_zynq)
@@ -706,10 +705,10 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
     swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
     write_one_word(0, found_zynq, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    uint64_t ret40 = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
-    uint32_t status = ret40 >> 8;
-    if (M(ret40) != 0x40 || status != expected)
-        printf("[%s:%d] expect %x mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, expected, ret40);
+    uint32_t ret = fetch_config_word(__LINE__, ftdi, IRREG_CFG_OUT, 0);
+    uint32_t status = ret >> 8;
+    if (M(ret) != 0x40 || status != expected)
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, expected, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
     write_item(idle_to_reset);
@@ -719,6 +718,11 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
     }
     flush_write(ftdi, NULL);
 }
+
+/*
+ * Configuration Register Read Procedure (SelectMAP), ug470_7Series_Config.pdf,
+ * Table 6-1.
+ */
 static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
 {
     write_jtag_irreg(0, IRREG_CFG_IN, 0);
@@ -733,12 +737,9 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
     write_dswap32(SMAP_CMD_DESYNC);
     write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    int temp = 0;
     write_item(DITEM(DATAW(0, 3+found_zynq)));
-    if (found_zynq)
-        temp = 0x80;
     write_one_word(0, found_zynq, 4);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, temp)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, found_zynq ? 0x80 : 0)));
     exit1_to_idle();
     write_jtag_irreg(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3)));
@@ -748,7 +749,7 @@ static uint64_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     write_item(DITEM(SEND_IMMEDIATE));
-    uint64_t ret = read_data_int(__LINE__, ftdi, 5);
+    uint64_t ret = read_data_int(__LINE__, ftdi, 4);
     exit1_to_idle();
     if (found_zynq) {
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
@@ -791,11 +792,12 @@ int main(int argc, char **argv)
         bitswap[i] = BSWAP(i);
     init_usb(serialno);             /*** Initialize USB interface ***/
     ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
+                                    /*** Set JCLK speed and GPIO pins for our i/f ***/
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
     if (!found_232H)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
+    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
 
     lseek(inputfd, 0x80, SEEK_SET); /*** Read idcode from file to be programmed ***/
     read(inputfd, &idcode, sizeof(idcode));
@@ -805,8 +807,7 @@ int main(int argc, char **argv)
     check_idcode(ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
     if (found_zynq) {
-        skip_penultimate_byte = 0;
-        opcode_bits = 0x05;
+        opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
 
@@ -818,19 +819,24 @@ int main(int argc, char **argv)
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
 
-    static uint8_t iddata[] = {INT32(0xffffffff),  PATTERN2};
+    /*
+     * Use a pattern of 0xffffffff to validate that we actually understand all the
+     * devices in the JTAG chain.  (this list was set up in check_idcode()
+     * on the first call
+     */
+    static uint8_t idcode_validate_pattern[] = {INT32(0xffffffff),  PATTERN2};
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT, SEND_IMMEDIATE),
-        iddata, sizeof(iddata), 9999);
-    check_read_data(__LINE__, ftdi, idcode_pattern2);
+        idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
+    check_read_data(__LINE__, ftdi, idcode_validate_result);
 
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_zynq) {
         ret16 = write_bypass(ftdi);
         printf("[%s:%d] write_bypass return %x\n", __FUNCTION__, __LINE__, ret16);
     }
-    if (((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) & 0xffffffff) != 0xffffffff)
+    if ((ret40 = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
         printf("[%s:%d] mismatch %" PRIx64 "\n", __FUNCTION__, __LINE__, ret40);
 
     for (i = 0; i < 3; i++) {

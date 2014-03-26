@@ -326,22 +326,25 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
-    int i, expected_len = 0;
+    int i, j, expected_len = 0, extra_bytes = 0;
     flush_write(ftdi, NULL);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {
 //printf("[%s:%d] %d\n", __FUNCTION__, linenumber, read_size[i]);
-        if (read_size[i] < 0)
-            expected_len++;
-        else
+        if (read_size[i] > 0)
             expected_len += read_size[i];
+        else {
+            if (i == 0 || read_size[i-1] > 0)
+                extra_bytes++;
+            expected_len++; /* we will squeeze out partial bytes in the processing below */
+        }
     }
-    if (expected_len != size) {
-printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, size);
-        exit(-1);
+    if (expected_len - extra_bytes != size) {
+printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, extra_bytes, size);
+        //exit(-1);
     }
     if (size) {
-        last_read_data_length = ftdi_read_data(ftdi, last_read_data, size);
+        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);
         uint8_t *p = last_read_data;
         int validbits = 0;
         for (i = 0; i < read_size_ptr; i++) {
@@ -354,9 +357,13 @@ printf("[%s:%d] expected len %d=0x%x size %d\n", __FUNCTION__, linenumber, expec
                 *p &= (0xff << (8-validbits));
                 if (i > 0 && read_size[i-1] < 0) {
                     *(p-1) = *p;
-                    *p = 0;
+                    /* delete unused byte from read result */
+                    last_read_data_length--;
+                    for (j = 0; j < size; j++)  /* copies too much, but... */
+                        *(p+j) = *(p+j+1);  /* move the data down in the buffer 1 byte */
                 }
-                p++;
+                else
+                    p++;
             }
             else {
                 p += read_size[i];

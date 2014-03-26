@@ -330,18 +330,23 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
     flush_write(ftdi, NULL);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {
-//printf("[%s:%d] %d\n", __FUNCTION__, linenumber, read_size[i]);
         if (read_size[i] > 0)
             expected_len += read_size[i];
         else {
+            expected_len++;
             if (i == 0 || read_size[i-1] > 0)
-                extra_bytes++;
-            expected_len++; /* we will squeeze out partial bytes in the processing below */
+                extra_bytes++; /* we will squeeze out partial bytes in the processing below */
+        /* When there are 2 bit operations in a row, this is just accumulating
+         * shifted bits into a register for return to user.  When exiting
+         * Shift-DR/IR state, the last bit shifted is not performed with DATAWBITS,
+         * but with a TMS operation.  For this reason, the combo of 2 bit ops
+         * in a row is quite common.
+         */
         }
     }
     if (expected_len - extra_bytes != size) {
 printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, extra_bytes, size);
-        //exit(-1);
+        exit(-1);
     }
     if (size) {
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);

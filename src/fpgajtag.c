@@ -200,9 +200,17 @@ static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
 static int skip_penultimate_byte = 1;
-static uint8_t *command_ending;
 static int first_time_idcode_read = 1;
 
+/*
+ * Support for GPIOs from Digilent JTAG module to h/w design.
+ *
+ * SMT1 does not have any external GPIO connections (KC705).
+ *
+ * SMT2 has GPIO0/1/2 for user use.  In the datasheet for
+ * the SMT2, it has an example connecting GPIO2 -> PS_SRST_B
+ * on the Zynq-7000. (but the zedboard uses SMT1)
+ */
 static void pulse_gpio(struct ftdi_context *ftdi, int delay)
 {
 #define GPIO_DONE            0x10
@@ -220,16 +228,6 @@ static void pulse_gpio(struct ftdi_context *ftdi, int delay)
                      SET_LSB_DIRECTION(GPIO_01)));
 }
 
-static uint16_t fetch16(int linenumber, struct ftdi_context *ftdi)
-{
-    return read_data_int(linenumber, ftdi, 2);
-}
-
-static uint64_t fetch24(int linenumber, struct ftdi_context *ftdi)
-{
-    return read_data_int(linenumber, ftdi, 2 + found_zynq);
-}
-
 static void write_dataw(uint32_t value)
 {
     write_item(DITEM(DATAW(0, value)));
@@ -237,9 +235,16 @@ static void write_dataw(uint32_t value)
 
 static void swap32(uint32_t value)
 {
-#define MS(A)              BSWAP(M(A))
-#define SWAP32(A)          MS((A) >> 24), MS((A) >> 16), MS((A) >> 8), MS(A)
-    write_item(DITEM(SWAP32(value)));
+    int i;
+    union {
+        uint32_t i;
+        uint8_t c[4];
+    } temp;
+    temp.i = value;
+    for (i = 0; i < 4; i++) {
+        uint8_t ch = bitswap[temp.c[3-i]];
+        write_data(&ch, 1);
+    }
 }
 
 static void write_dswap32(uint32_t value)
@@ -370,7 +375,7 @@ static uint16_t write_combo_irreg(struct ftdi_context *ftdi, int command)
 {
     write_jtag_irreg_short(DREAD, command);
     write_item(DITEM(SEND_IMMEDIATE));
-    uint16_t ret16 = fetch16(__LINE__, ftdi);
+    uint16_t ret16 = read_data_int(__LINE__, ftdi, 2);
     if (found_zynq) {
         write_item(DITEM(PAUSE_TO_SHIFT));
         write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
@@ -387,7 +392,7 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
     else
         write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
     write_item(DITEM(SEND_IMMEDIATE));
-    return fetch24(__LINE__, ftdi);
+    return read_data_int(__LINE__, ftdi, 2 + found_zynq);
 }
 
 /*
@@ -397,7 +402,6 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
 {
     int i;
     uint8_t *rdata;
-    uint32_t tempdata[100], tempdata_index = 0;
     uint32_t *testp = buf+1;
 
     if (load)
@@ -407,17 +411,14 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     write_item(DITEM(SEND_IMMEDIATE));
     rdata = read_data(linenumber, ftdi, buf[0] * 6);
     for (i = 0; i < last_read_data_length/6; i++) {
-        uint64_t ret = 0;
-        *(rdata+4) >>= 5; // only 3 bits valid in MSB byte
-        memcpy(&ret, rdata, 5);
-        int bottom = ret & 0x7;
-        if (bottom != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
-            printf("[%s:%d] Error in cortex response %x \n", __FUNCTION__, linenumber, bottom);
-        ret >>= 3;
-        uint32_t ret32 = ret;
-        tempdata[tempdata_index++] = ret32;
+        uint64_t ret = 0;              // Clear out MSB before copy
+        *(rdata+4) >>= 5;              // only 3 bits valid in MSB byte
+        memcpy(&ret, rdata, 5);        // copy into bottom of uint64 data target
+        if ((ret & 7) != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
+            printf("fpgajtag:%d Error in cortex response %x \n", linenumber, (int)(ret & 7));
+        uint32_t ret32 = ret >> 3;
         if (ret32 != *testp) {
-            printf("[%s:%d] Error [%ld] act %x expect %x\n", __FUNCTION__, linenumber, testp - buf, ret32, *testp);
+            printf("fpgajtag:%d Error [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
             memdump(rdata, 6, "RX");
         }
         testp++;
@@ -638,13 +639,16 @@ static uint64_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
     write_jtag_irreg(0, EXTEND_EXTRA | irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (i > 1)
-        write_item(DITEM(DATAWBIT, opcode_bits, 0x0c, SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+        write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
     if (i > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
         if (found_zynq)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
-    write_item(command_ending);
+    if (found_zynq)
+        write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE));
+    else
+        write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE));
     return read_data_int(linenumber, ftdi, 4+skip_penultimate_byte);
 }
 
@@ -788,12 +792,9 @@ int main(int argc, char **argv)
     /*** Depending on the idcode read, change some default actions ***/
     if (found_zynq) {
         skip_penultimate_byte = 0;
-        command_ending = DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0), SEND_IMMEDIATE);
         opcode_bits = 0x05;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
-    else
-        command_ending = DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0), SEND_IMMEDIATE);
 
     /*
      * Step 5: Check Device ID

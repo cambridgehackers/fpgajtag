@@ -118,24 +118,33 @@
 #define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /*
- * SMAP registers
+ * Xilinx Configuration Packets
+ *
+ * In ug470_7Series_Config.pdf, this is described on pages 89ff.
  */
-#define SMAP_DUMMY           0xffffffff
-#define SMAP_SYNC            0xaa995566
 
-// Type 1 Packet
+// Type 1 Packet, Table 5-17
 #define SMAP_TYPE1(OPCODE,REG,COUNT) \
     (0x20000000 | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
+
+// Type 1 OPCODE Format, Table 5-18
 #define SMAP_OP_NOP         0
 #define SMAP_OP_READ        1
 #define SMAP_OP_WRITE       2
+
+// Type 1 Packet Registers, Table 5-20
 #define SMAP_REG_CMD     0x04  // CMD register, Table 5-22
-#define     SMAP_CMD_DESYNC 0x0000000d  // end of configuration
+#define     SMAP_CMD_DESYNC 0x0000000d  // end of configuration procedure
 #define SMAP_REG_STAT    0x07  // STAT register, Table 5-25
 #define SMAP_REG_BOOTSTS 0x16  // BOOTSTS register, Table 5-35
 
-// Type 2 Packet
+// Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
+//
 #define SMAP_TYPE2(LEN) (0x40000000 | (LEN))
+
+// Constants used in accessing Configuration Registers
+#define SMAP_DUMMY           0xffffffff
+#define SMAP_SYNC            0xaa995566
 
 /*
  * ARM Cortex constants
@@ -173,7 +182,7 @@
                       // Size=2      -> 32 bits
 #define SELECT_DEBUG  0x01000000
 
-// MEM-AP accessable registers
+/* MEM-AP accessable registers */
 // From DDI0388I_cortex_a9_r4p1_trm.pdf, Table 10-1
 // Detailed description of each register is also in:
 //   DDI0406B_arm_architecture_reference_manual_errata_markup_10_0.pdf (but no table!!)
@@ -673,6 +682,11 @@ static void bypass_test(struct ftdi_context *ftdi, int j, int cortex_nowait, int
         cortex_bypass(ftdi, cortex_nowait);
 }
 
+/*
+ * Read status register.
+ * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
+ * the JTAG Interface" and Table 6-3.
+ */
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after)
 {
     write_item(idle_to_reset);

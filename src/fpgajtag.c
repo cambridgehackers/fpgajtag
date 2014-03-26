@@ -354,18 +354,18 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static void write_jtag_irreg(int read, int command, int goto_idle)
+static void write_jtag_irreg(int read, int command, int next_state)
 {
     if (trace)
-        printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, goto_idle);
+        printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
     if (found_zynq)     /* 3 extra bits of IR are sent here */
         write_item(DITEM(DATAWBIT | read, 0x02,
             M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
-    if (goto_idle == 2)
+    if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, EXTRA_BIT_ADDITION(command))));
-    else if (goto_idle)
+    else if (next_state)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
     else {
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
@@ -750,11 +750,11 @@ static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    exit1_to_idle();
     if (found_zynq) {
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
         exit1_to_idle();
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
     }
+    exit1_to_idle();
     return ret;
 }
 

@@ -99,93 +99,8 @@ int i;
         printf("\n");
 }
 
-/*
- * USB interface
- */
-void init_usb(const char *serialno)
-{
-    int cfg, type = 0, i = 0, baudrate = 9600;
-    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
-    int best_divisor = 12000000*8 / baudrate;
-    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
-    libusb_device **device_list, *dev, *usbdev = NULL;
-    struct libusb_device_descriptor desc;
-    struct libusb_config_descriptor *config_descrip;
-
-    /*
-     * Locate USB interface for JTAG
-     */
-    if (libusb_init(&usb_context) < 0
-     || libusb_get_device_list(usb_context, &device_list) < 0) {
-        printf("libusb_init failed\n");
-        exit(-1);
-    }
-    while ((dev = device_list[i++]) ) {
-        if (libusb_get_device_descriptor(dev, &desc) < 0)
-            break;
-        if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
-         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
-            unsigned char serial[64], manuf[64], descrip[128];
-            libusb_ref_device(dev);
-            if (libusb_open(dev, &usbhandle) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iManufacturer, manuf, sizeof(manuf)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iProduct, descrip, sizeof(descrip)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iSerialNumber, serial, sizeof(serial)) < 0)
-                goto error;
-            printf("[%s] %s:%s:%s\n", __FUNCTION__, manuf, descrip, serial);
-            if (!serialno || !strcmp(serialno, (char *)serial)) {
-                usbdev = dev;
-                break;
-            }
-            libusb_close (usbhandle);
-        }
-    }
-    libusb_free_device_list(device_list,1);
-    if (!usbdev || libusb_get_config_descriptor(usbdev, 0, &config_descrip) < 0)
-        goto error;
-    int configv = config_descrip->bConfigurationValue;
-    libusb_free_config_descriptor (config_descrip);
-    libusb_detach_kernel_driver(usbhandle, 0);
-#define USBCTRL(A,B,C) \
-     libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
-           | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
-
-    if (libusb_get_configuration (usbhandle, &cfg) < 0
-     || (desc.bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
-     || libusb_claim_interface(usbhandle, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
-     || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
-     || USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
-        goto error;
-    //(desc.bcdDevice == 0x700) //kc,vc,ac701       TYPE_2232H
-    printf("[%s:%d] bcd %x type %d\n", __FUNCTION__, __LINE__, desc.bcdDevice, type);
-    if (desc.bcdDevice == 0x900) //zedboard, zc706 TYPE_232H
-        found_232H = 1;
-    return;
-error:
-    printf("Can't find usable usb interface\n");
-    exit(-1);
-}
-
-void close_usb(struct ftdi_context *ftdi)
-{
-#ifdef USE_LIBFTDI
-    ftdi_deinit(ftdi);
-#else
-    libusb_close (usbhandle);
-    libusb_exit(usb_context);
-#endif
-    fflush(stdout);
-    fclose(logfile);
-    close(datafile_fd);
-}
-
 #ifndef USE_LIBFTDI
-int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
+static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
 {
     int actual_length;
     if (logging)
@@ -194,7 +109,7 @@ int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int siz
         printf( "usb bulk write failed");
     return actual_length;
 }
-int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
+static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
     int actual_length = 1;
     do {
@@ -205,7 +120,7 @@ int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
     } while (actual_length == 0);
     memcpy (buf, usbreadbuffer+2, actual_length);
     if (actual_length != size) {
-        printf("[%s:%d] bozo actual_length %d size %d\n", __FUNCTION__, __LINE__, actual_length, size);
+        printf("[%s] bozo actual_length %d size %d\n", __FUNCTION__, actual_length, size);
         exit(-1);
         }
     if (logging)
@@ -213,41 +128,6 @@ int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
     return actual_length;
 }
 #endif //end if not USE_LIBFTDI
-
-/*
- * FTDI generic initialization
- */
-struct ftdi_context *init_ftdi(void)
-{
-    static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
-    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
-    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
-    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
-    struct ftdi_context *ftdi = NULL;
-    int i;
-    uint8_t retcode[2];
-
-#ifdef USE_LIBFTDI
-    ftdi = ftdi_new();
-    ftdi_set_usbdev(ftdi, usbhandle);
-    ftdi->usb_ctx = usb_context;
-    ftdi->max_packet_size = 512; //5000;
-#endif
-    /*
-     * Generic command synchronization with ftdi chip
-     */
-    for (i = 0; i < 4; i++) {
-        ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
-        ftdi_read_data(ftdi, retcode, sizeof(retcode));
-        if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
-            memdump(retcode, sizeof(retcode), "RETaa");
-    }
-    ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
-    ftdi_read_data(ftdi, retcode, sizeof(retcode));
-    if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
-        memdump(retcode, sizeof(retcode), "RETab");
-    return ftdi;
-}
 
 /*
  * Write utility functions
@@ -328,6 +208,8 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
 
+    if (trace)
+        printf("[%s:%d]\n", __FUNCTION__, linenumber);
     if (buffer_current_size())
         *usbreadbuffer_ptr++ = SEND_IMMEDIATE; /* tell the FTDI that we are waiting... */
     flush_write(ftdi, NULL);
@@ -359,7 +241,7 @@ printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenum
             if (read_size[i] < 0) {
                 validbits -= read_size[i];
                 if (validbits < 0 || validbits > 8) {
-                    printf("[%s:%d] validbits %d\n", __FUNCTION__, __LINE__, validbits);
+                    printf("[%s:%d] validbits %d\n", __FUNCTION__, linenumber, validbits);
                     exit(-1);
                 }
                 *p &= (0xff << (8-validbits));
@@ -405,4 +287,125 @@ uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
     return rdata;
+}
+
+/*
+ * USB interface
+ */
+void init_usb(const char *serialno)
+{
+    int cfg, type = 0, i = 0, baudrate = 9600;
+    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
+    int best_divisor = 12000000*8 / baudrate;
+    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
+    libusb_device **device_list, *dev, *usbdev = NULL;
+    struct libusb_device_descriptor desc;
+    struct libusb_config_descriptor *config_descrip;
+
+    /*
+     * Locate USB interface for JTAG
+     */
+    if (libusb_init(&usb_context) < 0
+     || libusb_get_device_list(usb_context, &device_list) < 0) {
+        printf("libusb_init failed\n");
+        exit(-1);
+    }
+    while ((dev = device_list[i++]) ) {
+        if (libusb_get_device_descriptor(dev, &desc) < 0)
+            break;
+        if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
+         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
+            unsigned char serial[64], manuf[64], descrip[128];
+            libusb_ref_device(dev);
+            if (libusb_open(dev, &usbhandle) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iManufacturer, manuf, sizeof(manuf)) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iProduct, descrip, sizeof(descrip)) < 0
+             || libusb_get_string_descriptor_ascii(usbhandle, desc.iSerialNumber, serial, sizeof(serial)) < 0)
+                goto error;
+            printf("[%s] %s:%s:%s\n", __FUNCTION__, manuf, descrip, serial);
+            if (!serialno || !strcmp(serialno, (char *)serial)) {
+                usbdev = dev;
+                break;
+            }
+            libusb_close (usbhandle);
+        }
+    }
+    libusb_free_device_list(device_list,1);
+    if (!usbdev || libusb_get_config_descriptor(usbdev, 0, &config_descrip) < 0)
+        goto error;
+    int configv = config_descrip->bConfigurationValue;
+    libusb_free_config_descriptor (config_descrip);
+    libusb_detach_kernel_driver(usbhandle, 0);
+#define USBCTRL(A,B,C) \
+     libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
+           | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
+
+    if (libusb_get_configuration (usbhandle, &cfg) < 0
+     || (desc.bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
+     || libusb_claim_interface(usbhandle, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
+     || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
+     || USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0
+     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0
+     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
+     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
+        goto error;
+    //(desc.bcdDevice == 0x700) //kc,vc,ac701       TYPE_2232H
+    printf("[%s] bcd %x type %d\n", __FUNCTION__, desc.bcdDevice, type);
+    if (desc.bcdDevice == 0x900) //zedboard, zc706 TYPE_232H
+        found_232H = 1;
+    return;
+error:
+    printf("Can't find usable usb interface\n");
+    exit(-1);
+}
+
+void close_usb(struct ftdi_context *ftdi)
+{
+    flush_write(ftdi, NULL);
+#ifdef USE_LIBFTDI
+    ftdi_deinit(ftdi);
+#else
+    libusb_close (usbhandle);
+    libusb_exit(usb_context);
+#endif
+    fflush(stdout);
+    fclose(logfile);
+    close(datafile_fd);
+}
+
+/*
+ * FTDI generic initialization
+ */
+struct ftdi_context *init_ftdi(void)
+{
+    static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
+    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
+    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
+    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
+    struct ftdi_context *ftdi = NULL;
+    int i;
+    uint8_t retcode[2];
+
+#ifdef USE_LIBFTDI
+    ftdi = ftdi_new();
+    ftdi_set_usbdev(ftdi, usbhandle);
+    ftdi->usb_ctx = usb_context;
+    ftdi->max_packet_size = 512; //5000;
+#endif
+    /*
+     * Generic command synchronization with ftdi chip
+     */
+    for (i = 0; i < 4; i++) {
+        ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
+        ftdi_read_data(ftdi, retcode, sizeof(retcode));
+        if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
+            memdump(retcode, sizeof(retcode), "RETaa");
+    }
+    ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
+    ftdi_read_data(ftdi, retcode, sizeof(retcode));
+    if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
+        memdump(retcode, sizeof(retcode), "RETab");
+    return ftdi;
 }

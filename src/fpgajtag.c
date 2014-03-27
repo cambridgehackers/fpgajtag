@@ -210,7 +210,8 @@
 
 static int number_of_devices = 1;
 static int found_zynq;
-static int found_ac;
+static int found_ac701;
+static int found_zc706;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -380,7 +381,7 @@ static void write_jtag_irreg(int read, int command, int next_state)
     }
 }
 
-static void write_combo_irreg(struct ftdi_context *ftdi, int read, int command, uint32_t expect)
+static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int read, int command, uint32_t expect)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
     if (found_zynq)
@@ -388,13 +389,13 @@ static void write_combo_irreg(struct ftdi_context *ftdi, int read, int command, 
     else
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
     if (read) {
-        uint16_t ret = read_data_int(__LINE__, ftdi, 1);
+        uint16_t ret = read_data_int(linenumber, ftdi, 1);
         if (found_zynq) {
             write_item(DITEM(PAUSE_TO_SHIFT));
             write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
         }
         if (ret != expect)
-            printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+            printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }
     exit1_to_idle();
 }
@@ -625,7 +626,9 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
         memcpy(idcode_validate_result+1, rdata, sizeof(returnedid)); // copy returned idcode
         memcpy(idcode_probe_result+1, rdata, sizeof(returnedid));       // copy returned idcode
         if (idcode == 0x13636093) // ac701
-            found_ac = 1;
+            found_ac701 = 1;
+        if (idcode == 0x23731093) // zc706
+            found_zc706 = 1;
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
             uint32_t anotherid;
             memcpy(&anotherid, rdata+4, sizeof(anotherid));
@@ -672,6 +675,8 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
     int i;
     uint32_t ret;
 
+    if (trace)
+        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
     if (input_shift)
         write_item(shift_to_exit1);
     else
@@ -688,6 +693,8 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
     }
     if (found_zynq)
         cortex_bypass(ftdi, cortex_nowait);
+    if (trace)
+        printf("[%s:%d] end\n", __FUNCTION__, linenumber);
 }
 
 /*
@@ -817,19 +824,27 @@ int main(int argc, char **argv)
     }
 
     j = 3;
-    if (found_ac || found_zynq) j = 4;
-    if (trace)
-        printf("[%s:%d] number_of_devices %d\n", __FUNCTION__, __LINE__, number_of_devices);
+    if (found_ac701 || found_zc706 || found_zynq)
+        j = 4;
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    bypass_test(__LINE__, ftdi, 3, 1, 0);
-    flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    if (found_zc706)
+        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    bypass_test(__LINE__, ftdi, 3, 1, found_zc706);
+    if (trace)
+        printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    if (!found_zc706)
+        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in check_idcode()
      * on the first call
      */
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
+    if (found_zc706)
+        write_item(idle_to_reset);
+    else
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
              IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
@@ -850,8 +865,10 @@ int main(int argc, char **argv)
     }
     check_status(__LINE__, ftdi, 0x301900, 0);
     j = 4;
-    if (found_ac)
+    if (found_ac701)
         j = 3;
+    if (found_zc706)
+        j = 5;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -862,12 +879,12 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_JPROGRAM, 0);
     write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    write_combo_irreg(ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
+    write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    write_combo_irreg(ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
+    write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
     send_data_file(ftdi, inputfd);
 
     /*
@@ -879,13 +896,13 @@ int main(int argc, char **argv)
     write_jtag_irreg(0, IRREG_BYPASS, 0);
     write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
-    write_combo_irreg(ftdi, DREAD, IRREG_BYPASS, FINISHED);
+    write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
     if ((ret = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (found_zynq)
         write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
-        write_combo_irreg(ftdi, 0, IRREG_BYPASS, 0);
+        write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -894,7 +911,7 @@ int main(int argc, char **argv)
     if (!found_zynq)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1);
-    if (found_ac || found_zynq)
+    if (found_ac701 || found_zc706 || found_zynq)
         bypass_test(__LINE__, ftdi, 3, 1, 1);
     if (found_zynq)
         bypass_test(__LINE__, ftdi, 3, 1, 0);

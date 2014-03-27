@@ -58,7 +58,11 @@ FILE *logfile;
 int found_232H;
 uint8_t bitswap[256];
 int last_read_data_length;
+#if defined(USE_TRACING)
+int trace = 1;
+#else
 int trace;
+#endif
 
 #if defined(USE_LOGGING)
 static int logging = 1;
@@ -120,8 +124,9 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     } while (actual_length == 0);
     memcpy (buf, usbreadbuffer+2, actual_length);
     if (actual_length != size) {
-        printf("[%s] bozo actual_length %d size %d\n", __FUNCTION__, actual_length, size);
-        exit(-1);
+        printf("[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
+        if (!trace)
+            exit(-1);
         }
     if (logging)
         memdumpfile(buf, actual_length, "READ");
@@ -231,7 +236,8 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
     }
     if (expected_len - extra_bytes != size) {
 printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, extra_bytes, size);
-        exit(-1);
+        if (!trace)
+            exit(-1);
     }
     if (size) {
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);

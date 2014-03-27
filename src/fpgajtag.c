@@ -831,9 +831,9 @@ int main(int argc, char **argv)
     if (found_ac701 || found_zc706 || found_zynq)
         j = 4;
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    if (found_zc706)
+    if (found_zc706 || found_zc702)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
-    bypass_test(__LINE__, ftdi, 3, 1, found_zc706);
+    bypass_test(__LINE__, ftdi, 3, 1, found_zc706 || found_zc702);
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (!found_zc706)
@@ -848,8 +848,11 @@ int main(int argc, char **argv)
         write_item(idle_to_reset);
     else
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0),
-             IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+    if (!found_zc702) {
+    write_item(DITEM(IN_RESET_STATE));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    }
+    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
@@ -873,6 +876,8 @@ int main(int argc, char **argv)
         j = 3;
     if (found_zc706)
         j = 5;
+    if (found_zc702)
+        j = 1;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -912,12 +917,12 @@ int main(int argc, char **argv)
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (!found_zynq)
+    if (found_zc702 || !found_zynq)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1);
     if (found_ac701 || found_zc706 || found_zynq)
         bypass_test(__LINE__, ftdi, 3, 1, 1);
-    if (found_zynq)
+    if (found_zynq && !found_zc702)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
 
     /*

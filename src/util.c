@@ -55,7 +55,7 @@ static void openlogfile(void);
 #include "dumpdata.h"
 
 FILE *logfile;
-int found_232H;
+int usb_bcddevice;
 uint8_t bitswap[256];
 int last_read_data_length;
 #if defined(USE_TRACING)
@@ -357,10 +357,11 @@ void init_usb(const char *serialno)
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
-    //(desc.bcdDevice == 0x700) //kc,vc,ac701       TYPE_2232H
+    //(desc.bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     printf("[%s] bcd %x type %d\n", __FUNCTION__, desc.bcdDevice, type);
-    if (desc.bcdDevice == 0x900) //zedboard, zc706 TYPE_232H
-        found_232H = 1;
+    //if (desc.bcdDevice == 0x900) //zedboard, zc706 FT232H
+        //found_232H = 1;
+    usb_bcddevice = desc.bcdDevice;
     return;
 error:
     printf("Can't find usable usb interface\n");

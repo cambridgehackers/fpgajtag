@@ -212,6 +212,7 @@ static int number_of_devices = 1;
 static int found_zynq;
 static int found_ac701;
 static int found_zc706;
+static int found_zc702;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -629,6 +630,7 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
             found_ac701 = 1;
         if (idcode == 0x23731093) // zc706
             found_zc706 = 1;
+//0x93, 0x70, 0x72, 0x03 //702 and zedboard
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
             uint32_t anotherid;
             memcpy(&anotherid, rdata+4, sizeof(anotherid));
@@ -803,7 +805,7 @@ int main(int argc, char **argv)
                                     /*** Set JCLK speed and GPIO pins for our i/f ***/
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (!found_232H)
+    if (usb_bcddevice != 0x900) /* not a zedboard */
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
 
@@ -818,6 +820,8 @@ int main(int argc, char **argv)
      */
     check_idcode(__LINE__, ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
+    if (found_zynq && usb_bcddevice == 0x700)
+        found_zc702 = 1;
     if (found_zynq) {
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;

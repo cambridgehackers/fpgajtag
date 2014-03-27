@@ -42,7 +42,7 @@ struct ftdi_context;
 #endif
 
 extern FILE *logfile;
-extern int found_232H;
+extern int usb_bcddevice;
 extern uint8_t bitswap[256];
 extern int last_read_data_length;
 extern int trace;

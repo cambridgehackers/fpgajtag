@@ -674,7 +674,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
     if (input_shift == 2) {
-        if (device_type == DEVICE_ZC706 || device_type == DEVICE_ZC702)
+        if (device_type == DEVICE_ZC702)
             flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
         write_item(idle_to_reset);
     }
@@ -849,21 +849,17 @@ int main(int argc, char **argv)
     bypass_test(__LINE__, ftdi, 3, 1, 2);
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (device_type != DEVICE_ZC706)
-        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in check_idcode()
      * on the first call
      */
-    if (device_type == DEVICE_ZC706)
-        write_item(idle_to_reset);
-    else
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    if (device_type != DEVICE_ZC702) {
-    write_item(DITEM(IN_RESET_STATE));
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    if (device_type != DEVICE_ZC702) {
+        write_item(DITEM(IN_RESET_STATE));
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     }
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
@@ -887,8 +883,6 @@ int main(int argc, char **argv)
     j = 4;
     if (device_type == DEVICE_AC701)
         j = 3;
-    if (device_type == DEVICE_ZC706)
-        j = 5;
     if (device_type == DEVICE_ZC702)
         j = 1;
     for (i = 0; i < j; i++)

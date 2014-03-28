@@ -118,10 +118,10 @@
 #define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /* Status values */
-#define FIRST_TIME    (found_zynq ? 0x8a : 0x20)
-#define INPROGRAMMING (found_zynq ? 0x10 : 0x88)
-#define PROGRAMMED    (found_zynq ? 0xae : 0xbc)
-#define FINISHED      (found_zynq ? 0x5c : 0xac)
+#define FIRST_TIME    (found_cortex ? 0x8a : 0x20)
+#define INPROGRAMMING (found_cortex ? 0x10 : 0x88)
+#define PROGRAMMED    (found_cortex ? 0xae : 0xbc)
+#define FINISHED      (found_cortex ? 0x5c : 0xac)
 
 /*
  * Xilinx Configuration Packets
@@ -209,10 +209,9 @@
 #define ADDRESS_SLCR_ARM_CLK_CTRL 0xf8000120
 
 static int number_of_devices = 1;
-static int found_zynq;
-static int found_ac701;
-static int found_zc706;
-static int found_zc702;
+enum {DEVICE_OTHER, DEVICE_AC701, DEVICE_ZC706, DEVICE_ZC702, DEVICE_ZEDBOARD};
+static int device_type;
+static int found_cortex;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -280,7 +279,7 @@ static void write_one_word(int dread, int short_format, int value)
 
 static void write_eight_bytes(void)
 {
-    if (found_zynq) {
+    if (found_cortex) {
         write_item(DITEM(DATAW(0, 7), INT32(0)));
         write_one_word(0, 0, 0);
     }
@@ -346,7 +345,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
         if (size < FILE_READSIZE) {
-            if (found_zynq)
+            if (found_cortex)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
@@ -369,7 +368,7 @@ static void write_jtag_irreg(int read, int command, int next_state)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
-    if (found_zynq)     /* 3 extra bits of IR are sent here */
+    if (found_cortex)     /* 3 extra bits of IR are sent here */
         write_item(DITEM(DATAWBIT | read, 0x02,
             M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (next_state == 2)
@@ -385,13 +384,13 @@ static void write_jtag_irreg(int read, int command, int next_state)
 static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int read, int command, uint32_t expect)
 {
     write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
-    if (found_zynq)
+    if (found_cortex)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
     else
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
     if (read) {
         uint16_t ret = read_data_int(linenumber, ftdi, 1);
-        if (found_zynq) {
+        if (found_cortex) {
             write_item(DITEM(PAUSE_TO_SHIFT));
             write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
         }
@@ -403,12 +402,12 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
 {
-    if (found_zynq)
+    if (found_cortex)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
                   DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
         write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
-    return read_data_int(__LINE__, ftdi, 1 + found_zynq);
+    return read_data_int(__LINE__, ftdi, 1 + found_cortex);
 }
 
 /*
@@ -626,17 +625,12 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
         idcode |= 0xf0000000 & returnedid;
         memcpy(idcode_validate_result+1, rdata, sizeof(returnedid)); // copy returned idcode
         memcpy(idcode_probe_result+1, rdata, sizeof(returnedid));       // copy returned idcode
-        if (idcode == 0x13636093) // ac701
-            found_ac701 = 1;
-        if (idcode == 0x23731093) // zc706
-            found_zc706 = 1;
-//0x93, 0x70, 0x72, 0x03 //702 and zedboard
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
             uint32_t anotherid;
             memcpy(&anotherid, rdata+4, sizeof(anotherid));
             printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, anotherid);
             if (anotherid == CORTEX_IDCODE)
-                found_zynq = 1;
+                found_cortex = 1;
             memcpy(idcode_probe_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             memcpy(idcode_validate_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
             number_of_devices++;
@@ -662,10 +656,10 @@ static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
     if (i > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
-        if (found_zynq)
+        if (found_cortex)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
-    if (found_zynq)
+    if (found_cortex)
         write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     else
         write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
@@ -679,7 +673,12 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
-    if (input_shift)
+    if (input_shift == 2) {
+        if (device_type == DEVICE_ZC706 || device_type == DEVICE_ZC702)
+            flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+        write_item(idle_to_reset);
+    }
+    else if (input_shift)
         write_item(shift_to_exit1);
     else
         write_item(idle_to_reset);
@@ -693,7 +692,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
     }
-    if (found_zynq)
+    if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, linenumber);
@@ -716,12 +715,12 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
      */
-    write_dataw(19 + found_zynq);
+    write_dataw(19 + found_cortex);
     swap32(SMAP_DUMMY);
     swap32(SMAP_SYNC);
     swap32(SMAP_TYPE2(0));
     swap32(SMAP_TYPE1(SMAP_OP_READ, SMAP_REG_STAT, 1));
-    write_one_word(0, found_zynq, 0);
+    write_one_word(0, found_cortex, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     uint32_t ret = fetch_config_word(linenumber, ftdi, IRREG_CFG_OUT, 0);
     uint32_t status = ret >> 8;
@@ -750,19 +749,19 @@ static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(SMAP_TYPE1(SMAP_OP_WRITE, SMAP_REG_CMD, 1));
     write_dswap32(SMAP_CMD_DESYNC);
     write_dswap32(SMAP_TYPE1(SMAP_OP_NOP, 0,0));
-    write_item(DITEM(DATAW(0, 3+found_zynq)));
-    write_one_word(0, found_zynq, 4);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, found_zynq ? 0x80 : 0)));
+    write_item(DITEM(DATAW(0, 3+found_cortex)));
+    write_one_word(0, found_cortex, 4);
+    write_item(DITEM(SHIFT_TO_EXIT1(0, found_cortex ? 0x80 : 0)));
     exit1_to_idle();
     write_jtag_irreg(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3)));
     write_one_word(DREAD, 0, 0);
-    if (found_zynq)
+    if (found_cortex)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    if (found_zynq) {
+    if (found_cortex) {
         exit1_to_idle();
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
     }
@@ -796,23 +795,41 @@ int main(int argc, char **argv)
     }
 
     /*
-     * Initialization
+     * Initialize USB, FTDI
      */
     for (i = 0; i < sizeof(bitswap); i++)
         bitswap[i] = BSWAP(i);
     init_usb(serialno);             /*** Initialize USB interface ***/
     ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
-                                    /*** Set JCLK speed and GPIO pins for our i/f ***/
-    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
-                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (usb_bcddevice != 0x900) /* not a zedboard */
-        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
 
-    lseek(inputfd, 0x80, SEEK_SET); /*** Read idcode from file to be programmed ***/
+    /*
+     * Read device id from file to be programmed
+     */
+    lseek(inputfd, 0x80, SEEK_SET);
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
+    device_type = DEVICE_OTHER;
+    if (idcode == 0x03636093)         // ac701
+        device_type = DEVICE_AC701;
+    if (idcode == 0x03731093)         // zc706
+        device_type = DEVICE_ZC706;
+    if (idcode == 0x03727093) {       // zc702 and zedboard
+        if (usb_bcddevice == 0x700)
+            device_type = DEVICE_ZC702;
+        else
+            device_type = DEVICE_ZEDBOARD;
+    }
+    printf("[%s] idcode %x device_type %d.\n", __FUNCTION__, idcode, device_type);
+
+    /*
+     * Set JTAG clock speed and GPIO pins for our i/f
+     */
+    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
+                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+    if (usb_bcddevice == 0x700) /* not a zedboard */
+        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
     write_item(shift_to_exit1);
 
     /*
@@ -820,23 +837,19 @@ int main(int argc, char **argv)
      */
     check_idcode(__LINE__, ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
-    if (found_zynq && usb_bcddevice == 0x700)
-        found_zc702 = 1;
-    if (found_zynq) {
+    if (found_cortex) {
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
 
     j = 3;
-    if (found_ac701 || found_zc706 || found_zynq)
+    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
         j = 4;
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    if (found_zc706 || found_zc702)
-        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
-    bypass_test(__LINE__, ftdi, 3, 1, found_zc706 || found_zc702);
+    bypass_test(__LINE__, ftdi, 3, 1, 2);
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (!found_zc706)
+    if (device_type != DEVICE_ZC706)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
@@ -844,11 +857,11 @@ int main(int argc, char **argv)
      * devices in the JTAG chain.  (this list was set up in check_idcode()
      * on the first call
      */
-    if (found_zc706)
+    if (device_type == DEVICE_ZC706)
         write_item(idle_to_reset);
     else
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    if (!found_zc702) {
+    if (device_type != DEVICE_ZC702) {
     write_item(DITEM(IN_RESET_STATE));
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     }
@@ -857,7 +870,7 @@ int main(int argc, char **argv)
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    if (found_zynq)
+    if (found_cortex)
         write_bypass(ftdi);
     if ((ret = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -872,11 +885,11 @@ int main(int argc, char **argv)
     }
     check_status(__LINE__, ftdi, 0x301900, 0);
     j = 4;
-    if (found_ac701)
+    if (device_type == DEVICE_AC701)
         j = 3;
-    if (found_zc706)
+    if (device_type == DEVICE_ZC706)
         j = 5;
-    if (found_zc702)
+    if (device_type == DEVICE_ZC702)
         j = 1;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
@@ -900,15 +913,15 @@ int main(int argc, char **argv)
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_zynq ? 0x03000000 : 0x01000000))
+    if ((ret = read_smap(ftdi, SMAP_REG_BOOTSTS)) != (found_cortex ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_jtag_irreg(0, IRREG_BYPASS, 0);
     write_jtag_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
-    if ((ret = read_smap(ftdi, SMAP_REG_STAT)) != (found_zynq ? 0xf87f1046 : 0xfc791040))
+    if ((ret = read_smap(ftdi, SMAP_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (found_zynq)
+    if (found_cortex)
         write_jtag_irreg(0, IRREG_BYPASS, 0);
     else {
         write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
@@ -917,12 +930,12 @@ int main(int argc, char **argv)
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (found_zc702 || !found_zynq)
+    if (device_type != DEVICE_ZEDBOARD)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1);
-    if (found_ac701 || found_zc706 || found_zynq)
+    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
         bypass_test(__LINE__, ftdi, 3, 1, 1);
-    if (found_zynq && !found_zc702)
+    if (device_type == DEVICE_ZEDBOARD)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
 
     /*

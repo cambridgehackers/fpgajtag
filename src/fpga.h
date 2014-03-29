@@ -108,8 +108,9 @@
  */
 
 // Type 1 Packet, Table 5-17
+#define CONFIG_TYPE1_TAG   0x20000000
 #define CONFIG_TYPE1(OPCODE,REG,COUNT) \
-    (0x20000000 | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
+    (CONFIG_TYPE1_TAG | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
 
 // Type 1 OPCODE Format, Table 5-18
 #define CONFIG_OP_NOP         0
@@ -156,7 +157,8 @@
 
 // Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
 //
-#define CONFIG_TYPE2(LEN) (0x40000000 | (LEN))
+#define CONFIG_TYPE2_TAG   0x40000000
+#define CONFIG_TYPE2(LEN) (CONFIG_TYPE2_TAG | (LEN))
 
 // Constants used in accessing Configuration Registers
 #define CONFIG_DUMMY           0xffffffff

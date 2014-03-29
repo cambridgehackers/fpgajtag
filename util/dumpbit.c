@@ -41,41 +41,39 @@
  * 7 series devices have a fixed, identical length of 3,232 bits (101 32-bit words).
  */
 #define LINESIZE 8
+#define AA(A) {CONFIG_REG_ ## A, #A}
+#define AB(A) {CONFIG_CMD_ ## A, #A}
 
-static struct {
-    uint32_t mask;
-    uint32_t value;
-    uint32_t type;
-    char *name;
-} map[] = {
-    {0xffffffff, 0xffffffff, 0, "DUMMY    "},
-    {0xffffffff,       0xbb, 0, "WIDTHSYNC"},
-    {0xffffffff, 0x11220044, 0, "WIDTH    "},
-    {0xffffffff, 0xaa995566, 0, "SYNC     "},
-    {0xe0000000, 0x20000000, 1, "TYPE1    "},
-    {0xe0000000, 0x40000000, 2, "TYPE2    "},
-    {0,                   0, 0, "UNKNOWN  "}};
+static int dump_flag = 0;
 
 typedef struct {
-    int value;
-    char *name;
+    uint32_t value;
+    char    *name;
+    uint32_t mask;
+    uint32_t type;
 } MAPTYPE;
+
+static MAPTYPE map[] = {
+    {    CONFIG_DUMMY, "DUMMY    ", 0xffffffff, 0},
+    {            0xbb, "WIDTHSYNC", 0xffffffff, 0},
+    {      0x11220044, "WIDTH    ", 0xffffffff, 0},
+    {     CONFIG_SYNC, "SYNC     ", 0xffffffff, 0},
+    {CONFIG_TYPE1_TAG, "TYPE1    ", 0xe0000000, 1},
+    {CONFIG_TYPE2_TAG, "TYPE2    ", 0xe0000000, 2},
+    {               0, "UNKNOWN  ", 0,          0}};
 
 static char *opcodemap[] = {"nop   ", "read  ", "write ", "reserv"};
 
-#define AA(A) {CONFIG_REG_ ## A, #A}
-#define AB(A) {CONFIG_CMD_ ## A, #A}
-MAPTYPE regmap[] = {
+static MAPTYPE regmap[] = {
     AA(CRC), AA(FAR), AA(FDRI), AA(FDRO), AA(CMD), AA(CTL0), AA(MASK), AA(STAT),
     AA(LOUT), AA(COR0), AA(MFWR), AA(CBC), AA(IDCODE), AA(AXSS), AA(COR1),
     AA(WBSTAR), AA(TIMER), AA(BOOTSTS), AA(CTL1), {}};
-MAPTYPE cmdmap[] = {
+static MAPTYPE cmdmap[] = {
     AB(NULL), AB(WCFG), AB(MFW), AB(DGHIGH), AB(RCFG), AB(START), AB(RCAP),
     AB(RCRC), AB(AGHIGH), AB(SWITCH), AB(GRESTORE), AB(SHUTDOWN),
     AB(GCAPTURE), AB(DESYNC), AB(IPROG), AB(CRCC), AB(LTIMER), {}};
 
 uint32_t buffer[BUFFER_SIZE];
-static int dump_flag = 1;
 
 static void dump_data(uint32_t *pint, int size)
 {

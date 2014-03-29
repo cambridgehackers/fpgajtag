@@ -41,8 +41,6 @@
  * 7 series devices have a fixed, identical length of 3,232 bits (101 32-bit words).
  */
 #define LINESIZE 8
-#define AA(A) {CONFIG_REG_ ## A, #A}
-#define AB(A) {CONFIG_CMD_ ## A, #A}
 
 static int dump_flag = 0;
 
@@ -58,17 +56,19 @@ static MAPTYPE map[] = {
     {            0xbb, "WIDTHSYNC", 0xffffffff, 0},
     {      0x11220044, "WIDTH    ", 0xffffffff, 0},
     {     CONFIG_SYNC, "SYNC     ", 0xffffffff, 0},
-    {CONFIG_TYPE1_TAG, "TYPE1    ", 0xe0000000, 1},
-    {CONFIG_TYPE2_TAG, "TYPE2    ", 0xe0000000, 2},
+    {CONFIG_TYPE1(0,0,0), "TYPE1    ", 0xe0000000, 1},
+    {CONFIG_TYPE2(0), "TYPE2    ", 0xe0000000, 2},
     {               0, "UNKNOWN  ", 0,          0}};
 
 static char *opcodemap[] = {"nop   ", "read  ", "write ", "reserv"};
 
 static MAPTYPE regmap[] = {
+#define AA(A) {CONFIG_REG_ ## A, #A}
     AA(CRC), AA(FAR), AA(FDRI), AA(FDRO), AA(CMD), AA(CTL0), AA(MASK), AA(STAT),
     AA(LOUT), AA(COR0), AA(MFWR), AA(CBC), AA(IDCODE), AA(AXSS), AA(COR1),
     AA(WBSTAR), AA(TIMER), AA(BOOTSTS), AA(CTL1), {}};
 static MAPTYPE cmdmap[] = {
+#define AB(A) {CONFIG_CMD_ ## A, #A}
     AB(NULL), AB(WCFG), AB(MFW), AB(DGHIGH), AB(RCFG), AB(START), AB(RCAP),
     AB(RCRC), AB(AGHIGH), AB(SWITCH), AB(GRESTORE), AB(SHUTDOWN),
     AB(GCAPTURE), AB(DESYNC), AB(IPROG), AB(CRCC), AB(LTIMER), {}};

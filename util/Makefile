@@ -1,3 +1,3 @@
 
 all:
-	gcc -o dumpbit dumpbit.c
+	gcc -I../src -o dumpbit dumpbit.c

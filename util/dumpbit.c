@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <netinet/in.h>
+#include "fpga.h"
 
 #define BUFFER_SIZE 20000000
 #define ITEMSIZE 101
@@ -55,38 +56,36 @@ static struct {
     {0xe0000000, 0x40000000, 2, "TYPE2    "},
     {0,                   0, 0, "UNKNOWN  "}};
 
+typedef struct {
+    int value;
+    char *name;
+} MAPTYPE;
+
 static char *opcodemap[] = {"nop   ", "read  ", "write ", "reserv"};
 
-static struct {
-    int value;
-    char *name;
-} regmap[] = {
-    {0x00, "CRC    "}, {0x01, "FAR    "}, {0x02, "FDRI   "}, {0x03, "FDRO   "},
-    {0x04, "CMD    "}, {0x05, "CTL0   "}, {0x06, "MASK   "}, {0x07, "STAT   "},
-    {0x08, "LOUT   "}, {0x09, "COR0   "}, {0x0a, "MFWR   "}, {0x0b, "CBC    "},
-    {0x0c, "IDCODE "}, {0x0d, "AXSS   "}, {0x0e, "COR1   "}, {0x10, "WBSTAR "},
-    {0x11, "TIMER  "}, {0x16, "BOOTSTS"}, {0x18, "CTL1   "}, {}};
-
-static struct {
-    int value;
-    char *name;
-} cmdmap[] = {
-    {0x00, "NULL"}, {0x01, "WCFG"}, {0x02, "MFW"}, {0x03, "DGHIGH"},
-    {0x04, "RCFG"}, {0x05, "START"}, {0x06, "RCAP"}, {0x07, "RCRC"},
-    {0x08, "AGHIGH"}, {0x09, "SWITCH"}, {0x0a, "GRESTORE"}, {0x0b, "SHUTDOWN"},
-    {0x0c, "GCAPTURE"}, {0x0d, "DESYNC"}, {0x0f, "IPROG"}, {0x10, "CRCC"},
-    {0x11, "LTIMER"}, {}};
+#define AA(A) {CONFIG_REG_ ## A, #A}
+#define AB(A) {CONFIG_CMD_ ## A, #A}
+MAPTYPE regmap[] = {
+    AA(CRC), AA(FAR), AA(FDRI), AA(FDRO), AA(CMD), AA(CTL0), AA(MASK), AA(STAT),
+    AA(LOUT), AA(COR0), AA(MFWR), AA(CBC), AA(IDCODE), AA(AXSS), AA(COR1),
+    AA(WBSTAR), AA(TIMER), AA(BOOTSTS), AA(CTL1), {}};
+MAPTYPE cmdmap[] = {
+    AB(NULL), AB(WCFG), AB(MFW), AB(DGHIGH), AB(RCFG), AB(START), AB(RCAP),
+    AB(RCRC), AB(AGHIGH), AB(SWITCH), AB(GRESTORE), AB(SHUTDOWN),
+    AB(GCAPTURE), AB(DESYNC), AB(IPROG), AB(CRCC), AB(LTIMER), {}};
 
 uint32_t buffer[BUFFER_SIZE];
+static int dump_flag = 1;
 
-
-int dump_data(uint32_t *pint, int size)
+static void dump_data(uint32_t *pint, int size)
 {
 static int itemnumber;
 static int skipped;
     uint32_t t[ITEMSIZE], *p = t, nonzero = 0;
     int i;
     char title[100];
+    if (!dump_flag)
+        return;
     sprintf(title, "   %2x:%03x:%02x", itemnumber>>17, (itemnumber>>7) & 0x3ff, itemnumber & 0x7f);
     for (i = 0; i < size; i++) {
          t[i] = htonl(*pint);
@@ -112,7 +111,6 @@ static int skipped;
     else
         skipped++;
     itemnumber++;
-    return nonzero;
 }
 int main(int argc, char **argv)
 {
@@ -164,14 +162,14 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
                 pname = regmap[regindex].name;
             if (regnum == 0x1 && wordcnt == 1) { /* FAR */
                 pint++;
-                printf("%s: opcode %s %s type %x top %x row %x col %x minor %x\n",
+                printf("%s: opcode %s %-7s type %x top %x row %x col %x minor %x\n",
                     map[mapindex].name, opcodemap[opcode], pname,
                     (cmdnum>>23) & 7, (cmdnum>>22) & 1, (cmdnum>>17) & 0x1f,
                     (cmdnum>>7) & 0x3ff, cmdnum & 0x7f);
                 break;
             }
             else
-                printf("%s: opcode %s %s", map[mapindex].name, opcodemap[opcode], pname);
+                printf("%s: opcode %s %-7s", map[mapindex].name, opcodemap[opcode], pname);
             if (wordcnt)
                 printf(" :");
             while (wordcnt--) {

@@ -1,5 +1,25 @@
+// Copyright (c) 2014 Quanta Research Cambridge, Inc.
+// Original author: John Ankcorn
 
+// Permission is hereby granted, free of charge, to any person
+// obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without
+// restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+// BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 #define DITEM(...) ((uint8_t[]){sizeof((uint8_t[]){ __VA_ARGS__ }), __VA_ARGS__})
 #define M(A)               ((A) & 0xff)
@@ -97,27 +117,42 @@
 #define CONFIG_OP_WRITE       2
 
 // Type 1 Packet Registers, Table 5-20
+#define CONFIG_REG_CRC     0x00
+#define CONFIG_REG_FAR     0x01
+#define CONFIG_REG_FDRI    0x02
+#define CONFIG_REG_FDRO    0x03
 #define CONFIG_REG_CMD     0x04  // CMD register, Table 5-22
-#define     CONFIG_CMD_DESYNC 0x0000000d  // end of configuration procedure
+#define     CONFIG_CMD_NULL     0x00
+#define     CONFIG_CMD_WCFG     0x01
+#define     CONFIG_CMD_MFW      0x02
+#define     CONFIG_CMD_DGHIGH   0x03
+#define     CONFIG_CMD_RCFG     0x04
+#define     CONFIG_CMD_START    0x05
+#define     CONFIG_CMD_RCAP     0x06
+#define     CONFIG_CMD_RCRC     0x07
+#define     CONFIG_CMD_AGHIGH   0x08
+#define     CONFIG_CMD_SWITCH   0x09
+#define     CONFIG_CMD_GRESTORE 0x0a
+#define     CONFIG_CMD_SHUTDOWN 0x0b
+#define     CONFIG_CMD_GCAPTURE 0x0c
+#define     CONFIG_CMD_DESYNC   0x0d  // end of configuration procedure
+#define     CONFIG_CMD_IPROG    0x0f
+#define     CONFIG_CMD_CRCC     0x10
+#define     CONFIG_CMD_LTIMER   0x11
+#define CONFIG_REG_CTL0    0x05
+#define CONFIG_REG_MASK    0x06
 #define CONFIG_REG_STAT    0x07  // STAT register, Table 5-25
+#define CONFIG_REG_LOUT    0x08
+#define CONFIG_REG_COR0    0x09
+#define CONFIG_REG_MFWR    0x0a
+#define CONFIG_REG_CBC     0x0b
+#define CONFIG_REG_IDCODE  0x0c
+#define CONFIG_REG_AXSS    0x0d
+#define CONFIG_REG_COR1    0x0e
+#define CONFIG_REG_WBSTAR  0x10
+#define CONFIG_REG_TIMER   0x11
 #define CONFIG_REG_BOOTSTS 0x16  // BOOTSTS register, Table 5-35
-#if 0
-    {0x00, "CRC    "}, {0x01, "FAR    "}, {0x02, "FDRI   "}, {0x03, "FDRO   "},
-    {0x04, "CMD    "}, {0x05, "CTL0   "}, {0x06, "MASK   "}, {0x07, "STAT   "},
-    {0x08, "LOUT   "}, {0x09, "COR0   "}, {0x0a, "MFWR   "}, {0x0b, "CBC    "},
-    {0x0c, "IDCODE "}, {0x0d, "AXSS   "}, {0x0e, "COR1   "}, {0x10, "WBSTAR "},
-    {0x11, "TIMER  "}, {0x16, "BOOTSTS"}, {0x18, "CTL1   "}, {}};
-
-static struct {
-    int value;
-    char *name;
-} cmdmap[] = {
-    {0x00, "NULL"}, {0x01, "WCFG"}, {0x02, "MFW"}, {0x03, "DGHIGH"},
-    {0x04, "RCFG"}, {0x05, "START"}, {0x06, "RCAP"}, {0x07, "RCRC"},
-    {0x08, "AGHIGH"}, {0x09, "SWITCH"}, {0x0a, "GRESTORE"}, {0x0b, "SHUTDOWN"},
-    {0x0c, "GCAPTURE"}, {0x0d, "DESYNC"}, {0x0f, "IPROG"}, {0x10, "CRCC"},
-    {0x11, "LTIMER"}, {}};
-#endif
+#define CONFIG_REG_CTL1    0x18
 
 // Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
 //

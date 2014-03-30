@@ -141,22 +141,25 @@ static void exit1_to_idle(void)
 static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int limit_len)
 {
-    int tail_tms = (tail[1] & MPSSE_WRITE_TMS);
     while (size > 0) {
         int rlen = size;
+        size -= limit_len;
         if (rlen > limit_len)
             rlen = limit_len;
+        int tail_tms = (rlen < limit_len && (tail[1] & MPSSE_WRITE_TMS));
         int tlen = rlen;
-        if (rlen < limit_len && tail_tms)
+        if (tail_tms)
             tlen--;                   // last byte is actually loaded with DATAWBIT command
         write_item(DITEM(read_param, INT16(tlen-1)));
         if (read_param & MPSSE_DO_WRITE)
             write_data(ptrin, rlen);
         ptrin += rlen;
-        if (rlen < limit_len && tail_tms) {
+        if (tail_tms) {
             uint8_t *cptr = buffer_current_pop();
             uint8_t ch = *cptr;
-            write_item(DITEM(read_param | MPSSE_BITMODE, 6, ch)); // 7 bits of data here
+            write_item(DITEM(read_param | MPSSE_BITMODE, 6)); // 7 bits of data here
+            if (read_param & MPSSE_DO_WRITE)
+                write_data(&ch, 1);
             write_item(tail);
             cptr[3] |= (read_param & DREAD); // this is a TMS instruction to shift state
             cptr[5] |= 0x80 & ch; // insert 1 bit of data here
@@ -164,7 +167,6 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
                 write_item(DITEM(SEND_IMMEDIATE));
         }
         flush_write(ftdi, NULL);
-        size -= limit_len;
     }
 }
 

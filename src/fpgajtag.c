@@ -147,14 +147,15 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
         if (rlen > limit_len)
             rlen = limit_len;
         if (rlen < limit_len && tail_tms)
-            rlen--;                   // last byte is actually loaded with DATAW command
+            rlen--;                   // last byte is actually loaded with DATAWBIT command
         write_item(DITEM(read_param, INT16(rlen-1)));
-        write_data(ptrin, rlen);
+        if (read_param & MPSSE_DO_WRITE)
+            write_data(ptrin, rlen);
         ptrin += rlen;
         if (rlen < limit_len && tail_tms) {
             uint8_t temp[200];
             uint8_t ch = *ptrin++;
-            write_item(DITEM(read_param | MPSSE_BITMODE, 0x06, ch)); // 7 bits of data here
+            write_item(DITEM(read_param | MPSSE_BITMODE, 6, ch)); // 7 bits of data here
             memcpy(temp, tail+1, tail[0]);
             *temp |= (read_param & DREAD); // this is a TMS instruction to shift state
             *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
@@ -569,12 +570,12 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG));
     write_dswap32(CONFIG_CMD_DESYNC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_item(DITEM(DATAW(0, 3+found_cortex)));
+    write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +found_cortex)));
     write_one_word(0, found_cortex, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, found_cortex ? 0x80 : 0)));
     exit1_to_idle();
     write_irreg(0, IRREG_CFG_OUT, 0);
-    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3)));
+    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, sizeof(uint32_t) - 1 )));
     write_one_word(DREAD, 0, 0);
     if (found_cortex)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));

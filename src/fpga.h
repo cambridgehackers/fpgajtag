@@ -90,6 +90,7 @@
 #define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
 #define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
 #define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
+#define IRREG_JSHUTDOWN      COMBINE_IR_REG(0x0d, 0xf)
 #define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
 #define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
 #define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)

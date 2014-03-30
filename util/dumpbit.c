@@ -52,11 +52,9 @@ typedef struct {
 
 static MAPTYPE map[] = {
     {    CONFIG_DUMMY, "CONFIG_DUMMY"},
-    {            0xbb, "WIDTHSYNC"},
-    {      0x11220044, "WIDTH"},
-    {     CONFIG_SYNC, "CONFIG_SYNC"},
-    {CONFIG_TYPE1(0,0,0), "TYPE1"},
-    {CONFIG_TYPE2(0), "TYPE2"}, {}};
+    //{            0xbb, "WIDTHSYNC"},
+    //{      0x11220044, "WIDTH"},
+    {     CONFIG_SYNC, "CONFIG_SYNC"}, {}};
 
 static char *opcodemap[] = {"CONFIG_OP_NOP", "CONFIG_OP_READ", "CONFIG_OP_WRITE", "CONFIG_OP_RESERVED"};
 
@@ -140,7 +138,7 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
             int wordcnt = val & CONFIG_TYPE1_WORDCNT_MASK;
             char cbuf[100], *pname = cbuf;
             int regindex = 0;
-            sprintf(cbuf,"UNK_%02x ", regnum);
+            sprintf(cbuf,"0x%02x ", regnum);
             while (regmap[regindex].name && regmap[regindex].value != regnum)
                 regindex++;
             if (regmap[regindex].name)
@@ -152,12 +150,12 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
             if (regnum == CONFIG_REG_CMD && wordcnt == 1 && (htonl(*pint) & 0xffffff00) == 0) { /* CMD */
                 int cmdindex = 0;
                 int cmdnum = get_next();
-                sprintf(cbuf,"UNK_%02x ", cmdnum);
+                sprintf(cbuf,"0x%02x ", cmdnum);
                 while (cmdmap[cmdindex].name && cmdmap[cmdindex].value != cmdnum)
                     cmdindex++;
                 if (cmdmap[cmdindex].name)
                     pname = cmdmap[cmdindex].name;
-                printf(",1), %s\n", pname);
+                printf(",1), %s,\n", pname);
                 break;
             }
             //if (regnum == CONFIG_REG_FAR && wordcnt == 1) { /* FAR */
@@ -192,7 +190,10 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
             int mapindex = 0;
             while (map[mapindex].name && val != map[mapindex].value)
                 mapindex++;
-            printf("%s: 0x%08x\n", map[mapindex].name, val);
+            if (map[mapindex].name)
+                printf("%s,\n", map[mapindex].name);
+            else
+                printf("0x%08x,\n", val);
             }
         }
     }

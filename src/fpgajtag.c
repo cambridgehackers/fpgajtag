@@ -198,7 +198,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static void write_jtag_irreg(int read, int command, int next_state)
+static void write_irreg(int read, int command, int next_state)
 {
     //if (trace)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
@@ -242,7 +242,7 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
                   DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
-        write_jtag_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
+        write_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
     return read_data_int(__LINE__, ftdi, 1 + found_cortex);
 }
 
@@ -256,7 +256,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     uint32_t *testp = buf+1;
 
     if (load)
-        write_jtag_irreg(0, IRREGA_DPACC, 2);
+        write_irreg(0, IRREGA_DPACC, 2);
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
     rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
@@ -287,11 +287,11 @@ static void cortex_pair(uint32_t v)
 
 static void write_select(int bus)
 {
-    write_jtag_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2);
     loaddr(0,      // Coresight: Table 2-11
         bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
         DPACC_SELECT);
-    write_jtag_irreg(0, IRREGA_APACC, 2);
+    write_irreg(0, IRREGA_APACC, 2);
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
@@ -302,21 +302,21 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_jtag_irreg(0, IRREGA_ABORT, 2);
+    write_irreg(0, IRREGA_ABORT, 2);
     loaddr(0, 1, 0);
-    write_jtag_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2);
     loaddr(0, 0x50000033, DPACC_CTRL);
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     //CSYSPWRUPREQ,CDBGPWRUPREQ,STICKYERR,STICKYCMP,STICKYORUN,ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
-        write_jtag_irreg(0, IRREGA_APACC, 2);
+        write_irreg(0, IRREGA_APACC, 2);
         cortex_pair(0x2000 | DBGDSCRext);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
-    write_jtag_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2);
     loaddr(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE);
     for (i = 0; i < 2; i++) {
         if (trace)
@@ -337,13 +337,18 @@ static void tar_read(uint32_t v)
 }
 static void tar_write(uint32_t v)
 {
-    write_jtag_irreg(0, IRREGA_APACC, 2);
+    write_irreg(0, IRREGA_APACC, 2);
     loaddr(0, v, AP_TAR);
     read_rdbuff();
 }
 
-static void read_csw(struct ftdi_context *ftdi, int wait, uint32_t *creturn1, uint32_t *creturn2)
+static void read_csw(struct ftdi_context *ftdi, int wait, uint32_t val3)
 {
+#define VALC          0x15137030
+uint32_t *creturn[] = {(uint32_t[]){10, SELECT_DEBUG, val3,
+        VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
+                       (uint32_t[]){12, 0, 0, 0, 0,
+        VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,}};
 int i;
 static uint32_t cread[] = {2, 0x80000002};
 static uint32_t address_table[] = {ADDRESS_SLCR_ARM_PLL_CTRL, ADDRESS_SLCR_ARM_CLK_CTRL};
@@ -378,38 +383,30 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
     write_select(1);
-    tar_read(DBGDIDR);
-    tar_read(DBGPRSR);
-    tar_read(DBGDSCRext);
-    tar_read(DBGPCSR);
-    check_read_cortex(__LINE__, ftdi, creturn1, 1);
-    write_jtag_irreg(0, IRREGA_APACC, 2);
-    cortex_pair(DBGDSCRext);
-    tar_read(0x2000 | DBGDIDR);
-    tar_read(0x2000 | DBGPRSR);
-    tar_read(0x2000 | DBGDSCRext);
-    tar_read(0x2000 | DBGPCSR);
-    check_read_cortex(__LINE__, ftdi, creturn2, 1);
+    for (i = 0; i < 2; i++) {
+        if (i == 1) {
+            write_irreg(0, IRREGA_APACC, 2);
+            cortex_pair(DBGDSCRext);
+        }
+        tar_read((i * 0x2000) | DBGDIDR);
+        tar_read((i * 0x2000) | DBGPRSR);
+        tar_read((i * 0x2000) | DBGDSCRext);
+        tar_read((i * 0x2000) | DBGPCSR);
+        check_read_cortex(__LINE__, ftdi, creturn[i], 1);
+    }
 }
 
 static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
     cortex_csw(ftdi, 1-cortex_nowait, 0);
-#define VALC          0x15137030
     if (!cortex_nowait) {
-        read_csw(ftdi, 1, (uint32_t[]){10, SELECT_DEBUG, 0,
-                VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
-            (uint32_t[]){12, 0, 0, 0, 0,
-                VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
         int count = number_of_devices - 1;
+        read_csw(ftdi, 1, 0);
         while (count-- > 0)
             cortex_csw(ftdi, 0, 1);
     }
-    read_csw(ftdi, 0, (uint32_t[]){10, SELECT_DEBUG, VAL3,
-            VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,},
-        (uint32_t[]){12, 0, 0, 0, 0,
-            VALC, VALC, 1, 1, DEBUGID_VAL1, DEBUGID_VAL1, 0, CORTEX_DEFAULT_STATUS,});
-    write_jtag_irreg(0, IRREGA_APACC, 2);
+    read_csw(ftdi, 0, VAL3);
+    write_irreg(0, IRREGA_APACC, 2);
     cortex_pair(0x2000 | DBGDSCRext);
     tar_read(DBGPRSR);
     tar_read(DBGDSCRext);
@@ -486,7 +483,7 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
 
 static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
 {
-    write_jtag_irreg(0, EXTEND_EXTRA | irreg, 1);
+    write_irreg(0, EXTEND_EXTRA | irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (i > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
@@ -518,7 +515,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
         for (i = 0; i < 4; i++) {
             if (trace)
                 printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
-            write_jtag_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
+            write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
             if ((ret = fetch_config_word(linenumber, ftdi, IRREG_USER2, i)) != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
@@ -540,13 +537,13 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     if (after)
         write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
-    write_jtag_irreg(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
+    write_irreg(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     /*
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
      */
-    write_dataw(19 + found_cortex);
+    write_dataw(5 * sizeof(uint32_t) - 1 + found_cortex);
     swap32(CONFIG_DUMMY);
     swap32(CONFIG_SYNC);
     swap32(CONFIG_TYPE2(0));
@@ -563,12 +560,12 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
 }
 
 /*
- * Configuration Register Read Procedure (SelectMAP), ug470_7Series_Config.pdf,
- * Table 6-1.
+ * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
+ * Table 6-4.
  */
-static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
+static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_jtag_irreg(0, IRREG_CFG_IN, 0);
+    write_irreg(0, IRREG_CFG_IN, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(CONFIG_DUMMY);
     write_eight_bytes();
@@ -577,14 +574,14 @@ static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_READ, data, 1));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, 1));
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG));
     write_dswap32(CONFIG_CMD_DESYNC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     write_item(DITEM(DATAW(0, 3+found_cortex)));
     write_one_word(0, found_cortex, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, found_cortex ? 0x80 : 0)));
     exit1_to_idle();
-    write_jtag_irreg(0, IRREG_CFG_OUT, 0);
+    write_irreg(0, IRREG_CFG_OUT, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, 3)));
     write_one_word(DREAD, 0, 0);
     if (found_cortex)
@@ -598,6 +595,38 @@ static uint32_t read_smap(struct ftdi_context *ftdi, uint32_t data)
     }
     exit1_to_idle();
     return ret;
+}
+static void read_config_memory(struct ftdi_context *ftdi, uint32_t data)
+{
+    write_irreg(0, IRREG_CFG_IN, 0);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_dswap32(CONFIG_DUMMY);
+    write_dswap32(CONFIG_SYNC);
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, 1));
+    write_dswap32(CONFIG_CMD_RCRC);
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    exit1_to_idle();
+    write_irreg(0, IRREG_JSHUTDOWN, 0);
+    write_irreg(0, IRREG_CFG_IN, 0);
+
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_dswap32(CONFIG_DUMMY);
+    write_dswap32(CONFIG_SYNC);
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1));
+    write_dswap32(CONFIG_CMD_RCFG);
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1));
+    write_dswap32(0);
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0)); 
+    write_dswap32(CONFIG_TYPE2(0x00024090));
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    write_irreg(0, IRREG_CFG_OUT, 0);
+    read_data_int(__LINE__, ftdi, 4);
+    exit1_to_idle();
 }
 
 int main(int argc, char **argv)
@@ -729,8 +758,8 @@ int main(int argc, char **argv)
     /*
      * Step 2: Initialization
      */
-    write_jtag_irreg(0, IRREG_JPROGRAM, 0);
-    write_jtag_irreg(0, IRREG_ISC_NOOP, 0);
+    write_irreg(0, IRREG_JPROGRAM, 0);
+    write_irreg(0, IRREG_ISC_NOOP, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
 
@@ -744,16 +773,16 @@ int main(int argc, char **argv)
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret = read_smap(ftdi, CONFIG_REG_BOOTSTS)) != (found_cortex ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (found_cortex ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_jtag_irreg(0, IRREG_BYPASS, 0);
-    write_jtag_irreg(0, IRREG_JSTART, 0);
+    write_irreg(0, IRREG_BYPASS, 0);
+    write_irreg(0, IRREG_JSTART, 0);
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
-    if ((ret = read_smap(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (found_cortex)
-        write_jtag_irreg(0, IRREG_BYPASS, 0);
+        write_irreg(0, IRREG_BYPASS, 0);
     else {
         write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
         flush_write(ftdi, NULL);

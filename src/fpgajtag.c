@@ -147,18 +147,18 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             rlen = limit_len;
         if (rlen < limit_len)
             rlen--;                   // last byte is actually loaded with DATAW command
-        write_item(DITEM(DWRITE | read_param, INT16(rlen)));
+        write_item(DITEM(read_param, INT16(rlen)));
         write_data(ptrin, rlen+1);
         ptrin += rlen+1;
         if (rlen < limit_len) {
             uint8_t temp[200];
             uint8_t ch = *ptrin++;
-            write_item(DITEM(DATAWBIT | read_param, 0x06, ch)); // 7 bits of data here
+            write_item(DITEM(read_param | MPSSE_BITMODE, 0x06, ch)); // 7 bits of data here
             memcpy(temp, tail+1, tail[0]);
-            *temp |= read_param; // this is a TMS instruction to shift state
+            *temp |= (read_param & DREAD); // this is a TMS instruction to shift state
             *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
             write_data(temp, tail[0]);
-            if (read_param)      // we will be waiting for the result
+            if (read_param & MPSSE_DO_READ)  // we will be waiting for the result
                 write_item(DITEM(SEND_IMMEDIATE));
         }
         flush_write(ftdi, NULL);
@@ -186,7 +186,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
         }
-        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len);
+        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len);
         if (size != FILE_READSIZE)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -422,20 +422,11 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
-#define IDCODE_PROBE_PATTERN \
-    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), \
-    INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff), INT32(0xff)
+#define REPEAT5(A) INT32((A)), INT32((A)), INT32((A)), INT32((A)), INT32((A))
+#define REPEAT10(A) REPEAT5(A), REPEAT5(A)
 
-#define PATTERN2 \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff), \
-    INT32(0xffffffff), INT32(0xffffffff), INT32(0xffffffff)
+#define IDCODE_PROBE_PATTERN REPEAT10(0xff), REPEAT5(0xff)
+#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), REPEAT10(0xffffffff), INT32(0xffffffff)
 
 static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
 static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
@@ -449,7 +440,7 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
 {
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)),
+    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), 9999);
     uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -728,7 +719,7 @@ int main(int argc, char **argv)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     }
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(PAUSE_TO_SHIFT),
+    send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));

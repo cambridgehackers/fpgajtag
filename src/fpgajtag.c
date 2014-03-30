@@ -43,7 +43,7 @@
 
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
-#define MAX_SINGLE_USB_DATA    4045
+#define MAX_SINGLE_USB_DATA    4046
 
 static int number_of_devices = 1;
 static int device_type;
@@ -141,16 +141,17 @@ static void exit1_to_idle(void)
 static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int limit_len)
 {
+    int tail_tms = (tail[1] & MPSSE_WRITE_TMS);
     while (size > 0) {
-        int rlen = size-1;
+        int rlen = size;
         if (rlen > limit_len)
             rlen = limit_len;
-        if (rlen < limit_len)
+        if (rlen < limit_len && tail_tms)
             rlen--;                   // last byte is actually loaded with DATAW command
-        write_item(DITEM(read_param, INT16(rlen)));
-        write_data(ptrin, rlen+1);
-        ptrin += rlen+1;
-        if (rlen < limit_len) {
+        write_item(DITEM(read_param, INT16(rlen-1)));
+        write_data(ptrin, rlen);
+        ptrin += rlen;
+        if (rlen < limit_len && tail_tms) {
             uint8_t temp[200];
             uint8_t ch = *ptrin++;
             write_item(DITEM(read_param | MPSSE_BITMODE, 0x06, ch)); // 7 bits of data here
@@ -162,7 +163,7 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
                 write_item(DITEM(SEND_IMMEDIATE));
         }
         flush_write(ftdi, NULL);
-        size -= limit_len+1;
+        size -= limit_len;
     }
 }
 

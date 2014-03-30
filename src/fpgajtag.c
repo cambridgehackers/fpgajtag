@@ -44,6 +44,7 @@
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
+#define SEND_SINGLE_FRAME      99999
 
 static int number_of_devices = 1;
 static int device_type;
@@ -139,14 +140,14 @@ static void exit1_to_idle(void)
 }
 
 static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
-    uint8_t *tail, uint8_t *ptrin, int size, int limit_len)
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size)
 {
     while (size > 0) {
         int rlen = size;
-        size -= limit_len;
-        if (rlen > limit_len)
-            rlen = limit_len;
-        int tail_tms = (rlen < limit_len && (tail[1] & MPSSE_WRITE_TMS));
+        size -= max_frame_size;
+        if (rlen > max_frame_size)
+            rlen = max_frame_size;
+        int tail_tms = (rlen < max_frame_size && (tail[1] & MPSSE_WRITE_TMS));
         int tlen = rlen;
         if (tail_tms)
             tlen--;                   // last byte is actually loaded with DATAWBIT command
@@ -163,10 +164,9 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             write_item(tail);
             cptr[3] |= (read_param & DREAD); // this is a TMS instruction to shift state
             cptr[5] |= 0x80 & ch; // insert 1 bit of data here
-            if (read_param & MPSSE_DO_READ)  // we will be waiting for the result
-                write_item(DITEM(SEND_IMMEDIATE));
         }
-        flush_write(ftdi, NULL);
+        if (size > 0)
+            flush_write(ftdi, NULL);
     }
 }
 
@@ -191,6 +191,7 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
         }
         send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len);
+        flush_write(ftdi, NULL);
         if (size != FILE_READSIZE)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -426,11 +427,12 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }
 
-#define REPEAT5(A) INT32((A)), INT32((A)), INT32((A)), INT32((A)), INT32((A))
+#define REPEAT5(A) INT32(A), INT32(A), INT32(A), INT32(A), INT32(A)
 #define REPEAT10(A) REPEAT5(A), REPEAT5(A)
 
 #define IDCODE_PROBE_PATTERN REPEAT10(0xff), REPEAT5(0xff)
-#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), REPEAT10(0xffffffff), INT32(0xffffffff)
+#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
+            REPEAT10(0xffffffff), INT32(0xffffffff)
 
 static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
 static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
@@ -444,8 +446,8 @@ static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idc
 {
 
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)),
-        idcode_probe_pattern, sizeof(idcode_probe_pattern), 9999);
+    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
+        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME);
     uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         uint32_t returnedid;
@@ -724,7 +726,7 @@ int main(int argc, char **argv)
     }
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
-        idcode_validate_pattern, sizeof(idcode_validate_pattern), 9999);
+        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
@@ -738,7 +740,7 @@ int main(int argc, char **argv)
         else if (ret == PROGRAMMED)
             printf("fpgajtag: bypass already programmed %x\n", ret);
         else
-            printf("fpgajtag: bypass mismatch %x\n", ret);
+            printf("fpgajtag: bypass unknown %x\n", ret);
     }
     check_status(__LINE__, ftdi, 0x301900, 0);
     j = 4;

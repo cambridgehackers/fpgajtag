@@ -48,32 +48,30 @@ typedef struct {
     uint32_t value;
     char    *name;
     uint32_t mask;
-    uint32_t type;
 } MAPTYPE;
 
 static MAPTYPE map[] = {
-    {    CONFIG_DUMMY, "DUMMY    ", 0xffffffff, 0},
-    {            0xbb, "WIDTHSYNC", 0xffffffff, 0},
-    {      0x11220044, "WIDTH    ", 0xffffffff, 0},
-    {     CONFIG_SYNC, "SYNC     ", 0xffffffff, 0},
-    {CONFIG_TYPE1(0,0,0), "TYPE1    ", 0xe0000000, 1},
-    {CONFIG_TYPE2(0), "TYPE2    ", 0xe0000000, 2},
-    {               0, "UNKNOWN  ", 0,          0}};
+    {    CONFIG_DUMMY, "CONFIG_DUMMY"},
+    {            0xbb, "WIDTHSYNC"},
+    {      0x11220044, "WIDTH"},
+    {     CONFIG_SYNC, "CONFIG_SYNC"},
+    {CONFIG_TYPE1(0,0,0), "TYPE1"},
+    {CONFIG_TYPE2(0), "TYPE2"}, {}};
 
-static char *opcodemap[] = {"nop   ", "read  ", "write ", "reserv"};
+static char *opcodemap[] = {"CONFIG_OP_NOP", "CONFIG_OP_READ", "CONFIG_OP_WRITE", "CONFIG_OP_RESERVED"};
 
 static MAPTYPE regmap[] = {
-#define AA(A) {CONFIG_REG_ ## A, #A}
+#define AA(A) {CONFIG_REG_ ## A, "CONFIG_REG_" # A}
     AA(CRC), AA(FAR), AA(FDRI), AA(FDRO), AA(CMD), AA(CTL0), AA(MASK), AA(STAT),
     AA(LOUT), AA(COR0), AA(MFWR), AA(CBC), AA(IDCODE), AA(AXSS), AA(COR1),
     AA(WBSTAR), AA(TIMER), AA(BOOTSTS), AA(CTL1), {}};
 static MAPTYPE cmdmap[] = {
-#define AB(A) {CONFIG_CMD_ ## A, #A}
+#define AB(A) {CONFIG_CMD_ ## A, "CONFIG_CMD_" # A}
     AB(NULL), AB(WCFG), AB(MFW), AB(DGHIGH), AB(RCFG), AB(START), AB(RCAP),
     AB(RCRC), AB(AGHIGH), AB(SWITCH), AB(GRESTORE), AB(SHUTDOWN),
     AB(GCAPTURE), AB(DESYNC), AB(IPROG), AB(CRCC), AB(LTIMER), {}};
 
-uint32_t buffer[BUFFER_SIZE];
+static uint32_t buffer[BUFFER_SIZE];
 
 static void dump_data(uint32_t *pint, int size)
 {
@@ -110,9 +108,16 @@ static int skipped;
         skipped++;
     itemnumber++;
 }
+static uint32_t *pint = buffer;
+static uint32_t get_next()
+{
+    uint32_t ret = htonl(*pint);
+    pint++;
+    return ret;
+}
 int main(int argc, char **argv)
 {
-uint32_t *pint = buffer, *pend;
+uint32_t *pend;
 int len;
 printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
     int fd = open(argv[1], O_RDONLY);
@@ -127,61 +132,51 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
     }
     pend = pint + len/sizeof(buffer[0]);
     while (pint < pend) {
-        uint32_t val = *pint++;
-        val = htonl(val);
-        int mapindex = 0;
-        while (map[mapindex].mask && (val & map[mapindex].mask) != map[mapindex].value)
-            mapindex++;
-        switch(map[mapindex].type) {
-        case 1: { /* Type 1 */
-            int opcode = val>>27 & 0x3;
-            int regnum = val>>13 & 0x3fff;
-            int wordcnt = val & 0x7ff;
+        uint32_t val = get_next();
+        switch(val & CONFIG_TYPE_MASK) {
+        case CONFIG_TYPE1(0,0,0): { /* Type 1 */
+            int opcode = (val >> CONFIG_TYPE1_OPCODE_SHIFT) & CONFIG_TYPE1_OPCODE_MASK;
+            int regnum = (val >> CONFIG_TYPE1_REG_SHIFT) & CONFIG_TYPE1_REG_MASK;
+            int wordcnt = val & CONFIG_TYPE1_WORDCNT_MASK;
             char cbuf[100], *pname = cbuf;
-            if (val == 0x20000000) /* dont print NOOP */
-                break;
-            sprintf(cbuf,"UNK_%02x ", regnum);
             int regindex = 0;
+            sprintf(cbuf,"UNK_%02x ", regnum);
             while (regmap[regindex].name && regmap[regindex].value != regnum)
                 regindex++;
-            int cmdnum = htonl(*pint);
-            if (regnum == 0x4 && wordcnt == 1 && (cmdnum & 0xffffff00) == 0) { /* CMD */
-                pint++;
-                sprintf(cbuf,"UNK_%02x ", cmdnum);
-                regindex = 0;
-                while (cmdmap[regindex].name && cmdmap[regindex].value != cmdnum)
-                    regindex++;
-                if (cmdmap[regindex].name)
-                    pname = cmdmap[regindex].name;
-                printf("%s: opcode %s CMD %s\n", map[mapindex].name, opcodemap[opcode], pname);
-                break;
-            }
             if (regmap[regindex].name)
                 pname = regmap[regindex].name;
-            if (regnum == 0x1 && wordcnt == 1) { /* FAR */
-                pint++;
-                printf("%s: opcode %s %-7s type %x top %x row %x col %x minor %x\n",
-                    map[mapindex].name, opcodemap[opcode], pname,
-                    (cmdnum>>23) & 7, (cmdnum>>22) & 1, (cmdnum>>17) & 0x1f,
-                    (cmdnum>>7) & 0x3ff, cmdnum & 0x7f);
+
+            if (opcode == CONFIG_OP_NOP) /* dont print NOOP */
+                break;
+            printf("CONFIG_TYPE1(%s,%s", opcodemap[opcode], pname);
+            if (regnum == CONFIG_REG_CMD && wordcnt == 1 && (htonl(*pint) & 0xffffff00) == 0) { /* CMD */
+                int cmdindex = 0;
+                int cmdnum = get_next();
+                sprintf(cbuf,"UNK_%02x ", cmdnum);
+                while (cmdmap[cmdindex].name && cmdmap[cmdindex].value != cmdnum)
+                    cmdindex++;
+                if (cmdmap[cmdindex].name)
+                    pname = cmdmap[cmdindex].name;
+                printf(",1), %s\n", pname);
                 break;
             }
-            else
-                printf("%s: opcode %s %-7s", map[mapindex].name, opcodemap[opcode], pname);
-            if (wordcnt)
-                printf(" :");
-            while (wordcnt--) {
-                uint32_t t = htonl(*pint);
-                printf(" %08x", t);
-                pint++;
-            }
+            //if (regnum == CONFIG_REG_FAR && wordcnt == 1) { /* FAR */
+                //int cmdnum = get_next();
+                //printf("), 0x08x", cmdnum);
+                //printf(") type %x top %x row %x col %x minor %x\n",
+                //    (cmdnum>>23) & 7, (cmdnum>>22) & 1, (cmdnum>>17) & 0x1f,
+                //    (cmdnum>>7) & 0x3ff, cmdnum & 0x7f);
+                //break;
+            //}
+            printf(",%d), ", wordcnt);
+            while (wordcnt--)
+                printf(" 0x%08x,", get_next());
             printf("\n");
             break;
             }
-        case 2: { /* Type 2 */
+        case CONFIG_TYPE2(0): { /* Type 2 */
             int wordcnt = val & 0x7ffffff;
-            int skipped = 0;
-            printf("%s: wordcnt %08x\n", map[mapindex].name, wordcnt);
+            printf("CONFIG_TYPE2(0x%08x)\n", wordcnt);
             while (wordcnt >= ITEMSIZE) {
                 dump_data(pint, ITEMSIZE);
                 wordcnt -= ITEMSIZE;
@@ -193,8 +188,12 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
             pint += wordcnt;
             break;
             }
-        default:
-            printf("%s: %08x\n", map[mapindex].name, val);
+        default: {
+            int mapindex = 0;
+            while (map[mapindex].name && val != map[mapindex].value)
+                mapindex++;
+            printf("%s: 0x%08x\n", map[mapindex].name, val);
+            }
         }
     }
 printf("[%s:%d] end\n", __FUNCTION__, __LINE__);

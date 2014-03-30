@@ -108,13 +108,21 @@
  */
 
 // Type 1 Packet, Table 5-17
+#define CONFIG_TYPE_MASK     0xe0000000
+#define CONFIG_TYPE1_OPCODE_SHIFT       27
+#define CONFIG_TYPE1_OPCODE_MASK       0x3
+#define CONFIG_TYPE1_REG_SHIFT          13
+#define CONFIG_TYPE1_REG_MASK       0x3fff
+#define CONFIG_TYPE1_WORDCNT_MASK    0x7ff
+
 #define CONFIG_TYPE1(OPCODE,REG,COUNT) \
-    (0x20000000 | ((OPCODE) << 27) | ((REG) << 13) | (COUNT))
+    (0x20000000 | ((OPCODE) << CONFIG_TYPE1_OPCODE_SHIFT) | ((REG) << CONFIG_TYPE1_REG_SHIFT) | (COUNT))
 
 // Type 1 OPCODE Format, Table 5-18
 #define CONFIG_OP_NOP         0
 #define CONFIG_OP_READ        1
 #define CONFIG_OP_WRITE       2
+#define CONFIG_OP_RESERVED    3
 
 // Type 1 Packet Registers, Table 5-20
 #define CONFIG_REG_CRC     0x00

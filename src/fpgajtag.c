@@ -146,20 +146,20 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
         int rlen = size;
         if (rlen > limit_len)
             rlen = limit_len;
+        int tlen = rlen;
         if (rlen < limit_len && tail_tms)
-            rlen--;                   // last byte is actually loaded with DATAWBIT command
-        write_item(DITEM(read_param, INT16(rlen-1)));
+            tlen--;                   // last byte is actually loaded with DATAWBIT command
+        write_item(DITEM(read_param, INT16(tlen-1)));
         if (read_param & MPSSE_DO_WRITE)
             write_data(ptrin, rlen);
         ptrin += rlen;
         if (rlen < limit_len && tail_tms) {
-            uint8_t temp[200];
-            uint8_t ch = *ptrin++;
+            uint8_t *cptr = buffer_current_pop();
+            uint8_t ch = *cptr;
             write_item(DITEM(read_param | MPSSE_BITMODE, 6, ch)); // 7 bits of data here
-            memcpy(temp, tail+1, tail[0]);
-            *temp |= (read_param & DREAD); // this is a TMS instruction to shift state
-            *(temp+2) |= 0x80 & ch; // insert 1 bit of data here
-            write_data(temp, tail[0]);
+            write_item(tail);
+            cptr[3] |= (read_param & DREAD); // this is a TMS instruction to shift state
+            cptr[5] |= 0x80 & ch; // insert 1 bit of data here
             if (read_param & MPSSE_DO_READ)  // we will be waiting for the result
                 write_item(DITEM(SEND_IMMEDIATE));
         }

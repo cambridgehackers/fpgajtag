@@ -152,6 +152,11 @@ int buffer_current_size(void)
 {
     return usbreadbuffer_ptr - usbreadbuffer;
 }
+uint8_t *buffer_current_pop(void)
+{
+    usbreadbuffer_ptr--;
+    return usbreadbuffer_ptr;
+}
 
 void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 {

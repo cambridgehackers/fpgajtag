@@ -57,6 +57,7 @@ void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);
 void flush_write(struct ftdi_context *ftdi, uint8_t *req);
 int buffer_current_size(void);
+uint8_t *buffer_current_pop(void);
 
 uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size);
 uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size);

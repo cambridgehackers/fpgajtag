@@ -1,0 +1,4 @@
+#
+./j
+./fpgajtag -r >xx.read
+~/git/system-tools/librarywrap/logname.py xx.read >xx.ro

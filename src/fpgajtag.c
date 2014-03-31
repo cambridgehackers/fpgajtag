@@ -598,9 +598,13 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     exit1_to_idle();
     return ret;
 }
-static void read_config_memory(struct ftdi_context *ftdi, uint32_t data)
+static void read_config_memory(struct ftdi_context *ftdi)
 {
+int i;
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+#if 0
     write_irreg(0, IRREG_CFG_IN, 0);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(CONFIG_DUMMY);
     write_dswap32(CONFIG_SYNC);
@@ -609,10 +613,20 @@ static void read_config_memory(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_CMD_RCRC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
+    read_data_int(__LINE__, ftdi, 1);
     exit1_to_idle();
+#endif
+
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_irreg(0, IRREG_JSHUTDOWN, 0);
-    write_irreg(0, IRREG_CFG_IN, 0);
+    write_item(DITEM(TMS_WAIT, DATAR(1)));
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    read_data_int(__LINE__, ftdi, 1);
+    write_irreg(DREAD, IRREG_CFG_IN, 0);
+    read_data_int(__LINE__, ftdi, 1);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    exit1_to_idle();
 
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(CONFIG_DUMMY);
@@ -625,9 +639,24 @@ static void read_config_memory(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_TYPE2(0x00024090));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    write_irreg(0, IRREG_CFG_OUT, 0);
-    read_data_int(__LINE__, ftdi, 4);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_item(DITEM(SHIFT_TO_EXIT1(1, 0), DATAR(1)));
+    read_data_int(__LINE__, ftdi, 1);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_irreg(DREAD, IRREG_CFG_OUT, 0);
+    read_data_int(__LINE__, ftdi, 1);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+for (i = 0; i < 5; i++) {
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_item(DITEM(DATAR(100), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+    uint8_t *rdata = read_data(__LINE__, ftdi, 100);
+}
+printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
+    //read_data_int(__LINE__, ftdi, 4);
     exit1_to_idle();
 }
 
@@ -636,7 +665,7 @@ int main(int argc, char **argv)
     logfile = stdout;
     struct ftdi_context *ftdi;
     uint32_t idcode, ret;
-    int i = 1, j;
+    int i, j, argindex = 1;
     int inputfd = 0;   /* default input for '-' is stdin */
     const char *serialno = NULL;
 
@@ -644,16 +673,9 @@ int main(int argc, char **argv)
         printf("%s: [ -s <serialno> ] <filename>\n", argv[0]);
         exit(1);
     }
-    if (!strcmp(argv[i], "-s")) {
-        serialno = argv[++i];
-        i++;
-    }
-    if (strcmp(argv[i], "-")) {
-        inputfd = open(argv[i], O_RDONLY);
-        if (inputfd == -1) {
-            printf("Unable to open file '%s'\n", argv[i]);
-            exit(-1);
-        }
+    if (!strcmp(argv[argindex], "-s")) {
+        serialno = argv[++argindex];
+        argindex++;
     }
 
     /*
@@ -665,8 +687,34 @@ int main(int argc, char **argv)
     ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
 
     /*
+     * Set JTAG clock speed and GPIO pins for our i/f
+     */
+    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
+                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+    if (usb_bcddevice == 0x700) /* not a zedboard */
+        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
+    write_item(shift_to_exit1);
+
+    /*
+     * See if we are reading out data
+     */
+    if (!strcmp(argv[argindex], "-r")) {
+printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
+read_config_memory(ftdi);
+        return 0;
+    }
+
+    /*
      * Read device id from file to be programmed
      */
+    if (strcmp(argv[argindex], "-")) {
+        inputfd = open(argv[argindex], O_RDONLY);
+        if (inputfd == -1) {
+            printf("Unable to open file '%s'\n", argv[argindex]);
+            exit(-1);
+        }
+    }
     lseek(inputfd, 0x80, SEEK_SET);
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
@@ -683,16 +731,6 @@ int main(int argc, char **argv)
             device_type = DEVICE_ZEDBOARD;
     }
     printf("[%s] idcode %x device_type %d.\n", __FUNCTION__, idcode, device_type);
-
-    /*
-     * Set JTAG clock speed and GPIO pins for our i/f
-     */
-    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
-                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (usb_bcddevice == 0x700) /* not a zedboard */
-        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
-    write_item(shift_to_exit1);
 
     /*
      * Step 5: Check Device ID

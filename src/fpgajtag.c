@@ -481,13 +481,14 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i, int size, int bozostyle, uint32_t *ret)
+static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int size, int bozostyle, uint32_t *ret)
 {
+    int j;
     write_irreg(0, irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (i > 1)
+    if (variant > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
-    if (i > 0) {
+    if (variant > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
         if (found_cortex)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
@@ -496,7 +497,69 @@ static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_
         write_item(DITEM(DATAR(size * sizeof(uint32_t)), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     else
         write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
-    *ret = read_data_int(linenumber, ftdi, 4);
+    uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size * sizeof(uint32_t));
+    for (j = 0; j < size; j++)
+        rdata[j] = swap32i(rdata[j]);
+    *ret = rdata[0];
+}
+
+static void write_swap_array(uint32_t *req, int len)
+{
+    int i;
+    for (i = 0; i < len; i++) {
+        write_dataw(4);
+        write_item(DITEM(INT32(swap32i(req[i]))));
+    }
+}
+
+static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
+{
+    int j;
+    static uint32_t req_prefix[] = {
+        CONFIG_DUMMY,
+        CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+    static uint32_t req_post[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+    int req_post_count = sizeof(req_post)/sizeof(req_post[0]);
+
+    /* Select CFG_IN so that we can send out our request */
+    write_irreg(0, IRREG_CFG_IN, 0);
+
+    /* Now shift in actual request into DR for CFG_IN */
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_swap_array(req_prefix, sizeof(req_prefix)/sizeof(req_prefix[0]));
+    write_swap_array(req, req_len);
+    write_swap_array(req_post, req_post_count - 1);
+    uint8_t last[] = {INT32(swap32i(req_post[req_post_count-1]))};
+    write_dataw(3);
+    write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
+
+    if (resp_len) {
+        /* now select CFG_OUT to get data */
+        write_irreg(0, IRREG_CFG_OUT, 1);
+        write_item(DITEM(IDLE_TO_SHIFT_DR));
+        unsigned long offset = 0;
+        while (resp_len > 0) { /* and clock out the requested data */
+            int size = resp_len;
+            if (size > SEGMENT_LENGTH)
+                size = SEGMENT_LENGTH;
+            write_item(DITEM(DATAR(size)));
+            uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size);
+            for (j = 0; j < size/sizeof(rdata[0]); j++)
+                rdata[j] = swap32i(rdata[j]);
+            if (fd != -1)
+                write(fd, rdata, size);
+            else
+                memdump((uint8_t *)rdata, size, "RX");
+            offset += size;
+            resp_len -= size;
+        }
+        flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+    }
+    flush_write(ftdi, NULL);
 }
 
 static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
@@ -593,65 +656,6 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     }
     exit1_to_idle();
     return ret;
-}
-
-static void write_swap_array(uint32_t *req, int len)
-{
-    int i;
-    for (i = 0; i < len; i++) {
-        write_dataw(4);
-        write_item(DITEM(INT32(swap32i(req[i]))));
-    }
-}
-
-static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
-{
-    int j;
-    static uint32_t req_prefix[] = {
-        CONFIG_DUMMY,
-        CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    static uint32_t req_post[] = {
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    int req_post_count = sizeof(req_post)/sizeof(req_post[0]);
-
-    /* Select CFG_IN so that we can send out our request */
-    write_irreg(0, IRREG_CFG_IN, 0);
-
-    /* Now shift in actual request into DR for CFG_IN */
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_swap_array(req_prefix, sizeof(req_prefix)/sizeof(req_prefix[0]));
-    write_swap_array(req, req_len);
-    write_swap_array(req_post, req_post_count - 1);
-    uint8_t last[] = {INT32(swap32i(req_post[req_post_count-1]))};
-    write_dataw(3);
-    write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
-
-    if (resp_len) {
-        /* now select CFG_OUT to get data */
-        write_irreg(0, IRREG_CFG_OUT, 0);
-        write_item(DITEM(IDLE_TO_SHIFT_DR));
-        unsigned long offset = 0;
-        while (resp_len > 0) { /* and clock out the requested data */
-            int size = resp_len;
-            if (size > SEGMENT_LENGTH)
-                size = SEGMENT_LENGTH;
-            write_item(DITEM(DATAR(size)));
-            uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size);
-            for (j = 0; j < size/sizeof(rdata[0]); j++)
-                rdata[j] = swap32i(rdata[j]);
-            if (fd != -1)
-                write(fd, rdata, size);
-            else
-                memdump((uint8_t *)rdata, size, "RX");
-            offset += size;
-            resp_len -= size;
-        }
-        flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    }
-    flush_write(ftdi, NULL);
 }
 
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)

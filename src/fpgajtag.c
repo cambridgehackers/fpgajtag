@@ -111,12 +111,13 @@ static void write_dswap32(uint32_t value)
     swap32(value);
 }
 
-static void write_one_word(int dread, int short_format, uint32_t value)
+static int write_one_word(int dread, int short_format, uint32_t value)
 {
     if (short_format)
         write_item(DITEM(INT32(value)));
     else
         write_item(DITEM(M(value), M(value >> 8), M(value >> 16), DATAWBIT | dread, 0x06, M(value >> 24)));
+    return M(value >> 24) & 0x80;
 }
 
 static void write_eight_bytes(void)
@@ -515,36 +516,19 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
     return ret;
 }
 
-static void write_swap_array(uint32_t *req, int len)
-{
-    int i;
-    write_dataw(4*len);
-    for (i = 0; i < len; i++) {
-        write_item(DITEM(INT32(swap32i(req[i]))));
-    }
-}
-
 static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
 {
-    static uint32_t req_prefix[] = {
-        CONFIG_DUMMY, CONFIG_SYNC};
-    static uint32_t req_post[] = {
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    int req_post_count = sizeof(req_post)/sizeof(req_post[0]);
+    static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
+    int i;
 
-    /* Select CFG_IN so that we can send out our request */
-    write_irreg(0, IRREG_CFG_IN, 0);
-
-    /* Now shift in actual request into DR for CFG_IN */
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_swap_array(req_prefix, sizeof(req_prefix)/sizeof(req_prefix[0]));
-    write_swap_array(req, req_len);
-    write_swap_array(req_post, req_post_count - 1);
-    uint8_t last[] = {INT32(swap32i(req_post[req_post_count-1]))};
-    write_dataw(3);
-    write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
+    write_irreg(0, IRREG_CFG_IN, 0);     /* Select CFG_IN so that we can send out our request */
+    write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
+    write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1);
+    for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
+        write_item(DITEM(INT32(swap32i(req_prefix[i]))));
+    for (i = 0; i < req_len - 1; i++)
+        write_item(DITEM(INT32(swap32i(req[i]))));
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, 0, swap32i(req[req_len-1])))));
     if (resp_len)
         fetch_result(__LINE__, ftdi, IRREG_CFG_OUT, 0, resp_len, 1, fd);
     flush_write(ftdi, NULL);
@@ -572,8 +556,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     swap32(CONFIG_SYNC);
     swap32(CONFIG_TYPE2(0));
     swap32(CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1));
-    write_one_word(0, found_cortex, 0);
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, found_cortex, 0))));
     uint32_t ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, 1, found_cortex, -1);
     uint32_t status = ret >> 8;
     if (M(ret) != 0x40 || status != expected)
@@ -625,16 +608,22 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
     static uint32_t req_stat[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1)};
+        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
     static uint32_t req_rcrc[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC};
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
     uint32_t req_rcfg[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
-        CONFIG_TYPE2(size)};
+        CONFIG_TYPE2(size),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 
     //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1);
     //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);

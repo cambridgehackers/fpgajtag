@@ -598,49 +598,59 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     exit1_to_idle();
     return ret;
 }
+void write_foo(uint32_t data)
+{
+    write_dataw(4);
+    write_item(DITEM(INT32(data)));
+//write_dswap32(data);
+}
 static void read_config_memory(struct ftdi_context *ftdi)
 {
 int i;
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
-#if 0
-    write_irreg(0, IRREG_CFG_IN, 0);
+    write_irreg(DREAD, IRREG_CFG_IN, 0);
+    exit1_to_idle();
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    read_data_int(__LINE__, ftdi, 1);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_dswap32(CONFIG_DUMMY);
-    write_dswap32(CONFIG_SYNC);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, 1));
-    write_dswap32(CONFIG_CMD_RCRC);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_foo(CONFIG_DUMMY);
+    write_foo(CONFIG_SYNC);
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
+    write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, 1));
+    write_foo(CONFIG_CMD_RCRC);
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
     write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
-    read_data_int(__LINE__, ftdi, 1);
     exit1_to_idle();
-#endif
+    write_item(DITEM(DATAR(1)));
+    read_data_int(__LINE__, ftdi, 1);
 
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_irreg(0, IRREG_JSHUTDOWN, 0);
     exit1_to_idle();
-    write_item(DITEM(TMS_WAIT, DATAR(1)));
+    write_item(DITEM(TMS_WAIT, TMS_WAIT, DATAR(1)));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     read_data_int(__LINE__, ftdi, 1);
     write_irreg(DREAD, IRREG_CFG_IN, 0);
     exit1_to_idle();
-    read_data_int(__LINE__, ftdi, 1);
+    write_item(DITEM(DATAR(1)));
+    read_data_int(__LINE__, ftdi, 2);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_dswap32(CONFIG_DUMMY);
-    write_dswap32(CONFIG_SYNC);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1));
-    write_dswap32(CONFIG_CMD_RCFG);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1));
-    write_dswap32(0);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0)); 
-    write_dswap32(CONFIG_TYPE2(0x00024090));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_foo(CONFIG_DUMMY);
+    write_foo(CONFIG_SYNC);
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1));
+    write_foo(CONFIG_CMD_RCFG);
+    write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1));
+    write_foo(0);
+    write_foo(CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0)); 
+    write_foo(CONFIG_TYPE2(0x08024090));
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(SHIFT_TO_EXIT1(1, 0), DATAR(1)));
     exit1_to_idle();
@@ -654,7 +664,7 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-for (i = 0; i < 5; i++) {
+for (i = 0; i < 1000; i++) {
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(DATAR(100), SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
     uint8_t *rdata = read_data(__LINE__, ftdi, 100);
@@ -698,7 +708,6 @@ int main(int argc, char **argv)
     if (usb_bcddevice == 0x700) /* not a zedboard */
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
-    write_item(shift_to_exit1);
 
     /*
      * See if we are reading out data
@@ -739,6 +748,7 @@ read_config_memory(ftdi);
     /*
      * Step 5: Check Device ID
      */
+    write_item(shift_to_exit1);
     check_idcode(__LINE__, ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
     /*** Depending on the idcode read, change some default actions ***/
     if (found_cortex) {

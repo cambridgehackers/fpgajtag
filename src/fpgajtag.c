@@ -49,7 +49,6 @@
 #define IDCODE_MASK      0x0fffffff
 #define SEGMENT_LENGTH 256 /* sizes above 256 seem to get more bytes back in response than were requested */
 
-static int number_of_devices = 1;
 static int device_type;
 static int found_cortex;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
@@ -416,10 +415,8 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
 {
     cortex_csw(ftdi, 1-cortex_nowait, 0);
     if (!cortex_nowait) {
-        int count = number_of_devices - 1;
         read_csw(ftdi, 1, 0);
-        while (count-- > 0)
-            cortex_csw(ftdi, 0, 1);
+        cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0, VAL3);
     write_irreg(0, IRREGA_APACC, 2);
@@ -465,20 +462,17 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME);
     uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
-    memcpy(&idcode_array[idcode_array_index], rdata, sizeof(idcode_array[0]));
-    idcode_array_index++;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
+        first_time_idcode_read = 0;
+        memcpy(&idcode_array[idcode_array_index++], rdata, sizeof(idcode_array[0]));
         memcpy(idcode_validate_result+1, rdata, sizeof(idcode_array[1])); // copy returned idcode
         memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
-            memcpy(&idcode_array[idcode_array_index], rdata+4, sizeof(idcode_array[0]));
-            idcode_array_index++;
+            memcpy(&idcode_array[idcode_array_index++], rdata+4, sizeof(idcode_array[0]));
             printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, idcode_array[1]);
             memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
             memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
-            number_of_devices++;
         }
-        first_time_idcode_read = 0;
     }
     if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
         printf("[%s]\n", __FUNCTION__);
@@ -487,9 +481,9 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i)
+static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i, int size, int bozostyle)
 {
-    write_irreg(0, EXTEND_EXTRA | irreg, 1);
+    write_irreg(0, irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (i > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
@@ -498,11 +492,11 @@ static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
         if (found_cortex)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
-    if (found_cortex)
+    if (bozostyle)
         write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     else
         write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
-    return read_data_int(linenumber, ftdi, 4);
+    return read_data_int(linenumber, ftdi, size);
 }
 
 static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
@@ -518,7 +512,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
             if (trace)
                 printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
             write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            if ((ret = fetch_config_word(linenumber, ftdi, IRREG_USER2, i)) != 0)
+            if ((ret = fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, sizeof(uint32_t), found_cortex)) != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
     }
@@ -552,7 +546,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     swap32(CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1));
     write_one_word(0, found_cortex, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    uint32_t ret = fetch_config_word(linenumber, ftdi, IRREG_CFG_OUT, 0);
+    uint32_t ret = fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, sizeof(uint32_t), found_cortex);
     uint32_t status = ret >> 8;
     if (M(ret) != 0x40 || status != expected)
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
@@ -808,7 +802,7 @@ int main(int argc, char **argv)
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    if ((ret = fetch_config_word(__LINE__, ftdi, IRREG_USERCODE, 0)) != 0xffffffff)
+    if ((ret = fetch_config_word(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, sizeof(uint32_t), found_cortex)) != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {
         ret = write_bypass(ftdi);

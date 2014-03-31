@@ -516,22 +516,24 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
     return ret;
 }
 
-static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
+static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat)
 {
     static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
     int i;
+    uint32_t ret;
 
-    write_irreg(0, IRREG_CFG_IN, 0);     /* Select CFG_IN so that we can send out our request */
+    write_irreg(0, extend | IRREG_CFG_IN, 1);     /* Select CFG_IN so that we can send out our request */
     write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
-    write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1);
+    write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1 + oneformat);
     for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
         write_item(DITEM(INT32(swap32i(req_prefix[i]))));
     for (i = 0; i < req_len - 1; i++)
         write_item(DITEM(INT32(swap32i(req[i]))));
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, 0, swap32i(req[req_len-1])))));
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
     if (resp_len)
-        fetch_result(__LINE__, ftdi, IRREG_CFG_OUT, 0, resp_len, 1, fd);
+        ret = fetch_result(__LINE__, ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd);
     flush_write(ftdi, NULL);
+    return ret;
 }
 
 /*
@@ -541,25 +543,18 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
  */
 static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t expected, int after)
 {
+    static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
     write_item(idle_to_reset);
     if (after)
         write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
-    write_irreg(0, EXTEND_EXTRA | IRREG_CFG_IN, 1);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
     /*
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
      */
-    write_dataw(5 * sizeof(uint32_t) - 1 + found_cortex);
-    swap32(CONFIG_DUMMY);
-    swap32(CONFIG_SYNC);
-    swap32(CONFIG_TYPE2(0));
-    swap32(CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1));
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, found_cortex, 0))));
-    uint32_t ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, 1, found_cortex, -1);
+    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA, found_cortex, found_cortex);
     uint32_t status = ret >> 8;
-    if (M(ret) != 0x40 || status != expected)
+    if (bitswap[M(ret)] != 2 || status != expected)
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
@@ -625,15 +620,11 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 
-    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1);
-    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);
-
+    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1, 0, 0, 1);
+    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1, 0, 0, 1);
     write_irreg(0, IRREG_JSHUTDOWN, 0);
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
-    flush_write(ftdi, NULL);
-
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd);
-    printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
+    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1);
 }
 
 static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
@@ -728,6 +719,7 @@ int main(int argc, char **argv)
         if (fd >= 0)
             read_config_memory(ftdi, fd, 0x000f6c78);
         close(fd);
+        printf("[%s:%d] finished\n", __FUNCTION__, __LINE__);
         return 0;
     }
 

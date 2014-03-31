@@ -617,23 +617,25 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
     write_dataw(3);
     write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
+    printf("[%s] request data\n", __FUNCTION__);
     flush_write(ftdi, NULL);
 
     if (resp_len) {
         /* now select CFG_OUT to get data */
         write_irreg(0, IRREG_CFG_OUT, 0);
-        printf("\n[%s] CFG_OUT\n", __FUNCTION__);
+        printf("[%s] CFG_OUT\n", __FUNCTION__);
         flush_write(ftdi, NULL);
 
         /* and clock out the requested data */
-        printf("[%s] get data\n", __FUNCTION__);
+        printf("[%s] response data\n", __FUNCTION__);
         write_item(DITEM(IDLE_TO_SHIFT_DR));
         for (i = 0; i <= resp_len/100; i++) {
             write_item(DITEM(DATAR(100)));
                 //, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
             uint8_t *rdata = read_data(__LINE__, ftdi, 100);
         }
-        exit1_to_idle();
+        printf("[%s] go back to IDLE\n", __FUNCTION__);
+        flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     }
 }
 static void read_config_memory(struct ftdi_context *ftdi)
@@ -671,15 +673,6 @@ TYPE1    : opcode write  FDRI
 TYPE2    : wordcnt 000f6c78
 #endif
 
-    write_irreg(0, IRREG_IDCODE, 0);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_item(DITEM(DATAR(30)));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    exit1_to_idle();
-    read_data(__LINE__, ftdi, 30);
-
     uint32_t req_stat[] = {
         CONFIG_DUMMY,
         CONFIG_SYNC,
@@ -688,6 +681,15 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
     readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 16);
+
+    write_irreg(0, IRREG_IDCODE, 0);
+printf("[%s:%d] IRREG_IDCODE\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_item(DITEM(DATAR(30)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    exit1_to_idle();
+    read_data(__LINE__, ftdi, 30);
 
     uint32_t req_rcrc[] = {
         CONFIG_DUMMY,
@@ -719,7 +721,7 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
         CONFIG_TYPE2(0x08024090),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), 100 * 1000);
+    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), 100 * 30000);
 printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
 }
 

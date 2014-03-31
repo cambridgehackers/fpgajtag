@@ -152,9 +152,8 @@ int buffer_current_size(void)
 {
     return usbreadbuffer_ptr - usbreadbuffer;
 }
-uint8_t *buffer_current_pop(void)
+uint8_t *buffer_current_ptr(void)
 {
-    usbreadbuffer_ptr--;
     return usbreadbuffer_ptr;
 }
 

@@ -111,12 +111,12 @@ static void write_dswap32(uint32_t value)
     swap32(value);
 }
 
-static void write_one_word(int dread, int short_format, int value)
+static void write_one_word(int dread, int short_format, uint32_t value)
 {
     if (short_format)
         write_item(DITEM(INT32(value)));
     else
-        write_item(DITEM(value, 0x00, 0x00, DATAWBIT | dread, 0x06, 0x00));
+        write_item(DITEM(M(value), M(value >> 8), M(value >> 16), DATAWBIT | dread, 0x06, M(value >> 24)));
 }
 
 static void write_eight_bytes(void)
@@ -511,8 +511,6 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
         ret = rdata[0];
         if (fd != -1)
             write(fd, rdata, size * sizeof(uint32_t));
-        //else
-            //memdump((uint8_t *)rdata, size * sizeof(uint32_t), "RX");
     }
     return ret;
 }
@@ -520,8 +518,8 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
 static void write_swap_array(uint32_t *req, int len)
 {
     int i;
+    write_dataw(4*len);
     for (i = 0; i < len; i++) {
-        write_dataw(4);
         write_item(DITEM(INT32(swap32i(req[i]))));
     }
 }
@@ -529,9 +527,7 @@ static void write_swap_array(uint32_t *req, int len)
 static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
 {
     static uint32_t req_prefix[] = {
-        CONFIG_DUMMY,
-        CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+        CONFIG_DUMMY, CONFIG_SYNC};
     static uint32_t req_post[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
@@ -552,30 +548,6 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
     if (resp_len)
         fetch_result(__LINE__, ftdi, IRREG_CFG_OUT, 0, resp_len, 1, fd);
     flush_write(ftdi, NULL);
-}
-
-static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
-{
-    int i;
-    uint32_t ret;
-
-    if (trace)
-        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
-    read_idcode(linenumber, ftdi, input_shift);
-    while (j-- > 0) {
-        for (i = 0; i < 4; i++) {
-            if (trace)
-                printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
-            write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, -1);
-            if (ret != 0)
-                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
-        }
-    }
-    if (found_cortex)
-        cortex_bypass(ftdi, cortex_nowait);
-    if (trace)
-        printf("[%s:%d] end\n", __FUNCTION__, linenumber);
 }
 
 /*
@@ -652,10 +624,13 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
     static uint32_t req_stat[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1)};
     static uint32_t req_rcrc[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC};
     uint32_t req_rcfg[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
@@ -670,6 +645,30 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 
     readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd);
     printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
+}
+
+static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
+{
+    int i;
+    uint32_t ret;
+
+    if (trace)
+        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
+    read_idcode(linenumber, ftdi, input_shift);
+    while (j-- > 0) {
+        for (i = 0; i < 4; i++) {
+            if (trace)
+                printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
+            write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
+            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, -1);
+            if (ret != 0)
+                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
+        }
+    }
+    if (found_cortex)
+        cortex_bypass(ftdi, cortex_nowait);
+    if (trace)
+        printf("[%s:%d] end\n", __FUNCTION__, linenumber);
 }
 
 int main(int argc, char **argv)

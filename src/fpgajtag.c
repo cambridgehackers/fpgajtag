@@ -526,9 +526,9 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
     write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
     write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1 + oneformat);
     for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
-        write_item(DITEM(INT32(swap32i(req_prefix[i]))));
+        swap32(req_prefix[i]);
     for (i = 0; i < req_len - 1; i++)
-        write_item(DITEM(INT32(swap32i(req[i]))));
+        swap32(req[i]);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
     if (resp_len)
         ret = fetch_result(__LINE__, ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd);

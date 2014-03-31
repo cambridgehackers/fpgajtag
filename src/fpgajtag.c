@@ -598,38 +598,54 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     return ret;
 }
 
-static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
+static void write_swap_array(uint32_t *req, int len)
 {
-    int i, j;
-
-    /* Select CFG_IN so that we can send out our request */
-    write_irreg(0, IRREG_CFG_IN, 0);
-    printf("[%s] CFG_IN1\n", __FUNCTION__);
-    flush_write(ftdi, NULL);
-
-    /* Now clock in actual request into DR for CFG_IN */
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    for (i = 0; i < req_len-1; i++) {
+    int i;
+    for (i = 0; i < len; i++) {
         write_dataw(4);
         write_item(DITEM(INT32(swap32i(req[i]))));
     }
-    uint8_t last[] = {INT32(swap32i(req[req_len-1]))};
+}
+
+static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
+{
+    int j;
+    static uint32_t req_prefix[] = {
+        CONFIG_DUMMY,
+        CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+    static uint32_t req_post[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+    int req_post_count = sizeof(req_post)/sizeof(req_post[0]);
+
+    /* Select CFG_IN so that we can send out our request */
+    write_irreg(0, IRREG_CFG_IN, 0);
+    //printf("[%s] CFG_IN1\n", __FUNCTION__);
+    //flush_write(ftdi, NULL);
+
+    /* Now clock in actual request into DR for CFG_IN */
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_swap_array(req_prefix, sizeof(req_prefix)/sizeof(req_prefix[0]));
+    write_swap_array(req, req_len);
+    write_swap_array(req_post, req_post_count - 1);
+    uint8_t last[] = {INT32(swap32i(req_post[req_post_count-1]))};
     write_dataw(3);
     write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
-    printf("[%s] request data\n", __FUNCTION__);
-    flush_write(ftdi, NULL);
+    //printf("[%s] request data\n", __FUNCTION__);
+    //flush_write(ftdi, NULL);
 
     if (resp_len) {
         /* now select CFG_OUT to get data */
         write_irreg(0, IRREG_CFG_OUT, 0);
-        printf("[%s] CFG_OUT\n", __FUNCTION__);
-        flush_write(ftdi, NULL);
+        //printf("[%s] CFG_OUT\n", __FUNCTION__);
+        //flush_write(ftdi, NULL);
 
         /* and clock out the requested data */
-        printf("[%s] response data\n", __FUNCTION__);
+        //printf("[%s] response data\n", __FUNCTION__);
         write_item(DITEM(IDLE_TO_SHIFT_DR));
-        flush_write(ftdi, NULL);
+        //flush_write(ftdi, NULL);
 #define SEGMENT_LENGTH 256 /* sizes above 256 seem to get more bytes back in response than were requested */
         unsigned long offset = 0;
         while (resp_len > 0) {
@@ -637,77 +653,50 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
             if (size > SEGMENT_LENGTH)
                 size = SEGMENT_LENGTH;
             write_item(DITEM(DATAR(size)));
-                //, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
-//printf("[%s:%d] size %d\n", __FUNCTION__, __LINE__, size);
             uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size);
             for (j = 0; j < size/sizeof(rdata[0]); j++)
                 rdata[j] = swap32i(rdata[j]);
             if (fd != -1)
                     write(fd, rdata, size);
             else
-                memdump(rdata, size, "RX");
+                memdump((uint8_t *)rdata, size, "RX");
             offset += size;
             resp_len -= size;
         }
         printf("[%s] go back to IDLE\n", __FUNCTION__);
         flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     }
+    flush_write(ftdi, NULL);
 }
-static void read_config_memory(struct ftdi_context *ftdi)
+
+static void read_config_memory(struct ftdi_context *ftdi, uint32_t size)
 {
     static uint32_t req_stat[] = {
-        CONFIG_DUMMY,
-        CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1)};
     static uint32_t req_rcrc[] = {
-        CONFIG_DUMMY,
-        CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1),
-        CONFIG_CMD_RCRC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    static uint32_t req_rcfg[] = {
-        CONFIG_DUMMY,
-        CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1),
-        CONFIG_CMD_RCFG,
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1),
-        0,
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC};
+    uint32_t req_rcfg[] = {
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
-        CONFIG_TYPE2(0x08024090),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+        CONFIG_TYPE2(size)};
 
-    readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 16, -1);
-
-    write_irreg(0, IRREG_IDCODE, 0);
-printf("[%s:%d] IRREG_IDCODE\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_item(DITEM(DATAR(30)));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    exit1_to_idle();
-    read_data(__LINE__, ftdi, 30);
-    readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);
+    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), sizeof(uint32_t), -1);
+    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);
 
     write_irreg(0, IRREG_JSHUTDOWN, 0);
-printf("[%s:%d] JSHUTDOWN\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
+//printf("[%s:%d] JSHUTDOWN\n", __FUNCTION__, __LINE__);
+    //flush_write(ftdi, NULL);
 
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-int fd = creat("xx.bozo", 0666);
-if (fd >= 0)
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), 0x000f6c78 * sizeof(uint32_t), fd);
-printf("[%s:%d] over fd %d\n", __FUNCTION__, __LINE__, fd);
+    int fd = creat("xx.bozo", 0666);
+    if (fd >= 0)
+        readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd);
     close(fd);
+    printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
 }
 
 int main(int argc, char **argv)
@@ -771,7 +760,7 @@ int main(int argc, char **argv)
      */
     if (!strcmp(argv[argindex], "-r")) {
         printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
-        read_config_memory(ftdi);
+        read_config_memory(ftdi, 0x000f6c78 * sizeof(uint32_t));
         return 0;
     }
 

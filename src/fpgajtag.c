@@ -88,18 +88,21 @@ static void write_dataw(uint32_t value)
     write_item(DITEM(DATAW(0, value)));
 }
 
-static void swap32(uint32_t value)
+static uint32_t swap32i(uint32_t value)
 {
     int i;
     union {
         uint32_t i;
         uint8_t c[4];
-    } temp;
+    } temp, tempo;
     temp.i = value;
-    for (i = 0; i < 4; i++) {
-        uint8_t ch = bitswap[temp.c[3-i]];
-        write_data(&ch, 1);
-    }
+    for (i = 0; i < 4; i++)
+        tempo.c[i] = bitswap[temp.c[3-i]];
+    return tempo.i;
+}
+static void swap32(uint32_t value)
+{
+    write_item(DITEM(INT32(swap32i(value))));
 }
 
 static void write_dswap32(uint32_t value)
@@ -596,21 +599,86 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 }
 void write_foo(uint32_t data)
 {
-printf("[%s:%d] %08x\n", __FUNCTION__, __LINE__, data);
-#if 1
-    write_dataw(4);
-    write_item(DITEM(INT32(data)));
-#else
+printf("[%s] %08x\n", __FUNCTION__, data);
     write_dswap32(data);
-#endif
+}
+static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len)
+{
+    int i;
+    write_irreg(0, IRREG_CFG_IN, 0);
+printf("[%s:%d] CFG_IN\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    for (i = 0; i < req_len-1; i++) {
+        write_dataw(4);
+        write_item(DITEM(INT32(swap32i(req[i]))));
+    }
+    uint8_t last[] = {INT32(swap32i(req[req_len-1]))};
+    write_dataw(3);
+    write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3])); //NOP
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
+    flush_write(ftdi, NULL);
+
+    write_irreg(0, IRREG_CFG_OUT, 0);
+printf("\n[%s:%d] CFG_OUT\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+for (i = 0; i < resp_len/100; i++) {
+    write_item(DITEM(DATAR(100)));
+//, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
+    uint8_t *rdata = read_data(__LINE__, ftdi, 100);
+}
+    exit1_to_idle();
 }
 static void read_config_memory(struct ftdi_context *ftdi)
 {
-    int i;
+#if 0
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+WIDTHSYNC: 000000bb
+WIDTH    : 11220044
+DUMMY    : ffffffff
+DUMMY    : ffffffff
+SYNC     : aa995566
+TYPE1    : opcode write  TIMER   : 00000000
+TYPE1    : opcode write  WBSTAR  : 00000000
+TYPE1    : opcode write  CMD NULL
+TYPE1    : opcode write  CMD RCRC
+TYPE1    : opcode write  UNK_13  : 00000000
+TYPE1    : opcode write  COR0    : 02003fe5
+TYPE1    : opcode write  COR1    : 00000000
+TYPE1    : opcode write  IDCODE  : 03727093
+TYPE1    : opcode write  CMD SWITCH
+TYPE1    : opcode write  MASK    : 00000401
+TYPE1    : opcode write  CTL0    : 00000501
+TYPE1    : opcode write  MASK    : 00000000
+TYPE1    : opcode write  CTL1    : 00000000
+TYPE1    : opcode write  FAR     type 0 top 0 row 0 col 0 minor 0
+TYPE1    : opcode write  CMD WCFG
+TYPE1    : opcode write  FDRI   
+TYPE2    : wordcnt 000f6c78
+#endif
 
-    //write_irreg(0, IRREG_CFG_IN, 0);
-    write_irreg(0, 0x05, 0);
+    write_irreg(0, IRREG_IDCODE, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    write_item(DITEM(DATAR(30)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    exit1_to_idle();
+    read_data(__LINE__, ftdi, 30);
+
+    write_irreg(0, IRREG_CFG_IN, 0);
+printf("[%s:%d] CFG_IN\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
     write_item(DITEM(IDLE_TO_SHIFT_DR));
@@ -620,58 +688,34 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, 1));
     write_foo(CONFIG_CMD_RCRC);
     write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    exit1_to_idle();
+    //write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    write_item(DITEM(DATAW(0, 3), 0x04, 0, 0, DATAWBIT, 0x6, 0x0)); //NOP
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-    //write_irreg(0, IRREG_JSHUTDOWN, 0);
-    write_irreg(0, 0x0d, 0);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_irreg(0, IRREG_JSHUTDOWN, 0);
+printf("[%s:%d] JSHUTDOWN\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-    //write_irreg(0, IRREG_CFG_IN, 0);
-    write_irreg(0, 0x05, 0);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
-
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    write_foo(CONFIG_DUMMY);
-    write_foo(CONFIG_SYNC);
-    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1));
-    write_foo(CONFIG_CMD_RCFG);
-    write_foo(CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1));
-    write_foo(0);
-    write_foo(CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0)); 
-    write_foo(CONFIG_TYPE2(0x08024090));
-    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    exit1_to_idle();
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
-
-    //write_irreg(0, IRREG_CFG_OUT, 0);
-    write_irreg(0, 0x04, 0);
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
-
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-for (i = 0; i < 2000; i++) {
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(DATAR(100)));
-//, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
-    uint8_t *rdata = read_data(__LINE__, ftdi, 100);
-}
+uint32_t req[] = {
+    CONFIG_DUMMY,
+    CONFIG_SYNC,
+    CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+    CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1),
+    CONFIG_CMD_RCFG,
+    CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1),
+    0,
+    CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
+    CONFIG_TYPE2(0x08024090),
+    CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+    CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+    readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 100 * 1000);
 printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
-    exit1_to_idle();
 }
 
 int main(int argc, char **argv)

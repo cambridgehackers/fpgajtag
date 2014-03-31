@@ -46,7 +46,7 @@
 
 #define IDLE_TO_SHIFT_IR   TMSW, 0x03, 0x03  /* Idle -> Shift-IR */
 #define IDLE_TO_SHIFT_DR   TMSW, 0x02, 0x01  /* Idle -> Shift-DR */
-#define EXIT1_TO_IDLE      TMSW, 0x01, 0x01  /* Exit1/Exit2 -> Idle */
+#define EXIT1_TO_IDLE      TMSW, 0x01, 0x01  /* Exit1/Exit2 -> Update -> Idle */
 #define IDLE_TO_RESET      TMSW, 0x02, 0x07  /* Idle -> Reset */
 #define RESET_TO_IDLE      TMSW, 0x00, 0x00  /* Reset -> Idle */
 #define IN_RESET_STATE     TMSW, 0x00, 0x7f  /* Marker for Reset */
@@ -90,6 +90,7 @@
 #define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
 #define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
 #define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
+#define IRREG_IDCODE         COMBINE_IR_REG(0x09, 0xf)
 #define IRREG_JSHUTDOWN      COMBINE_IR_REG(0x0d, 0xf)
 #define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
 #define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
@@ -227,36 +228,3 @@
 #define ADDRESS_SLCR_ARM_PLL_CTRL 0xf8000100
 #define ADDRESS_SLCR_ARM_CLK_CTRL 0xf8000120
 enum {DEVICE_OTHER, DEVICE_AC701, DEVICE_ZC706, DEVICE_ZC702, DEVICE_ZEDBOARD};
-
-#if 0
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-WIDTHSYNC: 000000bb
-WIDTH    : 11220044
-DUMMY    : ffffffff
-DUMMY    : ffffffff
-SYNC     : aa995566
-TYPE1    : opcode write  TIMER   : 00000000
-TYPE1    : opcode write  WBSTAR  : 00000000
-TYPE1    : opcode write  CMD NULL
-TYPE1    : opcode write  CMD RCRC
-TYPE1    : opcode write  UNK_13  : 00000000
-TYPE1    : opcode write  COR0    : 02003fe5
-TYPE1    : opcode write  COR1    : 00000000
-TYPE1    : opcode write  IDCODE  : 03727093
-TYPE1    : opcode write  CMD SWITCH
-TYPE1    : opcode write  MASK    : 00000401
-TYPE1    : opcode write  CTL0    : 00000501
-TYPE1    : opcode write  MASK    : 00000000
-TYPE1    : opcode write  CTL1    : 00000000
-TYPE1    : opcode write  FAR     type 0 top 0 row 0 col 0 minor 0
-TYPE1    : opcode write  CMD WCFG
-TYPE1    : opcode write  FDRI   
-TYPE2    : wordcnt 000f6c78
-#endif

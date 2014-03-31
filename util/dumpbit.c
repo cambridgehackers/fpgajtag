@@ -42,7 +42,9 @@
  */
 #define LINESIZE 8
 
-static int dump_flag = 0;
+static int dump_flag = 1;
+static int dump_file = 1;
+static int fd_out = -1;
 
 typedef struct {
     uint32_t value;
@@ -86,20 +88,28 @@ static int skipped;
          nonzero |= *pint++;
     }
     i = 0;
-    if (nonzero) {
+    if (nonzero || fd_out != -1) {
         if (skipped)
             printf("skipped %d\n", skipped);
-        printf("%s: ",title);
+        if (fd_out == -1)
+            printf("%s: ",title);
         while (size > 0) {
             if (i == LINESIZE) {
                 printf("\n%s: ",title);
                 i = 0;
             }
-            printf("%08x ", *p++);
-            i++;
+            if (fd_out >= 0) {
+                write(fd_out, p, sizeof(*p));
+                p++;
+            }
+            else {
+                printf("%08x ", *p++);
+                i++;
+            }
             size--;
         }
-        printf("\n");
+        if (fd_out == -1)
+            printf("\n");
         skipped = 0;
     }
     else
@@ -129,6 +139,8 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
         exit(1);
     }
     pend = pint + len/sizeof(buffer[0]);
+    if (dump_file)
+        fd_out = creat("xx.orig.dump", 0666);
     while (pint < pend) {
         uint32_t val = get_next();
         switch(val & CONFIG_TYPE_MASK) {

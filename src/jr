@@ -3,7 +3,7 @@ set -x
 ./j
 make clean
 #make VARIANT="-DUSE_LOGGING"
-make VARIANT="-DUSE_LOGGING"
+make
 ./fpgajtag -r 
 #>xx.read
 #~/git/system-tools/librarywrap/logname.py xx.read | \

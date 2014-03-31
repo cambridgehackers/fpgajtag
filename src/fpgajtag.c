@@ -641,7 +641,7 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
             for (j = 0; j < size/sizeof(rdata[0]); j++)
                 rdata[j] = swap32i(rdata[j]);
             if (fd != -1)
-                    write(fd, rdata, size);
+                write(fd, rdata, size);
             else
                 memdump((uint8_t *)rdata, size, "RX");
             offset += size;
@@ -652,7 +652,7 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
     flush_write(ftdi, NULL);
 }
 
-static void read_config_memory(struct ftdi_context *ftdi, uint32_t size)
+static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
     static uint32_t req_stat[] = {
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1)};
@@ -671,10 +671,7 @@ static void read_config_memory(struct ftdi_context *ftdi, uint32_t size)
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
     flush_write(ftdi, NULL);
 
-    int fd = creat("xx.bozo", 0666);
-    if (fd >= 0)
-        readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd);
-    close(fd);
+    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd);
     printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
 }
 
@@ -738,11 +735,14 @@ int main(int argc, char **argv)
      * See if we are reading out data
      */
     if (!strcmp(argv[argindex], "-r")) {
-        printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
+        printf("[%s:%d] readout into xx.bozo\n", __FUNCTION__, __LINE__);
         /* this size was taken from the TYPE2 record in the original bin file
          * (and must be converted to bits)
          */
-        read_config_memory(ftdi, 0x000f6c78 * sizeof(uint32_t));
+        int fd = creat("xx.bozo", 0666);
+        if (fd >= 0)
+            read_config_memory(ftdi, fd, 0x000f6c78 * sizeof(uint32_t));
+        close(fd);
         return 0;
     }
 

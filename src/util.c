@@ -251,8 +251,9 @@ printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenum
             if (read_size[i] < 0) {
                 validbits -= read_size[i];
                 if (validbits < 0 || validbits > 8) {
-                    printf("[%s:%d] validbits %d\n", __FUNCTION__, linenumber, validbits);
-                    exit(-1);
+                    printf("[%s:%d] validbits %d big\n", __FUNCTION__, linenumber, validbits);
+                    validbits = 8;
+                    //exit(-1);
                 }
                 *p &= (0xff << (8-validbits));
                 if (i > 0 && read_size[i-1] < 0) {

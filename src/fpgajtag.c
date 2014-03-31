@@ -600,20 +600,28 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 }
 void write_foo(uint32_t data)
 {
+printf("[%s:%d] %08x\n", __FUNCTION__, __LINE__, data);
+#if 0
     write_dataw(4);
     write_item(DITEM(INT32(data)));
-//write_dswap32(data);
+#else
+    write_dswap32(data);
+#endif
 }
 static void read_config_memory(struct ftdi_context *ftdi)
 {
 int i;
+found_cortex = 1;
+device_type = DEVICE_ZEDBOARD;
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
-    write_irreg(DREAD, IRREG_CFG_IN, 0);
-    exit1_to_idle();
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    read_data_int(__LINE__, ftdi, 1);
+    flush_write(ftdi, NULL);
+
+    write_irreg(0, IRREG_CFG_IN, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_foo(CONFIG_DUMMY);
     write_foo(CONFIG_SYNC);
@@ -622,22 +630,22 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_foo(CONFIG_CMD_RCRC);
     write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
     write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
-    write_item(DITEM(DATAR(1)));
-    read_data_int(__LINE__, ftdi, 1);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
 
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_irreg(0, IRREG_JSHUTDOWN, 0);
-    exit1_to_idle();
-    write_item(DITEM(TMS_WAIT, TMS_WAIT, DATAR(1)));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    read_data_int(__LINE__, ftdi, 1);
-    write_irreg(DREAD, IRREG_CFG_IN, 0);
-    exit1_to_idle();
-    write_item(DITEM(DATAR(1)));
-    read_data_int(__LINE__, ftdi, 2);
+    flush_write(ftdi, NULL);
+
+    write_item(DITEM(TMS_WAIT, TMS_WAIT));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
+
+    write_irreg(0, IRREG_CFG_IN, 0);
+printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
 
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_foo(CONFIG_DUMMY);
@@ -651,26 +659,24 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_foo(CONFIG_TYPE2(0x08024090));
     write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
     write_foo(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(SHIFT_TO_EXIT1(1, 0), DATAR(1)));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     exit1_to_idle();
-    read_data_int(__LINE__, ftdi, 1);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_irreg(DREAD, IRREG_CFG_OUT, 0);
-    exit1_to_idle();
-    read_data_int(__LINE__, ftdi, 1);
+    flush_write(ftdi, NULL);
+
+    write_irreg(0, IRREG_CFG_OUT, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    flush_write(ftdi, NULL);
 
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 for (i = 0; i < 1000; i++) {
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(DATAR(100), SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
+    write_item(DITEM(DATAR(100)));
+//, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
     uint8_t *rdata = read_data(__LINE__, ftdi, 100);
 }
 printf("[%s:%d] over\n", __FUNCTION__, __LINE__);
-    //read_data_int(__LINE__, ftdi, 4);
     exit1_to_idle();
 }
 

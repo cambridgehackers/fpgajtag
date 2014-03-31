@@ -47,7 +47,7 @@
 #define SEND_SINGLE_FRAME     99999
 #define IDCODE_ARRAY_SIZE        20
 #define IDCODE_MASK      0x0fffffff
-#define SEGMENT_LENGTH 256 /* sizes above 256 seem to get more bytes back in response than were requested */
+#define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
 static int device_type;
 static int found_cortex;
@@ -481,9 +481,10 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int size, int bozostyle, uint32_t *ret)
+static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd)
 {
     int j;
+    uint32_t ret = 0;
     write_irreg(0, irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (variant > 1)
@@ -493,14 +494,27 @@ static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_
         if (found_cortex)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
-    if (bozostyle)
-        write_item(DITEM(DATAR(size * sizeof(uint32_t)), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    else
-        write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
-    uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size * sizeof(uint32_t));
-    for (j = 0; j < size; j++)
-        rdata[j] = swap32i(rdata[j]);
-    *ret = rdata[0];
+    while (resp_len > 0) {
+        int size = resp_len;
+        if (size > SEGMENT_LENGTH)
+            size = SEGMENT_LENGTH;
+        resp_len -= size;
+        if (bozostyle)
+            write_item(DITEM(DATAR(size * sizeof(uint32_t))));
+        else
+            write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
+        if (resp_len <= 0)
+            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+        uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size * sizeof(uint32_t));
+        for (j = 0; j < size; j++)
+            rdata[j] = swap32i(rdata[j]);
+        ret = rdata[0];
+        if (fd != -1)
+            write(fd, rdata, size * sizeof(uint32_t));
+        //else
+            //memdump((uint8_t *)rdata, size * sizeof(uint32_t), "RX");
+    }
+    return ret;
 }
 
 static void write_swap_array(uint32_t *req, int len)
@@ -514,7 +528,6 @@ static void write_swap_array(uint32_t *req, int len)
 
 static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd)
 {
-    int j;
     static uint32_t req_prefix[] = {
         CONFIG_DUMMY,
         CONFIG_SYNC,
@@ -536,29 +549,8 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
     write_dataw(3);
     write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
-
-    if (resp_len) {
-        /* now select CFG_OUT to get data */
-        write_irreg(0, IRREG_CFG_OUT, 1);
-        write_item(DITEM(IDLE_TO_SHIFT_DR));
-        unsigned long offset = 0;
-        while (resp_len > 0) { /* and clock out the requested data */
-            int size = resp_len;
-            if (size > SEGMENT_LENGTH)
-                size = SEGMENT_LENGTH;
-            write_item(DITEM(DATAR(size)));
-            uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size);
-            for (j = 0; j < size/sizeof(rdata[0]); j++)
-                rdata[j] = swap32i(rdata[j]);
-            if (fd != -1)
-                write(fd, rdata, size);
-            else
-                memdump((uint8_t *)rdata, size, "RX");
-            offset += size;
-            resp_len -= size;
-        }
-        flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    }
+    if (resp_len)
+        fetch_result(__LINE__, ftdi, IRREG_CFG_OUT, 0, resp_len, 1, fd);
     flush_write(ftdi, NULL);
 }
 
@@ -575,7 +567,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
             if (trace)
                 printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
             write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, &ret);
+            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, -1);
             if (ret != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
@@ -610,8 +602,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     swap32(CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1));
     write_one_word(0, found_cortex, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    uint32_t ret;
-    fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, 1, found_cortex, &ret);
+    uint32_t ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, 1, found_cortex, -1);
     uint32_t status = ret >> 8;
     if (M(ret) != 0x40 || status != expected)
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
@@ -670,7 +661,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size)};
 
-    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), sizeof(uint32_t), -1);
+    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1);
     //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);
 
     write_irreg(0, IRREG_JSHUTDOWN, 0);
@@ -747,7 +738,7 @@ int main(int argc, char **argv)
          */
         int fd = creat("xx.bozo", 0666);
         if (fd >= 0)
-            read_config_memory(ftdi, fd, 0x000f6c78 * sizeof(uint32_t));
+            read_config_memory(ftdi, fd, 0x000f6c78);
         close(fd);
         return 0;
     }
@@ -808,7 +799,7 @@ int main(int argc, char **argv)
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    fetch_config_word(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_cortex, &ret);
+    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_cortex, -1);
     if (ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {

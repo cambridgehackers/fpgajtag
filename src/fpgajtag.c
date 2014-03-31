@@ -481,7 +481,7 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i, int size, int bozostyle)
+static void fetch_config_word(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int i, int size, int bozostyle, uint32_t *ret)
 {
     write_irreg(0, irreg, 1);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
@@ -493,10 +493,10 @@ static uint32_t fetch_config_word(int linenumber, struct ftdi_context *ftdi, uin
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
     if (bozostyle)
-        write_item(DITEM(DATAR(4), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+        write_item(DITEM(DATAR(size * sizeof(uint32_t)), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     else
-        write_item(DITEM(DATAR(3), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
-    return read_data_int(linenumber, ftdi, size);
+        write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)));
+    *ret = read_data_int(linenumber, ftdi, 4);
 }
 
 static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
@@ -512,7 +512,8 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
             if (trace)
                 printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
             write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            if ((ret = fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, sizeof(uint32_t), found_cortex)) != 0)
+            fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, &ret);
+            if (ret != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
     }
@@ -546,7 +547,8 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     swap32(CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1));
     write_one_word(0, found_cortex, 0);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-    uint32_t ret = fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, sizeof(uint32_t), found_cortex);
+    uint32_t ret;
+    fetch_config_word(linenumber, ftdi, EXTEND_EXTRA | IRREG_CFG_OUT, 0, 1, found_cortex, &ret);
     uint32_t status = ret >> 8;
     if (M(ret) != 0x40 || status != expected)
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
@@ -802,7 +804,8 @@ int main(int argc, char **argv)
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    if ((ret = fetch_config_word(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, sizeof(uint32_t), found_cortex)) != 0xffffffff)
+    fetch_config_word(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_cortex, &ret);
+    if (ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {
         ret = write_bypass(ftdi);

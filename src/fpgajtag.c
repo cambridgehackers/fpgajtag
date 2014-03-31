@@ -44,7 +44,9 @@
 #define BUFFER_MAX_LEN      1000000
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
-#define SEND_SINGLE_FRAME      99999
+#define SEND_SINGLE_FRAME     99999
+#define IDCODE_ARRAY_SIZE        20
+#define IDCODE_MASK      0x0fffffff
 
 static int number_of_devices = 1;
 static int device_type;
@@ -444,37 +446,35 @@ static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN);
 static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
 static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
 
+static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
+static int idcode_array_index;
 /*
  * Read/validate IDCODE from device to be programmed
  */
-static void check_idcode(int linenumber, struct ftdi_context *ftdi, uint32_t idcode)
+static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shift)
 {
-
+    if (input_shift)
+        write_item(shift_to_exit1);
+    else
+        write_item(idle_to_reset);
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME);
     uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
+    memcpy(&idcode_array[idcode_array_index], rdata, sizeof(idcode_array[0]));
+    idcode_array_index++;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
-        uint32_t returnedid;
-        memcpy(&returnedid, rdata, sizeof(returnedid));
-        idcode |= 0xf0000000 & returnedid;
-        memcpy(idcode_validate_result+1, rdata, sizeof(returnedid)); // copy returned idcode
-        memcpy(idcode_probe_result+1, rdata, sizeof(returnedid));       // copy returned idcode
+        memcpy(idcode_validate_result+1, rdata, sizeof(idcode_array[1])); // copy returned idcode
+        memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
-            uint32_t anotherid;
-            memcpy(&anotherid, rdata+4, sizeof(anotherid));
-            printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, anotherid);
-            if (anotherid == CORTEX_IDCODE)
-                found_cortex = 1;
-            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
-            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(anotherid));   // copy 2nd idcode
+            memcpy(&idcode_array[idcode_array_index], rdata+4, sizeof(idcode_array[0]));
+            idcode_array_index++;
+            printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, idcode_array[1]);
+            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
+            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
             number_of_devices++;
         }
         first_time_idcode_read = 0;
-        if (idcode != returnedid) {
-            printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, returnedid);
-            exit(1);
-        }
     }
     if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
         printf("[%s]\n", __FUNCTION__);
@@ -508,11 +508,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
-    if (input_shift)
-        write_item(shift_to_exit1);
-    else
-        write_item(idle_to_reset);
-    check_idcode(linenumber, ftdi, 0); // idcode parameter ignored, since this is not the first invocation
+    read_idcode(linenumber, ftdi, input_shift);
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
             if (trace)
@@ -601,7 +597,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 void write_foo(uint32_t data)
 {
 printf("[%s:%d] %08x\n", __FUNCTION__, __LINE__, data);
-#if 0
+#if 1
     write_dataw(4);
     write_item(DITEM(INT32(data)));
 #else
@@ -610,15 +606,10 @@ printf("[%s:%d] %08x\n", __FUNCTION__, __LINE__, data);
 }
 static void read_config_memory(struct ftdi_context *ftdi)
 {
-int i;
-found_cortex = 1;
-device_type = DEVICE_ZEDBOARD;
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
-printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    flush_write(ftdi, NULL);
+    int i;
 
-    write_irreg(0, IRREG_CFG_IN, 0);
+    //write_irreg(0, IRREG_CFG_IN, 0);
+    write_irreg(0, 0x05, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
@@ -635,7 +626,8 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-    write_irreg(0, IRREG_JSHUTDOWN, 0);
+    //write_irreg(0, IRREG_JSHUTDOWN, 0);
+    write_irreg(0, 0x0d, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
@@ -643,7 +635,8 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-    write_irreg(0, IRREG_CFG_IN, 0);
+    //write_irreg(0, IRREG_CFG_IN, 0);
+    write_irreg(0, 0x05, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
@@ -664,13 +657,14 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
-    write_irreg(0, IRREG_CFG_OUT, 0);
+    //write_irreg(0, IRREG_CFG_OUT, 0);
+    write_irreg(0, 0x04, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-for (i = 0; i < 20000; i++) {
+for (i = 0; i < 2000; i++) {
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(DATAR(100)));
 //, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
@@ -714,13 +708,34 @@ int main(int argc, char **argv)
     if (usb_bcddevice == 0x700) /* not a zedboard */
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
+    read_idcode(__LINE__, ftdi, 1);
+    uint32_t thisid = idcode_array[0] & IDCODE_MASK;
+    device_type = DEVICE_OTHER;
+    if (thisid == 0x03636093)         // ac701
+        device_type = DEVICE_AC701;
+    if (thisid == 0x03731093)         // zc706
+        device_type = DEVICE_ZC706;
+    if (thisid == 0x03727093) {       // zc702 and zedboard
+        if (usb_bcddevice == 0x700)
+            device_type = DEVICE_ZC702;
+        else
+            device_type = DEVICE_ZEDBOARD;
+    }
+    printf("[%s] thisid %x device_type %d.\n", __FUNCTION__, thisid, device_type);
+    if (idcode_array[1] == CORTEX_IDCODE)
+        found_cortex = 1;
+    /*** Depending on the idcode read, change some default actions ***/
+    if (found_cortex) {
+        opcode_bits = 5;
+        irreg_extrabit = EXTRA_BIT_MASK;
+    }
 
     /*
      * See if we are reading out data
      */
     if (!strcmp(argv[argindex], "-r")) {
-printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
-read_config_memory(ftdi);
+        printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
+        read_config_memory(ftdi);
         return 0;
     }
 
@@ -738,28 +753,14 @@ read_config_memory(ftdi);
     read(inputfd, &idcode, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     lseek(inputfd, 0, SEEK_SET);
-    device_type = DEVICE_OTHER;
-    if (idcode == 0x03636093)         // ac701
-        device_type = DEVICE_AC701;
-    if (idcode == 0x03731093)         // zc706
-        device_type = DEVICE_ZC706;
-    if (idcode == 0x03727093) {       // zc702 and zedboard
-        if (usb_bcddevice == 0x700)
-            device_type = DEVICE_ZC702;
-        else
-            device_type = DEVICE_ZEDBOARD;
-    }
-    printf("[%s] idcode %x device_type %d.\n", __FUNCTION__, idcode, device_type);
 
     /*
      * Step 5: Check Device ID
      */
-    write_item(shift_to_exit1);
-    check_idcode(__LINE__, ftdi, idcode);     /*** Check to see if idcode matches file and detect Zynq ***/
-    /*** Depending on the idcode read, change some default actions ***/
-    if (found_cortex) {
-        opcode_bits = 5;
-        irreg_extrabit = EXTRA_BIT_MASK;
+    /*** Check to see if idcode matches file and detect Zynq ***/
+    if (idcode != (idcode_array[0] & IDCODE_MASK)) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[0]);
+        exit(1);
     }
 
     j = 3;
@@ -779,7 +780,7 @@ read_config_memory(ftdi);
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
-     * devices in the JTAG chain.  (this list was set up in check_idcode()
+     * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));

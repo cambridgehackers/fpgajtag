@@ -1,5 +1,4 @@
 #
-set -e
 set -x
 ./j
 ./fpgajtag -r >xx.read

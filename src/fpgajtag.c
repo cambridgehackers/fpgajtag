@@ -670,7 +670,7 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-for (i = 0; i < 1000; i++) {
+for (i = 0; i < 20000; i++) {
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(DATAR(100)));
 //, SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));

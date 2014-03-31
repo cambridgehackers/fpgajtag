@@ -47,6 +47,7 @@
 #define SEND_SINGLE_FRAME     99999
 #define IDCODE_ARRAY_SIZE        20
 #define IDCODE_MASK      0x0fffffff
+#define SEGMENT_LENGTH 256 /* sizes above 256 seem to get more bytes back in response than were requested */
 
 static int number_of_devices = 1;
 static int device_type;
@@ -621,10 +622,8 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
 
     /* Select CFG_IN so that we can send out our request */
     write_irreg(0, IRREG_CFG_IN, 0);
-    //printf("[%s] CFG_IN1\n", __FUNCTION__);
-    //flush_write(ftdi, NULL);
 
-    /* Now clock in actual request into DR for CFG_IN */
+    /* Now shift in actual request into DR for CFG_IN */
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_swap_array(req_prefix, sizeof(req_prefix)/sizeof(req_prefix[0]));
     write_swap_array(req, req_len);
@@ -633,22 +632,13 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
     write_dataw(3);
     write_item(DITEM(last[0], last[1], last[2], DATAWBIT, 0x6, last[3]));
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, last[3] & 0x80)));
-    //printf("[%s] request data\n", __FUNCTION__);
-    //flush_write(ftdi, NULL);
 
     if (resp_len) {
         /* now select CFG_OUT to get data */
         write_irreg(0, IRREG_CFG_OUT, 0);
-        //printf("[%s] CFG_OUT\n", __FUNCTION__);
-        //flush_write(ftdi, NULL);
-
-        /* and clock out the requested data */
-        //printf("[%s] response data\n", __FUNCTION__);
         write_item(DITEM(IDLE_TO_SHIFT_DR));
-        //flush_write(ftdi, NULL);
-#define SEGMENT_LENGTH 256 /* sizes above 256 seem to get more bytes back in response than were requested */
         unsigned long offset = 0;
-        while (resp_len > 0) {
+        while (resp_len > 0) { /* and clock out the requested data */
             int size = resp_len;
             if (size > SEGMENT_LENGTH)
                 size = SEGMENT_LENGTH;
@@ -663,7 +653,6 @@ static void readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, i
             offset += size;
             resp_len -= size;
         }
-        printf("[%s] go back to IDLE\n", __FUNCTION__);
         flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
     }
     flush_write(ftdi, NULL);
@@ -685,11 +674,7 @@ static void read_config_memory(struct ftdi_context *ftdi, uint32_t size)
     //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1);
 
     write_irreg(0, IRREG_JSHUTDOWN, 0);
-//printf("[%s:%d] JSHUTDOWN\n", __FUNCTION__, __LINE__);
-    //flush_write(ftdi, NULL);
-
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
-//printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 
     int fd = creat("xx.bozo", 0666);
@@ -760,6 +745,9 @@ int main(int argc, char **argv)
      */
     if (!strcmp(argv[argindex], "-r")) {
         printf("[%s:%d] readout\n", __FUNCTION__, __LINE__);
+        /* this size was taken from the TYPE2 record in the original bin file
+         * (and must be converted to bits)
+         */
         read_config_memory(ftdi, 0x000f6c78 * sizeof(uint32_t));
         return 0;
     }

@@ -602,6 +602,7 @@ static void read_config_memory(struct ftdi_context *ftdi)
 {
 int i;
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
 #if 0
     write_irreg(0, IRREG_CFG_IN, 0);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -620,13 +621,14 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_irreg(0, IRREG_JSHUTDOWN, 0);
+    exit1_to_idle();
     write_item(DITEM(TMS_WAIT, DATAR(1)));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     read_data_int(__LINE__, ftdi, 1);
     write_irreg(DREAD, IRREG_CFG_IN, 0);
+    exit1_to_idle();
     read_data_int(__LINE__, ftdi, 1);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    exit1_to_idle();
 
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_dswap32(CONFIG_DUMMY);
@@ -641,9 +643,11 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_item(DITEM(SHIFT_TO_EXIT1(1, 0), DATAR(1)));
+    exit1_to_idle();
     read_data_int(__LINE__, ftdi, 1);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_irreg(DREAD, IRREG_CFG_OUT, 0);
+    exit1_to_idle();
     read_data_int(__LINE__, ftdi, 1);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 
@@ -652,7 +656,7 @@ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
 for (i = 0; i < 5; i++) {
 printf("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_item(DITEM(DATAR(100), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+    write_item(DITEM(DATAR(100), SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT));
     uint8_t *rdata = read_data(__LINE__, ftdi, 100);
 }
 printf("[%s:%d] over\n", __FUNCTION__, __LINE__);

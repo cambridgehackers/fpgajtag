@@ -105,12 +105,6 @@ static void swap32(uint32_t value)
     write_item(DITEM(INT32(swap32i(value))));
 }
 
-static void write_dswap32(uint32_t value)
-{
-    write_dataw(4);
-    swap32(value);
-}
-
 static int write_one_word(int dread, int short_format, uint32_t value)
 {
     if (short_format)
@@ -118,14 +112,6 @@ static int write_one_word(int dread, int short_format, uint32_t value)
     else
         write_item(DITEM(M(value), M(value >> 8), M(value >> 16), DATAWBIT | dread, 0x06, M(value >> 24)));
     return M(value >> 24) & 0x80;
-}
-
-static void write_eight_bytes(void)
-{
-    if (found_cortex) {
-        write_item(DITEM(DATAW(0, 7), INT32(0)));
-        write_one_word(0, 0, 0);
-    }
 }
 
 static void loaddr(int aread, uint32_t v, int extra3bits)
@@ -181,13 +167,22 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     }
 }
 
+static void write_eight_bytes(void)
+{
+    if (found_cortex) {
+        write_item(DITEM(DATAW(0, 7), INT32(0)));
+        write_one_word(0, 0, 0);
+    }
+}
+
 static void send_data_file(struct ftdi_context *ftdi, int inputfd)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     write_eight_bytes();
-    write_dswap32(0);
+    write_dataw(4);
+    swap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("Starting to send file\n");
     do {
@@ -559,6 +554,12 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
     write_item(idle_to_reset);
+}
+
+static void write_dswap32(uint32_t value)
+{
+    write_dataw(4);
+    swap32(value);
 }
 
 /*

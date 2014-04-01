@@ -35,7 +35,6 @@
 #include "fpga.h"
 
 #define BUFFER_SIZE 20000000
-#define ITEMSIZE 101
 /* from ug470, pg 91:
  * The 7 series devices are divided into two halves, the top and the bottom. All frames in
  * 7 series devices have a fixed, identical length of 3,232 bits (101 32-bit words).
@@ -72,12 +71,12 @@ static MAPTYPE cmdmap[] = {
     AB(GCAPTURE), AB(DESYNC), AB(IPROG), AB(CRCC), AB(LTIMER), {}};
 
 static uint32_t buffer[BUFFER_SIZE];
+static int skipped;
 
 static void dump_data(uint32_t *pint, int size)
 {
 static int itemnumber;
-static int skipped;
-    uint32_t t[ITEMSIZE], *p = t, nonzero = 0;
+    uint32_t t[BITFILE_ITEMSIZE], *p = t, nonzero = 0;
     int i;
     char title[100];
     if (!dump_flag)
@@ -91,6 +90,7 @@ static int skipped;
     if (nonzero || fd_out != -1) {
         if (skipped)
             printf("skipped %d\n", skipped);
+        skipped = 0;
         if (fd_out == -1)
             printf("%s: ",title);
         while (size > 0) {
@@ -110,11 +110,10 @@ static int skipped;
         }
         if (fd_out == -1)
             printf("\n");
-        skipped = 0;
     }
     else
         skipped++;
-//    itemnumber++;
+    itemnumber++;
 }
 static uint32_t *pint = buffer;
 static uint32_t get_next()
@@ -187,15 +186,22 @@ printf("[%s:%d] start\n", __FUNCTION__, __LINE__);
         case CONFIG_TYPE2(0): { /* Type 2 */
             int wordcnt = val & 0x7ffffff;
             printf("CONFIG_TYPE2(0x%08x)\n", wordcnt);
-            while (wordcnt >= ITEMSIZE) {
-                dump_data(pint, ITEMSIZE);
-                wordcnt -= ITEMSIZE;
-                pint += ITEMSIZE;
+            while (wordcnt >= BITFILE_ITEMSIZE) {
+                dump_data(pint, BITFILE_ITEMSIZE);
+                wordcnt -= BITFILE_ITEMSIZE;
+                pint += BITFILE_ITEMSIZE;
+                if (wordcnt && pint >= pend) {
+                    printf("[%s:%d] pint %p pend %p wordcnt %d\n", __FUNCTION__, __LINE__, pint, pend, wordcnt);
+                    wordcnt = 0;
+                    break;
+                }
             }
             if (wordcnt)
                 printf("residual wordcnt %d\n", wordcnt);
             dump_data(pint, wordcnt);
             pint += wordcnt;
+            if (skipped)
+                printf("skipped %d\n", skipped);
             break;
             }
         default: {

@@ -505,8 +505,20 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size * sizeof(uint32_t); j++)
             rdata[j] = bitswap[rdata[j]];
-        if (fd != -1)
-            write(fd, rdata, size * sizeof(uint32_t));
+        if (fd != -1) {
+            static int skipsize = BITFILE_ITEMSIZE; /* 1 framebuffer of delay until data is output */
+            if (skipsize) {
+                int skip = skipsize;
+                if (skip > size)
+                    skip = size;
+                skipsize -= skip;
+                size -= skip;
+                rdata += skip * sizeof(uint32_t);
+                resp_len += skip;
+            }
+            if (size)
+                write(fd, rdata, size * sizeof(uint32_t));
+        }
     }
     return ret;
 }
@@ -754,11 +766,8 @@ int main(int argc, char **argv)
     if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
         j = 4;
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    if (device_type == DEVICE_ZC702) {
-        write_item(DITEM(IDLE_TO_RESET));
-        write_item(DITEM(IN_RESET_STATE));
-        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
-    }
+    if (device_type == DEVICE_ZC702)
+        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
     bypass_test(__LINE__, ftdi, 3, 1, device_type == DEVICE_ZC702);
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, __LINE__);

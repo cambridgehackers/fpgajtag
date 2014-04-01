@@ -43,7 +43,7 @@
 #define LINESIZE 8
 
 static int dump_flag = 1;
-static int dump_file = 1;
+static int dump_file = 0;
 static int fd_out = -1;
 
 typedef struct {
@@ -114,7 +114,7 @@ static int skipped;
     }
     else
         skipped++;
-    itemnumber++;
+//    itemnumber++;
 }
 static uint32_t *pint = buffer;
 static uint32_t get_next()

@@ -501,10 +501,10 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
             write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-        uint32_t *rdata = (uint32_t *)read_data(__LINE__, ftdi, size * sizeof(uint32_t));
-        for (j = 0; j < size; j++)
-            rdata[j] = swap32i(rdata[j]);
-        ret = rdata[0];
+        uint8_t *rdata = read_data(__LINE__, ftdi, size * sizeof(uint32_t));
+        ret = swap32i(*(uint32_t *)rdata);
+        for (j = 0; j < size * sizeof(uint32_t); j++)
+            rdata[j] = bitswap[rdata[j]];
         if (fd != -1)
             write(fd, rdata, size * sizeof(uint32_t));
     }
@@ -717,8 +717,10 @@ int main(int argc, char **argv)
          * (and must be converted to bits)
          */
         int fd = creat("xx.bozo", 0666);
-        if (fd >= 0)
-            read_config_memory(ftdi, fd, 0x000f6c78);
+        uint32_t header = {CONFIG_TYPE2(0x000f6c78)};
+        header = htonl(header);
+        write(fd, &header, sizeof(header));
+        read_config_memory(ftdi, fd, 0x000f6c78);
         close(fd);
         printf("[%s:%d] finished\n", __FUNCTION__, __LINE__);
         return 0;

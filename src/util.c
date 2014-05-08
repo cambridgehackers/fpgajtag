@@ -239,7 +239,7 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
         }
     }
     if (expected_len - extra_bytes != size) {
-printf("[%s:%d] expected len %d.=0x%x extra %d size %d\n", __FUNCTION__, linenumber, expected_len, expected_len, extra_bytes, size);
+        printf("Error: on line %d, expected len %d minus extrabytes %d does not match size %d\n", linenumber, expected_len, extra_bytes, size);
         if (!trace)
             exit(-1);
     }

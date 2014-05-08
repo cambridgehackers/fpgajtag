@@ -675,8 +675,12 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
 
     if (argc < 2) {
-        printf("%s: [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        printf("%s: [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
+    }
+    if (!strcmp(argv[argindex], "-t")) {
+        trace = 1;
+        argindex++;
     }
     if (!strcmp(argv[argindex], "-s")) {
         serialno = argv[++argindex];

@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include "util.h"
@@ -674,7 +675,7 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
 
     if (argc < 2) {
-        printf("%s: [ -s <serialno> ] <filename>\n", argv[0]);
+        printf("%s: [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
     }
     if (!strcmp(argv[argindex], "-s")) {

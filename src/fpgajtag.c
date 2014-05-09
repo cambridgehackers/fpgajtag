@@ -670,21 +670,29 @@ int main(int argc, char **argv)
     logfile = stdout;
     struct ftdi_context *ftdi;
     uint32_t idcode, ret;
-    int i, j, argindex = 1;
+    int i, j, rflag = 0;
     int inputfd = 0;   /* default input for '-' is stdin */
     const char *serialno = NULL;
 
-    if (argc < 2) {
+    opterr = 0;
+    while ((i = getopt (argc, argv, "trs:")) != -1)
+        switch (i) {
+        case 't':
+            trace = 1;
+            break;
+        case 'r':
+            rflag = 1;
+            break;
+        case 's':
+            serialno = optarg;
+            break;
+        default:
+            goto usage;
+        }
+    if (optind != argc - 1) {
+usage:
         printf("%s: [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
-    }
-    if (!strcmp(argv[argindex], "-t")) {
-        trace = 1;
-        argindex++;
-    }
-    if (!strcmp(argv[argindex], "-s")) {
-        serialno = argv[++argindex];
-        argindex++;
     }
 
     /*
@@ -728,7 +736,7 @@ int main(int argc, char **argv)
     /*
      * See if we are reading out data
      */
-    if (!strcmp(argv[argindex], "-r")) {
+    if (rflag) {
         printf("[%s:%d] readout into xx.bozo\n", __FUNCTION__, __LINE__);
         /* this size was taken from the TYPE2 record in the original bin file
          * (and must be converted to bits)
@@ -746,10 +754,10 @@ int main(int argc, char **argv)
     /*
      * Read device id from file to be programmed
      */
-    if (strcmp(argv[argindex], "-")) {
-        inputfd = open(argv[argindex], O_RDONLY);
+    if (strcmp(argv[optind], "-")) {
+        inputfd = open(argv[optind], O_RDONLY);
         if (inputfd == -1) {
-            printf("Unable to open file '%s'\n", argv[argindex]);
+            printf("Unable to open file '%s'\n", argv[optind]);
             exit(-1);
         }
     }

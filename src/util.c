@@ -228,7 +228,7 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
             expected_len += read_size[i];
         else {
             expected_len++;
-            if (i == 0 || read_size[i-1] > 0)
+            if (i > 0 && read_size[i-1] < 0)
                 extra_bytes++; /* we will squeeze out partial bytes in the processing below */
         /* When there are 2 bit operations in a row, this is just accumulating
          * shifted bits into a register for return to user.  When exiting

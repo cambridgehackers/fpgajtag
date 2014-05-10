@@ -303,15 +303,16 @@ uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf
 /*
  * USB interface
  */
-void init_usb(const char *serialno)
+#define MAX_USB_DEVICECOUNT 100
+static USB_INFO usbinfo_array[MAX_USB_DEVICECOUNT];
+static int usbinfo_array_index;
+static libusb_device **device_list;
+USB_INFO *usb_init(void)
 {
-    int cfg, type = 0, i = 0, baudrate = 9600;
-    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
-    int best_divisor = 12000000*8 / baudrate;
-    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
-    libusb_device **device_list, *dev, *usbdev = NULL;
-    struct libusb_device_descriptor desc;
-    struct libusb_config_descriptor *config_descrip;
+    int i = 0;
+    libusb_device *dev;
+#define UDESC(A) libusb_get_string_descriptor_ascii(usbhandle, desc.A, \
+     usbinfo_array[usbinfo_array_index].A, sizeof(usbinfo_array[usbinfo_array_index].A))
 
     /*
      * Locate USB interface for JTAG
@@ -322,27 +323,37 @@ void init_usb(const char *serialno)
         exit(-1);
     }
     while ((dev = device_list[i++]) ) {
+        struct libusb_device_descriptor desc;
         if (libusb_get_device_descriptor(dev, &desc) < 0)
             break;
         if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
          || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
-            unsigned char serial[64], manuf[64], descrip[128];
-            libusb_ref_device(dev);
+            usbinfo_array[usbinfo_array_index].dev = dev;
+            usbinfo_array[usbinfo_array_index].idProduct = desc.idProduct;
+            usbinfo_array[usbinfo_array_index].bcdDevice = desc.bcdDevice;
+            usbinfo_array[usbinfo_array_index].bNumConfigurations = desc.bNumConfigurations;
             if (libusb_open(dev, &usbhandle) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iManufacturer, manuf, sizeof(manuf)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iProduct, descrip, sizeof(descrip)) < 0
-             || libusb_get_string_descriptor_ascii(usbhandle, desc.iSerialNumber, serial, sizeof(serial)) < 0)
-                goto error;
-            printf("[%s] %s:%s:%s\n", __FUNCTION__, manuf, descrip, serial);
-            if (!serialno || !strcmp(serialno, (char *)serial)) {
-                usbdev = dev;
-                break;
+             || UDESC(iManufacturer) < 0 || UDESC(iProduct) < 0 || UDESC(iSerialNumber) < 0) {
+                printf("Error getting USB device attributes\n");
+                exit(-1);
             }
             libusb_close (usbhandle);
+            usbinfo_array_index++;
         }
     }
-    libusb_free_device_list(device_list,1);
-    if (!usbdev || libusb_get_config_descriptor(usbdev, 0, &config_descrip) < 0)
+    return usbinfo_array;
+}
+
+void usb_open(int device_index)
+{
+    int cfg, baudrate = 9600;
+    static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
+    int best_divisor = 12000000*8 / baudrate;
+    unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
+    struct libusb_config_descriptor *config_descrip;
+
+    libusb_open(usbinfo_array[device_index].dev, &usbhandle);
+    if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0)
         goto error;
     int configv = config_descrip->bConfigurationValue;
     libusb_free_config_descriptor (config_descrip);
@@ -352,7 +363,7 @@ void init_usb(const char *serialno)
            | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
 
     if (libusb_get_configuration (usbhandle, &cfg) < 0
-     || (desc.bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
+     || (usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
      || libusb_claim_interface(usbhandle, 0) < 0
      || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
      || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
@@ -362,29 +373,30 @@ void init_usb(const char *serialno)
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
      || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
-    //(desc.bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
-    printf("[%s] bcd %x type %d\n", __FUNCTION__, desc.bcdDevice, type);
-    //if (desc.bcdDevice == 0x900) //zedboard, zc706 FT232H
-        //found_232H = 1;
-    usb_bcddevice = desc.bcdDevice;
     return;
 error:
-    printf("Can't find usable usb interface\n");
+    printf("Error opening usb interface\n");
     exit(-1);
 }
 
-void close_usb(struct ftdi_context *ftdi)
+void usb_close(struct ftdi_context *ftdi)
 {
     flush_write(ftdi, NULL);
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else
     libusb_close (usbhandle);
-    libusb_exit(usb_context);
 #endif
     fflush(stdout);
+}
+void usb_release(void)
+{
+    libusb_free_device_list(device_list,1);
     fclose(logfile);
     close(datafile_fd);
+#ifndef USE_LIBFTDI
+    libusb_exit(usb_context);
+#endif
 }
 
 /*

@@ -49,8 +49,17 @@ extern int trace;
 
 void memdump(const uint8_t *p, int len, char *title);
 
-void init_usb(const char *serialno);
-void close_usb(struct ftdi_context *ftdi);
+typedef struct {
+    void          *dev;
+    int           idProduct;
+    int           bcdDevice;
+    int           bNumConfigurations;
+    unsigned char iSerialNumber[64], iManufacturer[64], iProduct[128];
+} USB_INFO;
+USB_INFO *usb_init(void);
+void usb_open(int device_index);
+void usb_close(struct ftdi_context *ftdi);
+void usb_release(void);
 struct ftdi_context *init_ftdi(void);
 
 void write_data(uint8_t *buf, int size);

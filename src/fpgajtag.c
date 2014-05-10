@@ -451,6 +451,11 @@ static int idcode_array_index;
  */
 static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shift)
 {
+    idcode_array_index = 0;
+    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
+        memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
+        memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
+    }
     if (input_shift)
         write_item(shift_to_exit1);
     else
@@ -466,7 +471,6 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
         memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
         if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
             memcpy(&idcode_array[idcode_array_index++], rdata+4, sizeof(idcode_array[0]));
-            printf("[%s] second device idcode found 0x%x\n", __FUNCTION__, idcode_array[1]);
             memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
             memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
         }
@@ -664,45 +668,10 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, linenumber);
 }
-
-int main(int argc, char **argv)
+static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
 {
-    logfile = stdout;
-    struct ftdi_context *ftdi;
-    uint32_t idcode, ret;
-    int i, j, rflag = 0;
-    int inputfd = 0;   /* default input for '-' is stdin */
-    const char *serialno = NULL;
-
-    opterr = 0;
-    while ((i = getopt (argc, argv, "trs:")) != -1)
-        switch (i) {
-        case 't':
-            trace = 1;
-            break;
-        case 'r':
-            rflag = 1;
-            break;
-        case 's':
-            serialno = optarg;
-            break;
-        default:
-            goto usage;
-        }
-    if (optind != argc - 1) {
-usage:
-        printf("%s: [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
-        exit(1);
-    }
-
-    /*
-     * Initialize USB, FTDI
-     */
-    for (i = 0; i < sizeof(bitswap); i++)
-        bitswap[i] = BSWAP(i);
-    init_usb(serialno);             /*** Initialize USB interface ***/
-    ftdi = init_ftdi();             /*** Generic initialization of FTDI chip ***/
-
+    usb_open(device_index);            /*** Open selected USB interface ***/
+    struct ftdi_context *ftdi = init_ftdi();
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
@@ -711,7 +680,79 @@ usage:
     if (usb_bcddevice == 0x700) /* not a zedboard */
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
+    first_time_idcode_read = 1;
     read_idcode(__LINE__, ftdi, 1);
+    return ftdi;
+}
+
+int main(int argc, char **argv)
+{
+    logfile = stdout;
+    struct ftdi_context *ftdi;
+    uint32_t idcode, ret;
+    int i, j, rflag = 0, lflag = 0;
+    int inputfd = 0;   /* default input for '-' is stdin */
+    const char *serialno = NULL;
+
+    opterr = 0;
+    while ((i = getopt (argc, argv, "trls:")) != -1)
+        switch (i) {
+        case 't':
+            trace = 1;
+            break;
+        case 'r':
+            rflag = 1;
+            break;
+        case 'l':
+            lflag = 1;
+            break;
+        case 's':
+            serialno = optarg;
+            break;
+        default:
+            goto usage;
+        }
+
+    /*
+     * Initialize USB, FTDI
+     */
+    for (i = 0; i < sizeof(bitswap); i++)
+        bitswap[i] = BSWAP(i);
+    USB_INFO *uinfo = usb_init();   /*** Initialize USB interface ***/
+    int usb_index = 0;
+    for (i = 0; uinfo[i].dev; i++) {
+        printf("[%s] %s:%s:%s; bcd:%x", __FUNCTION__, uinfo[i].iManufacturer,
+            uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
+        if (lflag) {
+            ftdi = get_deviceid(i, uinfo[i].bcdDevice);  /*** Generic initialization of FTDI chip ***/
+            usb_close(ftdi);
+            printf("; IDCODE:");
+            for (j = 0; j < idcode_array_index; j++)
+                printf("  %x", idcode_array[j]);
+        }
+        printf("\n");
+    }
+    if (lflag)
+        exit(0);
+    while (1) {
+        if (!uinfo[usb_index].dev) {
+            printf("Can't find usable usb interface\n");
+            exit(-1);
+        }
+        if (!serialno || !strcmp(serialno, (char *)uinfo[usb_index].iSerialNumber))
+            break;
+        usb_index++;
+    }
+    if (optind != argc - 1) {
+usage:
+        printf("%s: [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        exit(1);
+    }
+
+    /*
+     * Set JTAG clock speed and GPIO pins for our i/f
+     */
+    ftdi = get_deviceid(usb_index, uinfo[i].bcdDevice);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[0] & IDCODE_MASK;
     device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
@@ -719,12 +760,15 @@ usage:
     if (thisid == 0x03731093)         // zc706
         device_type = DEVICE_ZC706;
     if (thisid == 0x03727093) {       // zc702 and zedboard
-        if (usb_bcddevice == 0x700)
+        if (uinfo[usb_index].bcdDevice == 0x700)
             device_type = DEVICE_ZC702;
         else
             device_type = DEVICE_ZEDBOARD;
     }
-    printf("[%s] thisid %x device_type %d.\n", __FUNCTION__, thisid, device_type);
+    //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
+    //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
+        //found_232H = 1;
+    printf("[%s] index %d thisid %x device_type %x\n", __FUNCTION__, usb_index, thisid, device_type);
     if (idcode_array[1] == CORTEX_IDCODE)
         found_cortex = 1;
     /*** Depending on the idcode read, change some default actions ***/
@@ -872,7 +916,8 @@ usage:
     /*
      * Cleanup and free USB device
      */
-    close_usb(ftdi);
+    usb_close(ftdi);
+    usb_release();
     execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

@@ -5,6 +5,9 @@ This is a simple jtag programmer for Xilinx FPGAs
 On Ubuntu, before compiling be sure to:
     sudo apt-get install libusb-1.0-0-dev
 
+On Centos, before compiling be sure to:
+    sudo yum install libusb1-devel
+
 On Mac OSX, before compiling be sure to:
     sudo port install libusb
 

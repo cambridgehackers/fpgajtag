@@ -745,7 +745,7 @@ int main(int argc, char **argv)
     }
     if (optind != argc - 1) {
 usage:
-        printf("%s: [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        printf("%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
     }
 

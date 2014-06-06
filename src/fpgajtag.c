@@ -37,12 +37,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <zlib.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include "util.h"
 #include "fpga.h"
 
-#define BUFFER_MAX_LEN      1000000
+#define BUFFER_MAX_LEN    100000000
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
 #define SEND_SINGLE_FRAME     99999
@@ -57,6 +58,53 @@ static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 static int irreg_extrabit = 0;
 static int first_time_idcode_read = 1;
+static uint8_t *input_fileptr;
+static int input_filesize;
+
+static void read_inputfile(char *filename)
+{
+    static uint8_t gzmagic[] = {0x1f, 0x8b, 0x08, 0x08, 0x10, 0xab, 0x91, 0x53};
+    static uint8_t filebuf[BUFFER_MAX_LEN];
+    static uint8_t uncompressbuf[BUFFER_MAX_LEN];
+    int inputfd = 0;   /* default input for '-' is stdin */
+
+    if (strcmp(filename, "-")) {
+        inputfd = open(filename, O_RDONLY);
+        if (inputfd == -1) {
+            printf("Unable to open file '%s'\n", filename);
+            exit(-1);
+        }
+    }
+    input_filesize = read(inputfd, filebuf, sizeof(filebuf));
+    input_fileptr = filebuf;
+    close(inputfd);
+    if (input_filesize <= 0 || input_filesize >= sizeof(filebuf) - 1)
+        goto badlen;
+    if (!memcmp(input_fileptr, gzmagic, sizeof(gzmagic))) {
+        printf("fpgajtag: unzip input file, len %d\n", input_filesize);
+        z_stream strm;
+        strm.zalloc = Z_NULL;
+        strm.zfree = Z_NULL;
+        strm.opaque = Z_NULL;
+        int ret = inflateInit2(&strm, 16+MAX_WBITS); // inflate gzip'ed file
+        if (ret != Z_OK)
+            goto badlen;
+        strm.next_in = input_fileptr;
+        strm.avail_in = input_filesize;
+        strm.next_out = uncompressbuf;
+        strm.avail_out = sizeof(uncompressbuf);
+        ret = inflate(&strm, Z_FINISH);
+        inflateEnd(&strm);
+        input_filesize = sizeof(uncompressbuf) - strm.avail_out;
+        if (ret != Z_STREAM_END)
+            goto badlen;
+        input_fileptr = uncompressbuf;
+    }
+    return;
+badlen:
+    printf("Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
+    exit(-1);
+}
 
 /*
  * Support for GPIOs from Digilent JTAG module to h/w design.
@@ -176,7 +224,7 @@ static void write_eight_bytes(void)
     }
 }
 
-static void send_data_file(struct ftdi_context *ftdi, int inputfd)
+static void send_data_file(struct ftdi_context *ftdi)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
@@ -188,7 +236,12 @@ static void send_data_file(struct ftdi_context *ftdi, int inputfd)
     printf("Starting to send file\n");
     do {
         static uint8_t filebuffer[FILE_READSIZE];
-        size = read(inputfd, filebuffer, FILE_READSIZE);
+        size = FILE_READSIZE;
+        if (input_filesize < FILE_READSIZE)
+            size = input_filesize;
+        memcpy(filebuffer, input_fileptr, size);
+        input_filesize -= size;
+        input_fileptr += size;
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
         if (size < FILE_READSIZE) {
@@ -691,7 +744,6 @@ int main(int argc, char **argv)
     struct ftdi_context *ftdi;
     uint32_t idcode, ret;
     int i, j, rflag = 0, lflag = 0;
-    int inputfd = 0;   /* default input for '-' is stdin */
     const char *serialno = NULL;
 
     opterr = 0;
@@ -798,17 +850,9 @@ usage:
     /*
      * Read device id from file to be programmed
      */
-    if (strcmp(argv[optind], "-")) {
-        inputfd = open(argv[optind], O_RDONLY);
-        if (inputfd == -1) {
-            printf("Unable to open file '%s'\n", argv[optind]);
-            exit(-1);
-        }
-    }
-    lseek(inputfd, 0x80, SEEK_SET);
-    read(inputfd, &idcode, sizeof(idcode));
+    read_inputfile(argv[optind]);
+    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
-    lseek(inputfd, 0, SEEK_SET);
 
     /*
      * Step 5: Check Device ID
@@ -882,7 +926,7 @@ usage:
      * Step 6: Load Configuration Data Frames
      */
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
-    send_data_file(ftdi, inputfd);
+    send_data_file(ftdi);
 
     /*
      * Step 8: Startup

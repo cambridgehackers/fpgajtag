@@ -63,7 +63,7 @@ static int input_filesize;
 
 static void read_inputfile(char *filename)
 {
-    static uint8_t gzmagic[] = {0x1f, 0x8b, 0x08, 0x08, 0x10, 0xab, 0x91, 0x53};
+    static uint8_t gzmagic[] = {0x1f, 0x8b};
     static uint8_t filebuf[BUFFER_MAX_LEN];
     static uint8_t uncompressbuf[BUFFER_MAX_LEN];
     int inputfd = 0;   /* default input for '-' is stdin */

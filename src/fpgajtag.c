@@ -585,7 +585,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
 {
     static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
     int i;
-    uint32_t ret;
+    uint32_t ret = 0;
 
     write_irreg(0, extend | IRREG_CFG_IN, 1);     /* Select CFG_IN so that we can send out our request */
     write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
@@ -672,6 +672,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
+#if 0
     static uint32_t req_stat[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
@@ -682,6 +683,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+#endif
     uint32_t req_rcfg[] = {
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,

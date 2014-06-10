@@ -730,13 +730,15 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
+    if (ftdi) {
+        write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (usb_bcddevice == 0x700) /* not a zedboard */
-        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
-    first_time_idcode_read = 1;
-    read_idcode(__LINE__, ftdi, 1);
+        if (usb_bcddevice == 0x700) /* not a zedboard */
+            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+        flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
+        first_time_idcode_read = 1;
+        read_idcode(__LINE__, ftdi, 1);
+    }
     return ftdi;
 }
 

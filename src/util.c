@@ -122,14 +122,16 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
             printf( "usb bulk read failed");
         actual_length -= 2;
     } while (actual_length == 0);
-    memcpy (buf, usbreadbuffer+2, actual_length);
-    if (actual_length != size) {
-        printf("[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
-        if (!trace)
-            exit(-1);
-        }
-    if (logging)
-        memdumpfile(buf, actual_length, "READ");
+    if (actual_length > 0) {
+        memcpy (buf, usbreadbuffer+2, actual_length);
+        if (actual_length != size) {
+            printf("[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
+            if (!trace)
+                exit(-1);
+            }
+        if (logging)
+            memdumpfile(buf, actual_length, "READ");
+    }
     return actual_length;
 }
 #endif //end if not USE_LIBFTDI
@@ -408,7 +410,7 @@ struct ftdi_context *init_ftdi(void)
     static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
     static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
     static uint8_t errorcode_ab[] = { 0xfa, 0xab };
-    struct ftdi_context *ftdi = NULL;
+    struct ftdi_context *ftdi = (struct ftdi_context *)illegal_command;
     int i;
     uint8_t retcode[2];
 
@@ -423,7 +425,8 @@ struct ftdi_context *init_ftdi(void)
      */
     for (i = 0; i < 4; i++) {
         ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
-        ftdi_read_data(ftdi, retcode, sizeof(retcode));
+        if (ftdi_read_data(ftdi, retcode, sizeof(retcode)) != sizeof(retcode))
+            return NULL;
         if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
             memdump(retcode, sizeof(retcode), "RETaa");
     }

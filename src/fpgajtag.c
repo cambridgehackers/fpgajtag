@@ -730,6 +730,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
+    idcode_array_index = 0;
     if (ftdi) {
         write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
@@ -782,7 +783,8 @@ int main(int argc, char **argv)
         if (lflag) {
             ftdi = get_deviceid(i, uinfo[i].bcdDevice);  /*** Generic initialization of FTDI chip ***/
             usb_close(ftdi);
-            printf("; IDCODE:");
+            if (idcode_array_index > 0)
+                printf("; IDCODE:");
             for (j = 0; j < idcode_array_index; j++)
                 printf("  %x", idcode_array[j]);
         }

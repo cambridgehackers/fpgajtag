@@ -118,8 +118,10 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     int actual_length = 1;
     do {
         int ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
-        if (ret < 0)
+        if (ret < 0) {
             printf( "usb bulk read failed");
+            return -1;
+        }
         actual_length -= 2;
     } while (actual_length == 0);
     if (actual_length > 0) {

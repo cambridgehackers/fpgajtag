@@ -60,14 +60,14 @@ static int irreg_extrabit = 0;
 static int first_time_idcode_read = 1;
 static uint8_t *input_fileptr;
 static int input_filesize;
-static uint8_t filebuf[BUFFER_MAX_LEN];
-static uint8_t uncompressbuf[BUFFER_MAX_LEN];
 #define TOHEX(A) (((A) >= '0' && (A) <= '9') ? (A) - '0' : \
                   ((A) >= 'A' && (A) <= 'F') ? (A) - 'A' + 10: \
                   ((A) >= 'a' && (A) <= 'f') ? (A) - 'a' + 10: -1)
 
 static void read_inputfile(char *filename)
 {
+    static uint8_t filebuf[BUFFER_MAX_LEN];
+    static uint8_t uncompressbuf[BUFFER_MAX_LEN];
     static uint8_t gzmagic[] = {0x1f, 0x8b};
     int inputfd = 0;   /* default input for '-' is stdin */
 
@@ -745,6 +745,89 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     return ftdi;
 }
 
+static void process_command_list(struct ftdi_context *ftdi)
+{
+    static uint8_t tempbuf[BUFFER_MAX_LEN];
+    int i, mode = -1;
+    char *str = NULL;
+    
+    while (*input_fileptr) {
+        uint8_t *bufp = tempbuf;
+        char * stro = NULL;
+        int len = 0;
+        uint8_t *finp = input_fileptr;
+        uint8_t ch = *input_fileptr;
+        if (ch == '#' || ch == '\n' || ch == ' ' || ch == '\t' || ch == '\r') {
+            *input_fileptr++ = 0;
+            while(ch == '#' && *input_fileptr && *input_fileptr != '\n')
+                input_fileptr++;
+            if (!str)
+                continue;
+        }
+        else {
+            if (!str)
+                str = (char *)input_fileptr;
+            input_fileptr++;
+            continue;
+        }
+        if (trace)
+            printf("[%s:%d] %s\n", __FUNCTION__, __LINE__, str);
+        if (!strcmp(str, "IR")) {
+            mode = 0;
+        }
+        else if (!strcmp(str, "DR")) {
+            mode = 1;
+        }
+        else {
+        if (strlen(str) > 2 && !memcmp(str, "0x", 2)) {
+            stro = (char *)str + 2;
+            while (stro[0] && stro[1]) {
+                uint8_t temp = TOHEX(stro[0]) << 4 | TOHEX(stro[1]);
+                stro += 2;
+                *bufp++ = temp;
+            }
+        }
+        else { /* decimal */
+            *((int32_t *)bufp) = strtol(str, &stro, 10);
+            bufp += sizeof(int32_t);
+        }
+        len = bufp - tempbuf;
+        if (trace)
+            memdump(tempbuf, len, "VAL");
+        if (*stro)
+            printf("fpgajtag: didn't parse entire number '%s'\n", str);
+        else if (mode == -1)
+            printf("fpgajtag: mode not set!\n");
+        else if (mode == 0) {
+            write_irreg(0, tempbuf[0], 1);
+            flush_write(ftdi, NULL);
+        }
+        else {
+            write_item(DITEM(IDLE_TO_SHIFT_DR));
+            for (i = 0; i < len; i++)
+                finp[i] = tempbuf[len-1-i];
+            send_data_frame(ftdi, DWRITE | DREAD,
+                (found_cortex)
+                  ? DITEM(SHIFT_TO_PAUSE(DREAD, 0), EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE)
+                  : DITEM(SHIFT_TO_EXIT1(DREAD, 0), EXIT1_TO_IDLE),
+                finp, len, SEND_SINGLE_FRAME);
+            uint8_t *rdata = read_data(__LINE__, ftdi, len);
+            int i = 0;
+            while(i < len) {
+                uint8_t t = rdata[len-1-i];
+                printf("%02x", t);
+                i++;
+            }
+            printf("\n");
+            //memdump(rdata, len, "           RVAL");
+        }
+        }
+        str = NULL;
+    }
+    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
+    //read_data(__LINE__, ftdi, 1);
+}
+
 int main(int argc, char **argv)
 {
     logfile = stdout;
@@ -783,7 +866,6 @@ int main(int argc, char **argv)
     USB_INFO *uinfo = usb_init();   /*** Initialize USB interface ***/
     int usb_index = 0;
     for (i = 0; uinfo[i].dev; i++) {
-printf("[%s:%d] index %d\n", __FUNCTION__, __LINE__, i);
         printf("[%s] %s:%s:%s; bcd:%x", __FUNCTION__, uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
         if (lflag) {
@@ -798,7 +880,7 @@ printf("[%s:%d] index %d\n", __FUNCTION__, __LINE__, i);
         printf("\n");
     }
     if (lflag)
-        exit(0);
+        goto exit_label;
     while (1) {
         if (!uinfo[usb_index].dev) {
             printf("Can't find usable usb interface\n");
@@ -808,7 +890,6 @@ printf("[%s:%d] index %d\n", __FUNCTION__, __LINE__, i);
             break;
         usb_index++;
     }
-printf("[%s:%d] index %d\n", __FUNCTION__, __LINE__, usb_index);
     if (optind != argc - 1 && !cflag) {
 usage:
         printf("%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
@@ -862,58 +943,21 @@ usage:
     }
 
     /*
+     * Read input file
+     */
+    read_inputfile(argv[optind]);
+
+    /*
      * See if we are in 'command' mode with IR/DR info on command line
      */
     if (cflag) {
-        int mode = -1;
-        while (optind < argc) {
-            const char *str = argv[optind++];
-            uint8_t *bufp = filebuf;
-            char * stro = NULL;
-            int len = 0;
-            if (!strcmp(str, "IR")) {
-                mode = 0;
-                continue;
-            }
-            else if (!strcmp(str, "DR")) {
-                mode = 1;
-                continue;
-            }
-            else if (strlen(str) > 2 && !memcmp(str, "0x", 2)) {
-                stro = (char *)str + 2;
-                while (stro[0] && stro[1]) {
-                    uint8_t temp = TOHEX(stro[0]) << 4 | TOHEX(stro[1]);
-                    stro += 2;
-                    *bufp++ = temp;
-                }
-            }
-            else { /* decimal */
-                *((int32_t *)bufp) = strtol(str, &stro, 10);
-                bufp += sizeof(int32_t);
-            }
-            len = bufp - filebuf;
-            memdump(filebuf, len, "VAL");
-            if (*stro)
-                printf("fpgajtag: didn't parse entire number '%s'\n", str);
-            if (mode == -1)
-                printf("fpgajtag: mode not set!\n");
-            if (mode == 0)
-                write_irreg(0, filebuf[0], 0);
-            else {
-                send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
-                    filebuf, len, SEND_SINGLE_FRAME);
-                uint8_t *rdata = read_data(__LINE__, ftdi, len);
-                memdump(rdata, len, "RVAL");
-            }
-        }
-        printf("[%s:%d] finished\n", __FUNCTION__, __LINE__);
-        return 0;
+        process_command_list(ftdi);
+        goto exit_label;
     }
 
     /*
      * Read device id from file to be programmed
      */
-    read_inputfile(argv[optind]);
     memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
 
@@ -923,7 +967,7 @@ usage:
     /*** Check to see if idcode matches file and detect Zynq ***/
     if (idcode != (idcode_array[0] & IDCODE_MASK)) {
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[0]);
-        exit(1);
+        goto exit_label;
     }
 
     j = 3;
@@ -1023,6 +1067,7 @@ usage:
     /*
      * Cleanup and free USB device
      */
+exit_label:
     usb_close(ftdi);
     usb_release();
     execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */

@@ -748,6 +748,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
 static void process_command_list(struct ftdi_context *ftdi)
 {
     static uint8_t tempbuf[BUFFER_MAX_LEN];
+    static uint8_t tempbuf2[BUFFER_MAX_LEN];
     int i, mode = -1;
     char *str = NULL;
     
@@ -755,7 +756,6 @@ static void process_command_list(struct ftdi_context *ftdi)
         uint8_t *bufp = tempbuf;
         char * stro = NULL;
         int len = 0;
-        uint8_t *finp = input_fileptr;
         uint8_t ch = *input_fileptr;
         if (ch == '#' || ch == '\n' || ch == ' ' || ch == '\t' || ch == '\r') {
             *input_fileptr++ = 0;
@@ -805,12 +805,16 @@ static void process_command_list(struct ftdi_context *ftdi)
         else {
             write_item(DITEM(IDLE_TO_SHIFT_DR));
             for (i = 0; i < len; i++)
-                finp[i] = tempbuf[len-1-i];
+                tempbuf2[i] = tempbuf[len-1-i];
             send_data_frame(ftdi, DWRITE | DREAD,
                 (found_cortex)
-                  ? DITEM(SHIFT_TO_PAUSE(DREAD, 0), EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE)
-                  : DITEM(SHIFT_TO_EXIT1(DREAD, 0), EXIT1_TO_IDLE),
-                finp, len, SEND_SINGLE_FRAME);
+                  ? DITEM(SHIFT_TO_PAUSE(DREAD, 0),
+                          SHIFT_TO_PAUSE(0,0x80&tempbuf2[len-1]),
+                          //SHIFT_TO_EXIT1(0, 0x80 & tempbuf2[len-1]))
+                          SHIFT_TO_EXIT1(0, 0))
+                  : DITEM(SHIFT_TO_EXIT1(DREAD, 0)),
+                tempbuf2, len, SEND_SINGLE_FRAME);
+            write_item(DITEM(EXIT1_TO_IDLE));
             uint8_t *rdata = read_data(__LINE__, ftdi, len);
             int i = 0;
             while(i < len) {
@@ -947,29 +951,6 @@ usage:
      */
     read_inputfile(argv[optind]);
 
-    /*
-     * See if we are in 'command' mode with IR/DR info on command line
-     */
-    if (cflag) {
-        process_command_list(ftdi);
-        goto exit_label;
-    }
-
-    /*
-     * Read device id from file to be programmed
-     */
-    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
-    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
-
-    /*
-     * Step 5: Check Device ID
-     */
-    /*** Check to see if idcode matches file and detect Zynq ***/
-    if (idcode != (idcode_array[0] & IDCODE_MASK)) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[0]);
-        goto exit_label;
-    }
-
     j = 3;
     if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
         j = 4;
@@ -1020,6 +1001,26 @@ usage:
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+
+    /*
+     * See if we are in 'command' mode with IR/DR info on command line
+     */
+    if (cflag) {
+        process_command_list(ftdi);
+        goto exit_label;
+    }
+
+    /*
+     * Step 5: Check Device ID
+     */
+    /*** Read device id from file to be programmed           ***/
+    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
+    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
+    /*** Check to see if idcode matches file and detect Zynq ***/
+    if (idcode != (idcode_array[0] & IDCODE_MASK)) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[0]);
+        goto exit_label;
+    }
 
     /*
      * Step 2: Initialization

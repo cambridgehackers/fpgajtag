@@ -835,6 +835,7 @@ int main(int argc, char **argv)
     uint32_t idcode, ret;
     int i, j, rflag = 0, lflag = 0, cflag = 0;
     const char *serialno = NULL;
+    int rescan = 0;
 
     opterr = 0;
     while ((i = getopt (argc, argv, "trls:c")) != -1)
@@ -1060,6 +1061,7 @@ usage:
         bypass_test(__LINE__, ftdi, 3, 1, 1);
     if (device_type == DEVICE_ZEDBOARD)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
+    rescan = 1;
 
     /*
      * Cleanup and free USB device
@@ -1067,6 +1069,7 @@ usage:
 exit_label:
     usb_close(ftdi);
     usb_release();
-    execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+    if (rescan)
+        execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

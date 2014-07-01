@@ -948,6 +948,14 @@ usage:
      */
     read_inputfile(argv[optind]);
 
+    /*
+     * See if we are in 'command' mode with IR/DR info on command line
+     */
+    if (cflag) {
+        process_command_list(ftdi);
+        goto exit_label;
+    }
+
     j = 3;
     if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
         j = 4;
@@ -998,14 +1006,6 @@ usage:
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-
-    /*
-     * See if we are in 'command' mode with IR/DR info on command line
-     */
-    if (cflag) {
-        process_command_list(ftdi);
-        goto exit_label;
-    }
 
     /*
      * Step 5: Check Device ID

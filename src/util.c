@@ -347,6 +347,7 @@ USB_INFO *usb_init(void)
                 exit(-1);
             }
             libusb_close (usbhandle);
+            usbhandle = NULL;
             usbinfo_array_index++;
         }
     }
@@ -394,7 +395,9 @@ void usb_close(struct ftdi_context *ftdi)
 #ifdef USE_LIBFTDI
     ftdi_deinit(ftdi);
 #else
-    libusb_close (usbhandle);
+    if (usbhandle)
+        libusb_close (usbhandle);
+    usbhandle = NULL;
 #endif
     fflush(stdout);
 }

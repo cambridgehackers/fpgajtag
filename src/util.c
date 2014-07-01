@@ -260,6 +260,11 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
                     //exit(-1);
                 }
                 *p &= (0xff << (8-validbits));
+                /* NOTE: when trying to combine back data bits that result from a TMS
+                 * shift with > 1 bit, be aware that the number of bits shifted in reflects the
+                 * _number of TMS bits shifted_, not the number of valid data bits (which is
+                 * always only 1).
+                 */
                 if (i > 0 && read_size[i-1] < 0) {
                     *(p-1) = *p >> (8-validbits);    /* put result into LSBs */
                     /* Note: union datatypes work correctly, but read_data_int needs the data as MSBs! */

@@ -799,7 +799,9 @@ static void process_command_list(struct ftdi_context *ftdi)
         else if (mode == -1)
             printf("fpgajtag: mode not set!\n");
         else if (mode == 0) {
-            write_irreg(0, tempbuf[0], 1);
+            int t = tempbuf[0];
+            t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
+            write_irreg(0, t, 1);
             flush_write(ftdi, NULL);
         }
         else {

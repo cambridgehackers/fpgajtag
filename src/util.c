@@ -22,6 +22,7 @@
 // SOFTWARE.
 
 #include <stdio.h>
+#include <sys/select.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -106,28 +107,44 @@ int i;
 #ifndef USE_LIBFTDI
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
 {
-    int actual_length;
+    int actual_length = -1;
+    int ret;
     if (logging)
         formatwrite(1, buf, size, "WRITE");
-    if (libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT) < 0)
-        printf( "usb bulk write failed");
+    ret = libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT);
+    if (ret < 0) {
+        fprintf(stderr, "fpgajtag: usb bulk write failed: ret %d req size %d act %d\n", ret, size, actual_length);
+        exit(-1);
+    }
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100;
+    select(0, NULL, NULL, NULL, &timeout);
     return actual_length;
 }
 static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
     int actual_length = 1;
+    int count = 0;
     do {
+        count++;
         int ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
         if (ret < 0) {
-            printf( "usb bulk read failed");
+            fprintf(stderr, "fpgajtag: usb bulk read failed: rc %d\n", ret);
+            fprintf(stderr, "size %d act %d count %d\n", size, actual_length, count);
+            //exit(-1);
             return -1;
         }
         actual_length -= 2;
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100;
+        select(0, NULL, NULL, NULL, &timeout);
     } while (actual_length == 0);
     if (actual_length > 0) {
         memcpy (buf, usbreadbuffer+2, actual_length);
         if (actual_length != size) {
-            printf("[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
+            fprintf(stderr, "[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
             if (!trace)
                 exit(-1);
             }

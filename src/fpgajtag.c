@@ -74,7 +74,7 @@ static void read_inputfile(char *filename)
     if (strcmp(filename, "-")) {
         inputfd = open(filename, O_RDONLY);
         if (inputfd == -1) {
-            printf("Unable to open file '%s'\n", filename);
+            printf("fpgajtag: Unable to open file '%s'\n", filename);
             exit(-1);
         }
     }
@@ -105,7 +105,7 @@ static void read_inputfile(char *filename)
     }
     return;
 badlen:
-    printf("Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
+    printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
     exit(-1);
 }
 
@@ -236,7 +236,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     write_dataw(4);
     swap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
-    printf("Starting to send file\n");
+    printf("fpgajtag: Starting to send file\n");
     do {
         static uint8_t filebuffer[FILE_READSIZE];
         size = FILE_READSIZE;
@@ -260,7 +260,7 @@ static void send_data_file(struct ftdi_context *ftdi)
         write_item(DITEM(PAUSE_TO_SHIFT));
         limit_len = MAX_SINGLE_USB_DATA;
     } while(size == FILE_READSIZE);
-    printf("Done sending file\n");
+    printf("fpgajtag: Done sending file\n");
 }
 
 /*
@@ -869,24 +869,24 @@ int main(int argc, char **argv)
     USB_INFO *uinfo = usb_init();   /*** Initialize USB interface ***/
     int usb_index = 0;
     for (i = 0; uinfo[i].dev; i++) {
-        printf("[%s] %s:%s:%s; bcd:%x", __FUNCTION__, uinfo[i].iManufacturer,
+        fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
         if (lflag) {
             idcode_array_index = 0;
             ftdi = get_deviceid(i, uinfo[i].bcdDevice);  /*** Generic initialization of FTDI chip ***/
             usb_close(ftdi);
             if (idcode_array_index > 0)
-                printf("; IDCODE:");
+                fprintf(stderr, "; IDCODE:");
             for (j = 0; j < idcode_array_index; j++)
-                printf("  %x", idcode_array[j]);
+                fprintf(stderr, "  %x", idcode_array[j]);
         }
-        printf("\n");
+        fprintf(stderr, "\n");
     }
     if (lflag)
         goto exit_label;
     while (1) {
         if (!uinfo[usb_index].dev) {
-            printf("Can't find usable usb interface\n");
+            fprintf(stderr, "fpgajtag: Can't find usable usb interface\n");
             exit(-1);
         }
         if (!serialno || !strcmp(serialno, (char *)uinfo[usb_index].iSerialNumber))
@@ -895,7 +895,7 @@ int main(int argc, char **argv)
     }
     if (optind != argc - 1 && !cflag) {
 usage:
-        printf("%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
     }
 
@@ -918,7 +918,6 @@ usage:
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
-    printf("[%s] index %d thisid %x device_type %x\n", __FUNCTION__, usb_index, thisid, device_type);
     if (idcode_array[1] == CORTEX_IDCODE)
         found_cortex = 1;
     /*** Depending on the idcode read, change some default actions ***/
@@ -931,7 +930,7 @@ usage:
      * See if we are reading out data
      */
     if (rflag) {
-        printf("[%s:%d] readout into xx.bozo\n", __FUNCTION__, __LINE__);
+        fprintf(stderr, "fpgajtag: readout fpga config into xx.bozo\n");
         /* this size was taken from the TYPE2 record in the original bin file
          * (and must be converted to bits)
          */
@@ -941,7 +940,6 @@ usage:
         write(fd, &header, sizeof(header));
         read_config_memory(ftdi, fd, 0x000f6c78);
         close(fd);
-        printf("[%s:%d] finished\n", __FUNCTION__, __LINE__);
         return 0;
     }
 

@@ -2,6 +2,13 @@
 IR 9
 IR 34
 DR
+0x000000000000007b  # decimal 123
+0xdeadbeefd00dbeef
+0xdeadbeefd01dbeef
+0xdeadbeefd02dbeef
+0xdeadbeefd03dbeef
+0xdeadbeefd04dbeef
+0xdeadbeefd05dbeef
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef
@@ -244,19 +251,13 @@ DR
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
-0xdeadbeefdeadbeef
+0xdeadbeefdf8dbeef
+0xdeadbeefdf9dbeef
+0xdeadbeefdfadbeef
+0xdeadbeefdfbdbeef
+0xdeadbeefdfcdbeef
+0xdeadbeefdfddbeef
+0xdeadbeefdfedbeef
+0xdeadbeefdffdbeef
+0xdeadbeef100dbeef
+0xdeadbeef101dbeef

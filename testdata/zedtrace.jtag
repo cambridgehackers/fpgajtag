@@ -1,7 +1,8 @@
 #
 IR 9
-IR 3
+IR 34
 DR
+0x000000000000007f  # decimal 127
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef
 0xdeadbeefdeadbeef

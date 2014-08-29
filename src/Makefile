@@ -2,6 +2,9 @@
 OS := $(shell uname)
 
 CFLAGS= $(VARIANT) -Wall -fPIC -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -g
+ifeq ($(OS), Darwin)
+CFLAGS += -DDARWIN
+endif
 
 OBJS = fpgajtag.o util.o
 

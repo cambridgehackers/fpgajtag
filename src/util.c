@@ -396,8 +396,7 @@ void usb_open(int device_index)
     if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0))
         goto error;
     step++;
-#ifndef DARWIN
-#error laksjdla
+#ifndef DARWIN // not supported on Mac-OS
     if (libusb_claim_interface(usbhandle, 0) < 0)
         goto error;
 #endif

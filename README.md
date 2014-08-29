@@ -10,6 +10,8 @@ On Centos, before compiling be sure to:
 
 On Mac OSX, before compiling be sure to:
     sudo port install libusb
+or
+    brew install libusb
 
 
 In the util directory, there are 2 tools:
@@ -17,3 +19,6 @@ In the util directory, there are 2 tools:
    2) readll: an attempt to parse xilinx vivado 'll' files
 
 
+=========================
+To read out Zedboard AXI trace info:
+    fpgajtag -c testdata/zedtrace.jtag >trace.xx.tempfile

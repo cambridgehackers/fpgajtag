@@ -374,6 +374,7 @@ USB_INFO *usb_init(void)
 void usb_open(int device_index)
 {
     int cfg, baudrate = 9600;
+    int step = 0;
     static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
     int best_divisor = 12000000*8 / baudrate;
     unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
@@ -389,20 +390,38 @@ void usb_open(int device_index)
      libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
            | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
 
-    if (libusb_get_configuration (usbhandle, &cfg) < 0
-     || (usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)
-     || libusb_claim_interface(usbhandle, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0
-     || USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0
-     || USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0
-     || USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0
-     || USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
+    if (libusb_get_configuration (usbhandle, &cfg) < 0)
+        goto error;
+    step++;
+    if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0))
+        goto error;
+    step++;
+    if (libusb_claim_interface(usbhandle, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_SET_BAUD_RATE, (encdiv | 0x20000) & 0xFFFF, ((encdiv >> 8) & 0xFF00)) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_SET_LATENCY_TIMER_REQUEST, 255, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_SET_BITMODE_REQUEST, 0, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_SET_BITMODE_REQUEST, 2 << 8, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_RX, 0) < 0)
+        goto error;
+    step++;
+    if (USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
     return;
 error:
-    printf("Error opening usb interface\n");
+    printf("Error opening usb interface: %d\n", step);
     exit(-1);
 }
 

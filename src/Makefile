@@ -6,6 +6,8 @@ ifeq ($(OS), Darwin)
 CFLAGS += -DDARWIN
 endif
 
+BINDIR=/usr/local/bin
+
 OBJS = fpgajtag.o util.o
 
 HEADERS = dumpdata.h fpga.h util.h
@@ -25,7 +27,7 @@ fpgajtag.o: $(HEADERS) Makefile
 util.o: $(HEADERS) Makefile
 
 install: fpgajtag
-	cp fpgajtag /usr/local/bin
+	cp fpgajtag $(DESTDIR)$(BINDIR)
 
 clean:
 	rm -f $(OBJS) fpgajtag

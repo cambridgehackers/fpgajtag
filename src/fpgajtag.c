@@ -51,6 +51,7 @@
 #define IDCODE_MASK      0x0fffffff
 #define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
+static int verbose;
 static int device_type;
 static int found_cortex;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
@@ -621,7 +622,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
      */
     uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA, found_cortex, found_cortex);
     uint32_t status = ret >> 8;
-    if (bitswap[M(ret)] != 2 || status != expected)
+    if (verbose && (bitswap[M(ret)] != 2 || status != expected))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
@@ -986,7 +987,7 @@ usage:
     if (found_cortex)
         write_bypass(ftdi);
     ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_cortex, -1);
-    if (ret != 0xffffffff)
+    if (verbose && ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {
         ret = write_bypass(ftdi);
@@ -1044,7 +1045,8 @@ usage:
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+        if (verbose)
+            printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (found_cortex)
         write_irreg(0, IRREG_BYPASS, 0);
     else {

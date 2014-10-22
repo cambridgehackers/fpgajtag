@@ -12,7 +12,11 @@ ifeq ($(OS), Darwin)
 CFLAGS += -DDARWIN
 endif
 
+ifeq ("$(DESTDIR)", "")
 BINDIR=/usr/local/bin
+else
+BINDIR=/usr/bin
+endif
 
 OBJS = fpgajtag.o process.o cortex.o util.o
 
@@ -35,7 +39,8 @@ mdm.o: $(HEADERS) Makefile
 util.o: $(HEADERS) Makefile
 
 install: fpgajtag
-	cp fpgajtag $(DESTDIR)$(BINDIR)
+	install -d -m755 $(DESTDIR)$(BINDIR)
+	install -m755 fpgajtag $(DESTDIR)$(BINDIR)/fpgajtag
 
 clean:
 	rm -f $(OBJS) fpgajtag

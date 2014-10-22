@@ -1,0 +1,5 @@
+fpgajtag (14.10.1-1trusty2) trusty; urgency=low
+
+  * Initial release
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Tue, 21 Oct 2014 20:59:58 -0400

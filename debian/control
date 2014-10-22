@@ -1,0 +1,15 @@
+Source: fpgajtag
+Section: devel
+Priority: extra
+Maintainer: Jamey Hicks <jamey.hicks@gmail.com>
+Build-Depends: debhelper (>= 8.0.0), libusb-1.0-0-dev, zlib1g-dev
+Standards-Version: 3.9.2
+Homepage: https://github.com/cambridgehackers/fpgajtag
+Vcs-Git: git://github.com/cambridgehackers/fpgajtag.git
+
+Package: fpgajtag
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Programs Xilinx FPGAs using libusb.
+ Programs Xilinx FPGAs using libusb.
+ .

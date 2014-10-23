@@ -111,7 +111,8 @@ static void read_inputfile(char *filename)
         while(*input_fileptr < 'e') {
             input_fileptr++;
             int len = *input_fileptr++;
-            input_fileptr += (len << 8) | *input_fileptr++;
+            len = (len << 8) | *input_fileptr++;
+            input_fileptr += len;
         }
         if (*input_fileptr == 'e')
             input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */

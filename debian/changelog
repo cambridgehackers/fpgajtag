@@ -1,3 +1,9 @@
+fpgajtag (14.10.2-1trusty1) precise; urgency=low
+
+  * Updated to 14.10.2
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Thu, 23 Oct 2014 11:48:43 -0400
+
 fpgajtag (14.10.1-1trusty2) trusty; urgency=low
 
   * Initial release

@@ -65,6 +65,8 @@ static int input_filesize;
                   ((A) >= 'A' && (A) <= 'F') ? (A) - 'A' + 10: \
                   ((A) >= 'a' && (A) <= 'f') ? (A) - 'a' + 10: -1)
 
+static uint8_t bitfile_header[] = {
+    0, 9, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0, 0, 1, 'a'};
 static void read_inputfile(char *filename)
 {
     static uint8_t filebuf[BUFFER_MAX_LEN];
@@ -103,6 +105,16 @@ static void read_inputfile(char *filename)
         if (ret != Z_STREAM_END)
             goto badlen;
         input_fileptr = uncompressbuf;
+    }
+    if (!memcmp(bitfile_header, input_fileptr, sizeof(bitfile_header))) {
+        input_fileptr += sizeof(bitfile_header) - 1;
+        while(*input_fileptr < 'e') {
+            input_fileptr++;
+            int len = *input_fileptr++;
+            input_fileptr += (len << 8) | *input_fileptr++;
+        }
+        if (*input_fileptr == 'e')
+            input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */
     }
     return;
 badlen:

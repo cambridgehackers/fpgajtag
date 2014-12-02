@@ -1,7 +1,12 @@
 
 OS := $(shell uname)
 
-CFLAGS= $(VARIANT) -Wall -fPIC -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -g
+#USE_LIBFTDI = 1
+ifeq ($(USE_LIBFTDI),1)
+CFLAGS += -DUSE_LIBFTDI -I/home/$(USER)/git/system-tools/librarywrap/libftdi1-1.1/src/
+FTDILIB = /scratch/Xilinx/Vivado/2013.2/lib/lnx64.o/libxftdi.so
+endif
+CFLAGS += $(VARIANT) -Wall -fPIC -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -g
 ifeq ($(OS), Darwin)
 CFLAGS += -DDARWIN
 endif
@@ -20,7 +25,7 @@ else
 endif
 
 fpgajtag: $(OBJS) Makefile
-	gcc -g -o fpgajtag $(OBJS) -lpthread $(USBLIB) -lz
+	gcc -g -o fpgajtag $(OBJS) -lpthread $(FTDILIB) $(USBLIB) -lz
 
 fpgajtag.o: $(HEADERS) Makefile
 

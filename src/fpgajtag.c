@@ -741,7 +741,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int co
 }
 static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
 {
-    usb_open(device_index);            /*** Open selected USB interface ***/
+    fpgausb_open(device_index);            /*** Open selected USB interface ***/
     struct ftdi_context *ftdi = init_ftdi();
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
@@ -880,7 +880,7 @@ int main(int argc, char **argv)
      */
     for (i = 0; i < sizeof(bitswap); i++)
         bitswap[i] = BSWAP(i);
-    USB_INFO *uinfo = usb_init();   /*** Initialize USB interface ***/
+    USB_INFO *uinfo = fpgausb_init();   /*** Initialize USB interface ***/
     int usb_index = 0;
     for (i = 0; uinfo[i].dev; i++) {
         fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
@@ -888,7 +888,7 @@ int main(int argc, char **argv)
         if (lflag) {
             idcode_array_index = 0;
             ftdi = get_deviceid(i, uinfo[i].bcdDevice);  /*** Generic initialization of FTDI chip ***/
-            usb_close(ftdi);
+            fpgausb_close(ftdi);
             if (idcode_array_index > 0)
                 fprintf(stderr, "; IDCODE:");
             for (j = 0; j < idcode_array_index; j++)
@@ -1082,8 +1082,8 @@ usage:
      * Cleanup and free USB device
      */
 exit_label:
-    usb_close(ftdi);
-    usb_release();
+    fpgausb_close(ftdi);
+    fpgausb_release();
     if (rescan)
         execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;

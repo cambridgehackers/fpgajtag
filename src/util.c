@@ -333,7 +333,7 @@ uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf
 static USB_INFO usbinfo_array[MAX_USB_DEVICECOUNT];
 static int usbinfo_array_index;
 static libusb_device **device_list;
-USB_INFO *usb_init(void)
+USB_INFO *fpgausb_init(void)
 {
     int i = 0;
     libusb_device *dev;
@@ -371,7 +371,7 @@ USB_INFO *usb_init(void)
     return usbinfo_array;
 }
 
-void usb_open(int device_index)
+void fpgausb_open(int device_index)
 {
     int cfg, baudrate = 9600;
     int step = 0;
@@ -427,7 +427,7 @@ error:
     exit(-1);
 }
 
-void usb_close(struct ftdi_context *ftdi)
+void fpgausb_close(struct ftdi_context *ftdi)
 {
     flush_write(ftdi, NULL);
 #ifdef USE_LIBFTDI
@@ -439,7 +439,7 @@ void usb_close(struct ftdi_context *ftdi)
 #endif
     fflush(stdout);
 }
-void usb_release(void)
+void fpgausb_release(void)
 {
     libusb_free_device_list(device_list,1);
     fclose(logfile);

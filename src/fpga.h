@@ -70,7 +70,7 @@
      TMSW | (READA), 0x02, ((A) | 0x03)    /* Shift-DR -> Update-DR -> Idle */
 
 #define EXTEND_EXTRA            0xc0
-#define EXTRA_BIT_SHIFT         12
+#define EXTRA_BIT_SHIFT         16
 #define EXTRA_IRREG_BIT_SHIFT    8
 #define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
 #define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)

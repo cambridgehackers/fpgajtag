@@ -259,13 +259,16 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
          */
         }
     }
+    if (size)
+        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);
     if (expected_len - extra_bytes != size) {
-        printf("Error: on line %d, expected len %d minus extrabytes %d does not match size %d\n", linenumber, expected_len, extra_bytes, size);
-        if (!trace)
-            exit(-1);
+        printf("Error: on line %d, expected len %d minus extrabytes %d does not match size %d actual %d\n", linenumber, expected_len, extra_bytes, size, last_read_data_length);
+        for (i = 0; i < read_size_ptr; i++)
+            printf("      : sizevector [%d]=%d\n", i, read_size[i]);
+        //if (!trace)
+        //    exit(-1);
     }
     if (size) {
-        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);
         uint8_t *p = last_read_data;
         int validbits = 0;
         for (i = 0; i < read_size_ptr; i++) {
@@ -431,7 +434,9 @@ void fpgausb_close(struct ftdi_context *ftdi)
 {
     flush_write(ftdi, NULL);
 #ifdef USE_LIBFTDI
-    ftdi_deinit(ftdi);
+int i;
+for (i = 0; i < 100; i++)
+    ftdi_deinit(ftdi); /* flush out logfile */
 #else
     if (usbhandle)
         libusb_close (usbhandle);

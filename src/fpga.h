@@ -98,10 +98,10 @@
 #define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
 
 /* Status values */
-#define FIRST_TIME    (found_cortex ? 0x8a : 0x20)
+#define FIRST_TIME    ((found_cortex | use_second) ? 0x8a : 0x20)
 #define INPROGRAMMING (found_cortex ? 0x10 : 0x88)
-#define PROGRAMMED    (found_cortex ? 0xae : 0xbc)
-#define FINISHED      (found_cortex ? 0x5c : 0xac)
+#define PROGRAMMED    ((found_cortex | use_second) ? 0xae : 0xbc)
+#define FINISHED      ((found_cortex | use_second) ? 0x5c : 0xac)
 
 /*
  * Xilinx Configuration Packets

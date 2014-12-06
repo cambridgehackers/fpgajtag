@@ -337,6 +337,10 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
         if (ret != expect)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }
+    if (use_first && expect)
+        write_item(DITEM(EXIT1_TO_IDLE, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
+    if (!use_first || expect)
+        exit1_to_idle();
 }
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
@@ -1123,17 +1127,11 @@ usage:
     write_irreg(0, IRREG_ISC_NOOP, 0, use_second);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
-    exit1_to_idle();
-    if (use_first)
-        write_item(DITEM(DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 
     /*
      * Step 6: Load Configuration Data Frames
      */
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
-    exit1_to_idle();
-    if (use_first)
-        write_item(DITEM(DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     send_data_file(ftdi);
     if (use_first)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
@@ -1148,9 +1146,6 @@ usage:
     write_irreg(0, IRREG_JSTART, 0, use_second);
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
-    exit1_to_idle();
-    if (use_first)
-        write_item(DITEM( DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -1158,8 +1153,6 @@ usage:
         write_irreg(0, IRREG_BYPASS, 0, use_second);
     else {
         write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
-        if (!use_first)
-            exit1_to_idle();
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));

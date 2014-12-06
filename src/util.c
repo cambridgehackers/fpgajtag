@@ -205,7 +205,7 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
             plen = 3;
             break;
         default:
-            memdump(p-1, write_length, "FOO");
+            memdump(p-1, write_length, "UNABLE TO PARSE OUTPUT COMMAND");
             exit(-1);
         }
         if (ch & MPSSE_DO_READ) {

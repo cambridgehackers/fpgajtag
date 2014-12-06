@@ -53,7 +53,7 @@
 
 static int verbose;
 static int device_type;
-static int found_multiple, found_cortex, use_first, use_second, corfirst;
+static int found_multiple, found_cortex, use_first, use_second, corfirst, use_both;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -295,11 +295,11 @@ static void write_irreg(int read, int command, int next_state, int flip)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if ((use_first || use_second) && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
+    if ((use_both) && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
         write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
     else {
     write_item(DITEM(DATAWBIT | (read), opcode_bits, M(command)));
-    if (use_first || use_second) {
+    if (use_both) {
         write_item(DITEM(DATAWBIT | (read), 4, (command>>8) & 0xff));
         extrabit = (command >> (8 + 4 + 1)) & 1;
     }
@@ -719,7 +719,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_irreg(0, IRREG_CFG_OUT, 0, use_second);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (use_second)
-        write_item(DITEM(0x1b, 0x00, 0xff));
+        write_item(DITEM(DATAWBIT, 0x00, 0xff));
     write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
     write_one_word(DREAD, 0, 0);
     if (corfirst)
@@ -784,7 +784,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
     }
-    if (use_first || use_second)
+    if (use_both)
         j = argj;
     second++;
     }
@@ -804,7 +804,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     if (ftdi) {
         write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (use_second || use_first || usb_bcddevice == 0x700) /* not a zedboard */
+        if (use_both || usb_bcddevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
@@ -921,11 +921,16 @@ int main(int argc, char **argv)
             break;
         case '1':
             use_first = 1;
+            use_both = 1;
+            corfirst = 1;
+            found_multiple = 1;
             opcode_bits = 5;
             irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
             break;
         case '2':
             use_second = 1;
+            use_both = 1;
+            found_multiple = 1;
             opcode_bits = 5;
             irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
             break;
@@ -996,15 +1001,16 @@ usage:
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
-    if (idcode_array[1] == CORTEX_IDCODE)
+    if (idcode_array[1] == CORTEX_IDCODE) {
         found_cortex = 1;
+        corfirst = 1;
+        found_multiple = 1;
+    }
     /*** Depending on the idcode read, change some default actions ***/
     if (found_cortex) {
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
-    corfirst = found_cortex | use_first;
-    found_multiple = corfirst | use_second;
 
     /*
      * See if we are reading out data
@@ -1066,7 +1072,7 @@ usage:
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_second | use_first);
+    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_both);
     if (verbose && ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {
@@ -1079,7 +1085,7 @@ usage:
             printf("fpgajtag: bypass unknown %x\n", ret);
     }
     check_status(__LINE__, ftdi, 0x301900, 0, 4);
-    if (use_first || use_second) {
+    if (use_both) {
         write_item(DITEM(RESET_TO_IDLE));
         ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_second * 2);
         for (i = 0; i < 3; i++)
@@ -1093,11 +1099,9 @@ usage:
         j = 1;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
-    if (use_first) {
-    j = 8;
-    for (i = 0; i < j; i++)
-        bypass_test(__LINE__, ftdi, 3, 1, 0);
-    }
+    if (use_first)
+        for (i = 0; i < 8; i++)
+            bypass_test(__LINE__, ftdi, 3, 1, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -1121,7 +1125,7 @@ usage:
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
     exit1_to_idle();
     if (use_first)
-        write_item(DITEM(0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
+        write_item(DITEM(DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 
     /*
      * Step 6: Load Configuration Data Frames
@@ -1129,7 +1133,7 @@ usage:
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
     exit1_to_idle();
     if (use_first)
-        write_item(DITEM(0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
+        write_item(DITEM(DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     send_data_file(ftdi);
     if (use_first)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
@@ -1146,7 +1150,7 @@ usage:
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
     exit1_to_idle();
     if (use_first)
-        write_item(DITEM( 0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
+        write_item(DITEM( DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -1154,8 +1158,8 @@ usage:
         write_irreg(0, IRREG_BYPASS, 0, use_second);
     else {
         write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
-    if (!use_first)
-    exit1_to_idle();
+        if (!use_first)
+            exit1_to_idle();
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));

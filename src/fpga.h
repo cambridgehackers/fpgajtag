@@ -234,6 +234,13 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
  */
 #define BITFILE_ITEMSIZE 101
 
+#define SEND_SINGLE_FRAME     99999
+
 extern int irreg_extrabit;
 void write_irreg(int read, int command, int next_state, int flip);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
+uint8_t *input_fileptr;
+void process_command_list(struct ftdi_context *ftdi);
+void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size);
+int found_cortex;

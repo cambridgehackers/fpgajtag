@@ -46,24 +46,21 @@
 #define BUFFER_MAX_LEN    100000000
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
-#define SEND_SINGLE_FRAME     99999
 #define IDCODE_ARRAY_SIZE        20
 #define IDCODE_MASK      0x0fffffff
 #define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
 static int verbose;
 static int device_type;
-static int found_multiple, found_cortex, use_first, use_second, corfirst, use_both;
+static int found_multiple, use_first, use_second, corfirst, use_both;
+int found_cortex;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 int irreg_extrabit = 0;
 static int first_time_idcode_read = 1;
-static uint8_t *input_fileptr;
+uint8_t *input_fileptr;
 static int input_filesize;
-#define TOHEX(A) (((A) >= '0' && (A) <= '9') ? (A) - '0' : \
-                  ((A) >= 'A' && (A) <= 'F') ? (A) - 'A' + 10: \
-                  ((A) >= 'a' && (A) <= 'f') ? (A) - 'a' + 10: -1)
 
 static uint8_t bitfile_header[] = {
     0, 9, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0, 0, 1, 'a'};
@@ -187,7 +184,7 @@ static void exit1_to_idle(void)
     write_item(DITEM(EXIT1_TO_IDLE));
 }
 
-static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
+void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size)
 {
     while (size > 0) {
@@ -625,91 +622,6 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
         read_idcode(__LINE__, ftdi, 1);
     }
     return ftdi;
-}
-
-static void process_command_list(struct ftdi_context *ftdi)
-{
-    static uint8_t tempbuf[BUFFER_MAX_LEN];
-    static uint8_t tempbuf2[BUFFER_MAX_LEN];
-    int i, mode = -1;
-    char *str = NULL;
-    
-    while (*input_fileptr) {
-        uint8_t *bufp = tempbuf;
-        char * stro = NULL;
-        int len = 0;
-        uint8_t ch = *input_fileptr;
-        if (ch == '#' || ch == '\n' || ch == ' ' || ch == '\t' || ch == '\r') {
-            *input_fileptr++ = 0;
-            while(ch == '#' && *input_fileptr && *input_fileptr != '\n')
-                input_fileptr++;
-            if (!str)
-                continue;
-        }
-        else {
-            if (!str)
-                str = (char *)input_fileptr;
-            input_fileptr++;
-            continue;
-        }
-        if (trace)
-            printf("[%s:%d] %s\n", __FUNCTION__, __LINE__, str);
-        if (!strcmp(str, "IR")) {
-            mode = 0;
-        }
-        else if (!strcmp(str, "DR")) {
-            mode = 1;
-        }
-        else {
-        if (strlen(str) > 2 && !memcmp(str, "0x", 2)) {
-            stro = (char *)str + 2;
-            while (stro[0] && stro[1]) {
-                uint8_t temp = TOHEX(stro[0]) << 4 | TOHEX(stro[1]);
-                stro += 2;
-                *bufp++ = temp;
-            }
-        }
-        else { /* decimal */
-            *((int32_t *)bufp) = strtol(str, &stro, 10);
-            bufp += sizeof(int32_t);
-        }
-        len = bufp - tempbuf;
-        if (trace)
-            memdump(tempbuf, len, "VAL");
-        if (*stro)
-            printf("fpgajtag: didn't parse entire number '%s'\n", str);
-        else if (mode == -1)
-            printf("fpgajtag: mode not set!\n");
-        else if (mode == 0) {
-            int t = tempbuf[0];
-            t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(0, t, 1, 0);
-            flush_write(ftdi, NULL);
-        }
-        else {
-            write_item(DITEM(IDLE_TO_SHIFT_DR));
-            for (i = 0; i < len; i++)
-                tempbuf2[i] = tempbuf[len-1-i];
-            send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_EXIT1(DREAD, 0)),
-                tempbuf2, len, SEND_SINGLE_FRAME);
-            if (found_cortex)
-                 write_item(DITEM(TMSW, 0x03, 0x0a));
-            exit1_to_idle();
-            uint8_t *rdata = read_data(__LINE__, ftdi, len);
-            int i = 0;
-            while(i < len) {
-                uint8_t t = rdata[len-1-i];
-                printf("%02x", t);
-                i++;
-            }
-            printf("\n");
-            //memdump(rdata, len, "           RVAL");
-        }
-        }
-        str = NULL;
-    }
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
-    //read_data(__LINE__, ftdi, 1);
 }
 
 int main(int argc, char **argv)

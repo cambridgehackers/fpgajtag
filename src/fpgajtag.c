@@ -308,10 +308,10 @@ static void write_irreg(int read, int command, int next_state, int flip)
         write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
         extrabit = (command >> 6) & 0x80;
     }
-    }
     if (found_cortex)     /* 3 extra bits of IR are sent here */
         write_item(DITEM(DATAWBIT | read, 0x02,
             M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
+    }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
     else if (next_state)
@@ -1005,9 +1005,7 @@ usage:
         found_cortex = 1;
         corfirst = 1;
         found_multiple = 1;
-    }
     /*** Depending on the idcode read, change some default actions ***/
-    if (found_cortex) {
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }

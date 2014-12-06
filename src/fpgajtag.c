@@ -53,7 +53,7 @@
 
 static int verbose;
 static int device_type;
-static int found_cortex;
+static int found_multiple, found_cortex, use_first, use_second, corfirst;
 static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
 static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
@@ -107,6 +107,7 @@ static void read_inputfile(char *filename)
         input_fileptr = uncompressbuf;
     }
     if (!memcmp(bitfile_header, input_fileptr, sizeof(bitfile_header))) {
+        uint8_t *inputtemp = input_fileptr;
         input_fileptr += sizeof(bitfile_header) - 1;
         while(*input_fileptr < 'e') {
             input_fileptr++;
@@ -116,6 +117,7 @@ static void read_inputfile(char *filename)
         }
         if (*input_fileptr == 'e')
             input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */
+        input_filesize -= input_fileptr - inputtemp;
     }
     return;
 badlen:
@@ -205,7 +207,7 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
         size -= max_frame_size;
         if (rlen > max_frame_size)
             rlen = max_frame_size;
-        int tail_tms = (rlen < max_frame_size && (tail[1] & MPSSE_WRITE_TMS));
+        int tail_tms = tail && (rlen < max_frame_size && (tail[1] & MPSSE_WRITE_TMS));
         int tlen = rlen;
         if (tail_tms)
             tlen--;                   // last byte is actually loaded with DATAWBIT command
@@ -235,7 +237,7 @@ static void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
 
 static void write_eight_bytes(void)
 {
-    if (found_cortex) {
+    if (found_multiple) {
         write_item(DITEM(DATAW(0, 7), INT32(0)));
         write_one_word(0, 0, 0);
     }
@@ -246,6 +248,8 @@ static void send_data_file(struct ftdi_context *ftdi)
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
     write_item(DITEM(IDLE_TO_SHIFT_DR));
+    if (use_second)
+        write_item(DITEM(DATAWBIT, 0, 0xff));
     write_eight_bytes();
     write_dataw(4);
     swap32(0);
@@ -262,7 +266,9 @@ static void send_data_file(struct ftdi_context *ftdi)
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
         if (size < FILE_READSIZE) {
-            if (found_cortex)
+            if (use_first)
+                tailp = NULL;
+            else if (found_cortex)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
@@ -280,29 +286,45 @@ static void send_data_file(struct ftdi_context *ftdi)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static void write_irreg(int read, int command, int next_state)
+static void write_irreg(int read, int command, int next_state, int flip)
 {
+    if (flip)
+        command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
+    int extrabit = (command >> (opcode_bits + 1)) & 1;
     //if (trace)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
-    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), opcode_bits, M(command)));
+    write_item(DITEM(IDLE_TO_SHIFT_IR));
+    if ((use_first || use_second) && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
+        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
+    else {
+    write_item(DITEM(DATAWBIT | (read), opcode_bits, M(command)));
+    if (use_first || use_second) {
+        write_item(DITEM(DATAWBIT | (read), 4, (command>>8) & 0xff));
+        extrabit = (command >> (8 + 4 + 1)) & 1;
+    }
+    }
+    extrabit = 0x80 * extrabit;
     if (found_cortex)     /* 3 extra bits of IR are sent here */
         write_item(DITEM(DATAWBIT | read, 0x02,
             M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     if (next_state == 2)
-        write_item(DITEM(SHIFT_TO_UPDATE(0, EXTRA_BIT_ADDITION(command))));
+        write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
     else if (next_state)
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), EXTRA_BIT_ADDITION(command))));
+        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), extrabit)));
     else {
-        write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
+        write_item(DITEM(SHIFT_TO_EXIT1((read), extrabit)));
         exit1_to_idle();
     }
 }
 
 static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int read, int command, uint32_t expect)
 {
-    write_item(DITEM(IDLE_TO_SHIFT_IR, DATAWBIT | (read), 4, M(command)));
-    if (found_cortex)
+    write_item(DITEM(IDLE_TO_SHIFT_IR));
+    if (use_second)
+        write_item(DITEM(DATAWBIT, 5, 0xff));
+    write_item(DITEM(DATAWBIT | (read), 4, M(command)));
+    if (corfirst)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
     else
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
@@ -315,7 +337,6 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
         if (ret != expect)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }
-    exit1_to_idle();
 }
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
@@ -324,8 +345,8 @@ static uint32_t write_bypass(struct ftdi_context *ftdi)
         write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
                   DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
     else
-        write_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1);
-    return read_data_int(__LINE__, ftdi, 1 + found_cortex);
+        write_irreg(DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0);
+    return read_data_int(__LINE__, ftdi, 1 + found_multiple);
 }
 
 /*
@@ -338,7 +359,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     uint32_t *testp = buf+1;
 
     if (load)
-        write_irreg(0, IRREGA_DPACC, 2);
+        write_irreg(0, IRREGA_DPACC, 2, 0);
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
     rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
@@ -369,11 +390,11 @@ static void cortex_pair(uint32_t v)
 
 static void write_select(int bus)
 {
-    write_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2, 0);
     loaddr(0,      // Coresight: Table 2-11
         bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
         DPACC_SELECT);
-    write_irreg(0, IRREGA_APACC, 2);
+    write_irreg(0, IRREGA_APACC, 2, 0);
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
@@ -384,21 +405,21 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_irreg(0, IRREGA_ABORT, 2);
+    write_irreg(0, IRREGA_ABORT, 2, 0);
     loaddr(0, 1, 0);
-    write_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2, 0);
     loaddr(0, 0x50000033, DPACC_CTRL);
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     //CSYSPWRUPREQ,CDBGPWRUPREQ,STICKYERR,STICKYCMP,STICKYORUN,ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
-        write_irreg(0, IRREGA_APACC, 2);
+        write_irreg(0, IRREGA_APACC, 2, 0);
         cortex_pair(0x2000 | DBGDSCRext);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
-    write_irreg(0, IRREGA_DPACC, 2);
+    write_irreg(0, IRREGA_DPACC, 2, 0);
     loaddr(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE);
     for (i = 0; i < 2; i++) {
         if (trace)
@@ -419,7 +440,7 @@ static void tar_read(uint32_t v)
 }
 static void tar_write(uint32_t v)
 {
-    write_irreg(0, IRREGA_APACC, 2);
+    write_irreg(0, IRREGA_APACC, 2, 0);
     loaddr(0, v, AP_TAR);
     read_rdbuff();
 }
@@ -467,7 +488,7 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
     write_select(1);
     for (i = 0; i < 2; i++) {
         if (i == 1) {
-            write_irreg(0, IRREGA_APACC, 2);
+            write_irreg(0, IRREGA_APACC, 2, 0);
             cortex_pair(DBGDSCRext);
         }
         tar_read((i * 0x2000) | DBGDIDR);
@@ -486,7 +507,7 @@ static void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
         cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0, VAL3);
-    write_irreg(0, IRREGA_APACC, 2);
+    write_irreg(0, IRREGA_APACC, 2, 0);
     cortex_pair(0x2000 | DBGDSCRext);
     tar_read(DBGPRSR);
     tar_read(DBGDSCRext);
@@ -551,17 +572,33 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd)
+static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd, int second)
 {
     int j;
-    uint32_t ret = 0;
-    write_irreg(0, irreg, 1);
+    uint32_t ret = 0, readitem = 0;
+    if (second) {
+        if (second == 2 || second == 3)
+            write_irreg(0, irreg, 1, 0);
+        else {
+            bozostyle = 0;
+            readitem = DREAD;
+            write_irreg(0, irreg, 1, second);
+        }
+        write_item(DITEM(IDLE_TO_SHIFT_DR));
+        if (!bozostyle)
+        write_item(DITEM(DATAWBIT, 0x00, 0x00));
+        if (variant > 1)
+            write_item(DITEM(DATAWBIT, opcode_bits - 1, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00));
+    }
+    else {
+    write_irreg(0, irreg, 1, 0);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (variant > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+    }
     if (variant > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
-        if (found_cortex)
+        if (found_multiple)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
     }
     while (resp_len > 0) {
@@ -574,7 +611,7 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
         else
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(readitem, 0)));
         uint8_t *rdata = read_data(__LINE__, ftdi, size * sizeof(uint32_t));
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size * sizeof(uint32_t); j++)
@@ -585,7 +622,7 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
                 int skip = skipsize;
                 if (skip > size)
                     skip = size;
-                skipsize -= skip;
+		skipsize -= skip;
                 size -= skip;
                 rdata += skip * sizeof(uint32_t);
                 resp_len += skip;
@@ -597,14 +634,19 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
     return ret;
 }
 
-static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat)
+static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat, int extra)
 {
     static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
     int i;
     uint32_t ret = 0;
 
-    write_irreg(0, extend | IRREG_CFG_IN, 1);     /* Select CFG_IN so that we can send out our request */
+    if (extra == 3)
+        write_irreg(0, extend | IRREG_CFG_IN, 1, 0);     /* Select CFG_IN so that we can send out our request */
+    else
+        write_irreg(0, extend | IRREG_CFG_IN, 1, use_first ? (extra == 4) : use_second); /* Select CFG_IN so that we can send out our request */
     write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
+    if (extra == 1 || extra == 4)
+        write_item(DITEM(DATAWBIT, 0, 0));
     write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1 + oneformat);
     for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
         swap32(req_prefix[i]);
@@ -612,7 +654,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
         swap32(req[i]);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
     if (resp_len)
-        ret = fetch_result(__LINE__, ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd);
+        ret = fetch_result(__LINE__, ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
     flush_write(ftdi, NULL);
     return ret;
 }
@@ -622,7 +664,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
  * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
  * the JTAG Interface" and Table 6-3.
  */
-static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t expected, int after)
+static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
     static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
     write_item(idle_to_reset);
@@ -633,7 +675,9 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
      */
-    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA, found_cortex, found_cortex);
+    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA,
+        (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
+        found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
     uint32_t status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != expected))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
@@ -654,8 +698,10 @@ static void write_dswap32(uint32_t value)
  */
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
-    write_irreg(0, IRREG_CFG_IN, 0);
+    write_irreg(0, IRREG_CFG_IN, 0, use_second);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
+    if (use_second)
+        write_item(DITEM(DATAWBIT, 0, 0xff));
     write_dswap32(CONFIG_DUMMY);
     write_eight_bytes();
     write_dswap32(CONFIG_SYNC);
@@ -666,19 +712,22 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG));
     write_dswap32(CONFIG_CMD_DESYNC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +found_cortex)));
-    write_one_word(0, found_cortex, 4);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, found_cortex ? 0x80 : 0)));
+    write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +corfirst)));
+    write_one_word(0, corfirst, 4);
+    write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0)));
     exit1_to_idle();
-    write_irreg(0, IRREG_CFG_OUT, 0);
-    write_item(DITEM(IDLE_TO_SHIFT_DR, DATAW(DREAD, sizeof(uint32_t) - 1 )));
+    write_irreg(0, IRREG_CFG_OUT, 0, use_second);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    if (use_second)
+        write_item(DITEM(0x1b, 0x00, 0xff));
+    write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
     write_one_word(DREAD, 0, 0);
-    if (found_cortex)
+    if (corfirst)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    if (found_cortex) {
+    if (corfirst) {
         exit1_to_idle();
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
     }
@@ -709,30 +758,35 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 
-    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1, 0, 0, 1);
-    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1, 0, 0, 1);
-    write_irreg(0, IRREG_JSHUTDOWN, 0);
+    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1, 0, 0, 1, 0);
+    write_irreg(0, IRREG_JSHUTDOWN, 0, 0);
     write_item(DITEM(TMS_WAIT, TMS_WAIT));
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1);
+    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
 }
 
-static void bypass_test(int linenumber, struct ftdi_context *ftdi, int j, int cortex_nowait, int input_shift)
+static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift)
 {
-    int i;
+    int i, j = argj, second = 0, loopcount = 2;
     uint32_t ret;
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
     read_idcode(linenumber, ftdi, input_shift);
+    while(loopcount-- > 0) {
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
-            if (trace)
-                printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
-            write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1);
-            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_cortex, -1);
+            //if (trace)
+            //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
+            write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0);
+            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
             if (ret != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
         }
+    }
+    if (use_first || use_second)
+        j = argj;
+    second++;
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
@@ -750,7 +804,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     if (ftdi) {
         write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
                      SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (usb_bcddevice == 0x700) /* not a zedboard */
+        if (use_second || use_first || usb_bcddevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
@@ -815,7 +869,7 @@ static void process_command_list(struct ftdi_context *ftdi)
         else if (mode == 0) {
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(0, t, 1);
+            write_irreg(0, t, 1, 0);
             flush_write(ftdi, NULL);
         }
         else {
@@ -854,7 +908,7 @@ int main(int argc, char **argv)
     int rescan = 0;
 
     opterr = 0;
-    while ((i = getopt (argc, argv, "trls:c")) != -1)
+    while ((i = getopt (argc, argv, "trls:c12")) != -1)
         switch (i) {
         case 't':
             trace = 1;
@@ -864,6 +918,16 @@ int main(int argc, char **argv)
             break;
         case 'l':
             lflag = 1;
+            break;
+        case '1':
+            use_first = 1;
+            opcode_bits = 5;
+            irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
+            break;
+        case '2':
+            use_second = 1;
+            opcode_bits = 5;
+            irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
             break;
         case 'c':
             cflag = 1;
@@ -917,7 +981,7 @@ usage:
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     ftdi = get_deviceid(usb_index, uinfo[i].bcdDevice);          /*** Generic initialization of FTDI chip ***/
-    uint32_t thisid = idcode_array[0] & IDCODE_MASK;
+    uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
     device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
         device_type = DEVICE_AC701;
@@ -939,6 +1003,8 @@ usage:
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
+    corfirst = found_cortex | use_first;
+    found_multiple = corfirst | use_second;
 
     /*
      * See if we are reading out data
@@ -971,16 +1037,17 @@ usage:
     }
 
     j = 3;
-    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
+    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple)
         j = 4;
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    if (device_type == DEVICE_ZC702)
+    int firstflag = device_type == DEVICE_ZC702 || use_first;
+    if (firstflag)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
-    bypass_test(__LINE__, ftdi, 3, 1, device_type == DEVICE_ZC702);
+    bypass_test(__LINE__, ftdi, 3, 1, firstflag);
     if (trace)
         printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
-    if (device_type != DEVICE_ZC702)
+    if (!firstflag)
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -988,7 +1055,7 @@ usage:
      * on the first call
      */
     write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    if (device_type != DEVICE_ZC702) {
+    if (!firstflag) {
         write_item(DITEM(IN_RESET_STATE));
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     }
@@ -999,11 +1066,11 @@ usage:
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_cortex, -1);
+    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_second | use_first);
     if (verbose && ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     for (i = 0; i < 3; i++) {
-        ret = write_bypass(ftdi);
+        ret = write_bypass(ftdi) & 0xfff;
         if (ret == FIRST_TIME)
             printf("fpgajtag: bypass first time %x\n", ret);
         else if (ret == PROGRAMMED)
@@ -1011,7 +1078,14 @@ usage:
         else
             printf("fpgajtag: bypass unknown %x\n", ret);
     }
-    check_status(__LINE__, ftdi, 0x301900, 0);
+    check_status(__LINE__, ftdi, 0x301900, 0, 4);
+    if (use_first || use_second) {
+        write_item(DITEM(RESET_TO_IDLE));
+        ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_second * 2);
+        for (i = 0; i < 3; i++)
+            write_bypass(ftdi);
+        check_status(__LINE__, ftdi, 0x301900, 0, 3);
+    }
     j = 4;
     if (device_type == DEVICE_AC701)
         j = 3;
@@ -1019,6 +1093,11 @@ usage:
         j = 1;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
+    if (use_first) {
+    j = 8;
+    for (i = 0; i < j; i++)
+        bypass_test(__LINE__, ftdi, 3, 1, 0);
+    }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -1028,24 +1107,32 @@ usage:
     memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
     idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
     /*** Check to see if idcode matches file and detect Zynq ***/
-    if (idcode != (idcode_array[0] & IDCODE_MASK)) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[0]);
+    if (idcode != (idcode_array[use_second] & IDCODE_MASK)) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[use_second]);
         goto exit_label;
     }
 
     /*
      * Step 2: Initialization
      */
-    write_irreg(0, IRREG_JPROGRAM, 0);
-    write_irreg(0, IRREG_ISC_NOOP, 0);
+    write_irreg(0, IRREG_JPROGRAM, 0, use_second);
+    write_irreg(0, IRREG_ISC_NOOP, 0, use_second);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, INPROGRAMMING);
+    exit1_to_idle();
+    if (use_first)
+        write_item(DITEM(0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
 
     /*
      * Step 6: Load Configuration Data Frames
      */
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
+    exit1_to_idle();
+    if (use_first)
+        write_item(DITEM(0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
     send_data_file(ftdi);
+    if (use_first)
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
 
     /*
      * Step 8: Startup
@@ -1053,17 +1140,22 @@ usage:
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (found_cortex ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_irreg(0, IRREG_BYPASS, 0);
-    write_irreg(0, IRREG_JSTART, 0);
+    write_irreg(0, IRREG_BYPASS, 0, use_second);
+    write_irreg(0, IRREG_JSTART, 0, use_second);
     write_item(DITEM(TMSW_DELAY));
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_BYPASS, FINISHED);
+    exit1_to_idle();
+    if (use_first)
+        write_item(DITEM( 0x1b, 0x04, 0xff, 0x4b, 0x00, 0x81, 0x4b, 0x01, 0x01));
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (found_cortex)
-        write_irreg(0, IRREG_BYPASS, 0);
+    if (found_multiple)
+        write_irreg(0, IRREG_BYPASS, 0, use_second);
     else {
         write_combo_irreg(__LINE__, ftdi, 0, IRREG_BYPASS, 0);
+    if (!use_first)
+    exit1_to_idle();
         flush_write(ftdi, NULL);
     }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -1071,8 +1163,8 @@ usage:
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (device_type != DEVICE_ZEDBOARD)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
-    check_status(__LINE__, ftdi, 0xf07910, 1);
-    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_cortex)
+    check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
+    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst)
         bypass_test(__LINE__, ftdi, 3, 1, 1);
     if (device_type == DEVICE_ZEDBOARD)
         bypass_test(__LINE__, ftdi, 3, 1, 0);

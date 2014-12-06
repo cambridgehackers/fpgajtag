@@ -243,13 +243,18 @@ static void write_eight_bytes(void)
     }
 }
 
+static void idle_to_shift_dr(void)
+{
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
+    if (use_second)
+        write_item(DITEM(DATAWBIT, 0, 0xff));
+}
+
 static void send_data_file(struct ftdi_context *ftdi)
 {
     int size, i;
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (use_second)
-        write_item(DITEM(DATAWBIT, 0, 0xff));
+    idle_to_shift_dr();
     write_eight_bytes();
     write_dataw(4);
     swap32(0);
@@ -298,9 +303,9 @@ static void write_irreg(int read, int command, int next_state, int flip)
     if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
         write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
     else {
-    write_item(DITEM(DATAWBIT | (read), opcode_bits, M(command)));
+    write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
     if (use_both) {
-        write_item(DITEM(DATAWBIT | (read), 4, (command>>8) & 0xff));
+        write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
         extrabit = (command >> 6) & 0x80;
     }
     }
@@ -310,9 +315,9 @@ static void write_irreg(int read, int command, int next_state, int flip)
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
     else if (next_state)
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE((read), extrabit)));
+        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     else {
-        write_item(DITEM(SHIFT_TO_EXIT1((read), extrabit)));
+        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         exit1_to_idle();
     }
 }
@@ -322,11 +327,11 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (use_second)
         write_item(DITEM(DATAWBIT, 5, 0xff));
-    write_item(DITEM(DATAWBIT | (read), 4, M(command)));
+    write_item(DITEM(DATAWBIT | read, 4, M(command)));
     if (corfirst)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
     else
-        write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
+        write_item(DITEM(SHIFT_TO_EXIT1(read, EXTRA_BIT_ADDITION(command))));
     if (read) {
         uint16_t ret = read_data_int(linenumber, ftdi, 1);
         if (found_cortex)
@@ -640,11 +645,9 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
     static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
     int i;
     uint32_t ret = 0;
+    int temp = use_first ? (extra == 4) : (use_second * (extra != 3));
 
-    if (extra == 3)
-        write_irreg(0, extend | IRREG_CFG_IN, 1, 0);     /* Select CFG_IN so that we can send out our request */
-    else
-        write_irreg(0, extend | IRREG_CFG_IN, 1, use_first ? (extra == 4) : use_second); /* Select CFG_IN so that we can send out our request */
+    write_irreg(0, extend | IRREG_CFG_IN, 1, temp); /* Select CFG_IN so that we can send out our request */
     write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
     if (extra == 1 || extra == 4)
         write_item(DITEM(DATAWBIT, 0, 0));
@@ -700,9 +703,7 @@ static void write_dswap32(uint32_t value)
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
     write_irreg(0, IRREG_CFG_IN, 0, use_second);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (use_second)
-        write_item(DITEM(DATAWBIT, 0, 0xff));
+    idle_to_shift_dr();
     write_dswap32(CONFIG_DUMMY);
     write_eight_bytes();
     write_dswap32(CONFIG_SYNC);
@@ -718,9 +719,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0)));
     exit1_to_idle();
     write_irreg(0, IRREG_CFG_OUT, 0, use_second);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (use_second)
-        write_item(DITEM(DATAWBIT, 0x00, 0xff));
+    idle_to_shift_dr();
     write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
     write_one_word(DREAD, 0, 0);
     if (corfirst)

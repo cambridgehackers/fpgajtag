@@ -290,21 +290,20 @@ static void write_irreg(int read, int command, int next_state, int flip)
 {
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
-    int extrabit = (command >> (opcode_bits + 1)) & 1;
+    int extrabit = (command << (6 - opcode_bits)) & 0x80;
     //if (trace)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if ((use_both) && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
+    if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
         write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
     else {
     write_item(DITEM(DATAWBIT | (read), opcode_bits, M(command)));
     if (use_both) {
         write_item(DITEM(DATAWBIT | (read), 4, (command>>8) & 0xff));
-        extrabit = (command >> (8 + 4 + 1)) & 1;
+        extrabit = (command >> 6) & 0x80;
     }
     }
-    extrabit = 0x80 * extrabit;
     if (found_cortex)     /* 3 extra bits of IR are sent here */
         write_item(DITEM(DATAWBIT | read, 0x02,
             M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
@@ -330,10 +329,8 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
         write_item(DITEM(SHIFT_TO_EXIT1((read), EXTRA_BIT_ADDITION(command))));
     if (read) {
         uint16_t ret = read_data_int(linenumber, ftdi, 1);
-        if (found_cortex) {
-            write_item(DITEM(PAUSE_TO_SHIFT));
-            write_item(DITEM(DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
-        }
+        if (found_cortex)
+            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
         if (ret != expect)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }

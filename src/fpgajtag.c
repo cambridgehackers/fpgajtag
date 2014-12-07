@@ -299,20 +299,18 @@ void write_irreg(int read, int command, int next_state, int flip)
     /* send out first part of IR bit pattern */
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
-        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
+        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 0x02, 0xff));
     else {
-    write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
-    if (use_both) {
-        write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
-        extrabit = (command >> 6) & 0x80;
+        write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
+        if (use_both) {
+            write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
+            extrabit = (command >> 6) & 0x80;
+        }
+        if (found_cortex)     /* 3 extra bits of IR are sent here */
+            write_item(DITEM(DATAWBIT | read, 0x02,
+                M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
     }
-    if (found_cortex)     /* 3 extra bits of IR are sent here */
-        write_item(DITEM(DATAWBIT | read, 0x02,
-            M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
-    }
-    if (next_state == 2)
-        write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
-    else if (next_state)
+    if (next_state)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
@@ -608,6 +606,24 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     return ftdi;
 }
 
+static void bypass_status(struct ftdi_context *ftdi, int location)
+{
+    int i, ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
+        found_multiple, -1, location == 4 ? use_both : (use_second * 2));
+    if (verbose && ret != 0xffffffff)
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+    for (i = 0; i < 3; i++) {
+        ret = write_bypass(ftdi) & 0xfff;
+        if (ret == FIRST_TIME)
+            printf("fpgajtag: bypass first time %x\n", ret);
+        else if (ret == PROGRAMMED)
+            printf("fpgajtag: bypass already programmed %x\n", ret);
+        else
+            printf("fpgajtag: bypass unknown %x\n", ret);
+    }
+    check_status(__LINE__, ftdi, 0x301900, 0, location);
+}
+
 int main(int argc, char **argv)
 {
     logfile = stdout;
@@ -717,6 +733,7 @@ usage:
     if (use_first)
         bypass_test_count += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
+    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
 
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
@@ -781,25 +798,10 @@ usage:
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_both);
-    if (verbose && ret != 0xffffffff)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    for (i = 0; i < 3; i++) {
-        ret = write_bypass(ftdi) & 0xfff;
-        if (ret == FIRST_TIME)
-            printf("fpgajtag: bypass first time %x\n", ret);
-        else if (ret == PROGRAMMED)
-            printf("fpgajtag: bypass already programmed %x\n", ret);
-        else
-            printf("fpgajtag: bypass unknown %x\n", ret);
-    }
-    check_status(__LINE__, ftdi, 0x301900, 0, 4);
+    bypass_status(ftdi, 4);
     if (use_both) {
         write_item(DITEM(RESET_TO_IDLE));
-        ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1, found_multiple, -1, use_second * 2);
-        for (i = 0; i < 3; i++)
-            write_bypass(ftdi);
-        check_status(__LINE__, ftdi, 0x301900, 0, 3);
+        bypass_status(ftdi, 3);
     }
     for (i = 0; i < bypass_test_count; i++)
         bypass_test(ftdi, 3, 1, (i == 0));
@@ -841,7 +843,6 @@ usage:
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
     if (!last_bypass_count)
         bypass_test(ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1, use_second);

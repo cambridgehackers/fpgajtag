@@ -553,13 +553,13 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 
 static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift)
 {
-    int i, j = argj, second = 0, loopcount = 2;
+    int i, j = argj, second = 0;
     uint32_t ret;
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
     read_idcode(linenumber, ftdi, input_shift);
-    while(loopcount-- > 0) {
+    while(j > 0) {
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
             //if (trace)
@@ -573,6 +573,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int
     if (use_both)
         j = argj;
     second++;
+    argj = 0;
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);

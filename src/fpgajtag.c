@@ -208,12 +208,15 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
                 write_item(DITEM(6)); // 7 bits of data here
                 if (read_param & MPSSE_DO_WRITE)
                     write_data(&ch, 1);
+                cptr += 2;
             }
+            else
+                ch = 0x80; /* this is the 'bypass' bit value */
             write_item(tail);
             if (tail[1] & MPSSE_WRITE_TMS) {
-                cptr[2] |= (read_param & DREAD); // this is a TMS instruction to shift state
+                cptr[0] |= (read_param & DREAD); // this is a TMS instruction to shift state
                 if (read_param & MPSSE_DO_WRITE)
-                    cptr[4] |= 0x80 & ch; // insert 1 bit of data here
+                    cptr[2] |= 0x80 & ch; // insert 1 bit of data here
             }
         }
         if (size > 0)
@@ -300,10 +303,8 @@ void write_irreg(int read, int command, int next_state, int flip)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
     else if (next_state)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
-    else {
-        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-        exit1_to_idle();
-    }
+    else
+        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
 }
 
 static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int read, int command, uint32_t expect)
@@ -324,8 +325,8 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }
     if (use_first && expect)
-        write_item(DITEM(EXIT1_TO_IDLE, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
-    if (!use_first || expect)
+        write_item(DITEM(EXIT1_TO_IDLE, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    else if (!use_first || expect)
         exit1_to_idle();
 }
 
@@ -516,8 +517,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +corfirst)));
     write_one_word(0, corfirst, 4);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0)));
-    exit1_to_idle();
+    write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
     write_irreg(0, IRREG_CFG_OUT, 0, use_second);
     idle_to_shift_dr();
     write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
@@ -527,11 +527,9 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    if (corfirst) {
-        exit1_to_idle();
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
-    }
     exit1_to_idle();
+    if (corfirst)
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     return ret;
 }
 

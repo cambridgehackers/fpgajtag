@@ -192,9 +192,8 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
         size -= max_frame_size;
         if (rlen > max_frame_size)
             rlen = max_frame_size;
-        int tail_tms = tail && (rlen < max_frame_size && (tail[1] & MPSSE_WRITE_TMS));
         int tlen = rlen;
-        if (tail_tms)
+        if (rlen < max_frame_size && opttail)
             tlen--;                   // last byte is actually loaded with DATAWBIT command
         write_item(DITEM(read_param, INT16(tlen-1)));
         if (read_param & MPSSE_DO_WRITE) {
@@ -202,12 +201,14 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
             ptrin += rlen;
         }
         uint8_t *cptr = buffer_current_ptr();
-        if (tail_tms) {
+        if (rlen < max_frame_size) {
             uint8_t ch = cptr[-1];
-            cptr[-1] = read_param | MPSSE_BITMODE; /* replace last byte of data with DATAWBIT op */
-            write_item(DITEM(6)); // 7 bits of data here
-            if (read_param & MPSSE_DO_WRITE)
-                write_data(&ch, 1);
+            if (opttail) {
+                cptr[-1] = read_param | MPSSE_BITMODE; /* replace last byte of data with DATAWBIT op */
+                write_item(DITEM(6)); // 7 bits of data here
+                if (read_param & MPSSE_DO_WRITE)
+                    write_data(&ch, 1);
+            }
             write_item(tail);
             if (tail[1] & MPSSE_WRITE_TMS) {
                 cptr[2] |= (read_param & DREAD); // this is a TMS instruction to shift state
@@ -245,7 +246,6 @@ static void send_data_file(struct ftdi_context *ftdi)
     swap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
-    int opttail = 1;
     do {
         static uint8_t filebuffer[FILE_READSIZE];
         size = FILE_READSIZE;
@@ -261,10 +261,8 @@ static void send_data_file(struct ftdi_context *ftdi)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80));
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
-            if (use_first)
-                tailp = NULL;
         }
-        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, opttail);
+        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, size >= FILE_READSIZE || !use_first);
         flush_write(ftdi, NULL);
         if (size != FILE_READSIZE)
             break;
@@ -844,8 +842,6 @@ usage:
      */
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
     send_data_file(ftdi);
-    if (use_first)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80)));
     exit1_to_idle();
 
     /*

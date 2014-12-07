@@ -185,7 +185,7 @@ static void exit1_to_idle(void)
 }
 
 void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
-    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size)
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail)
 {
     while (size > 0) {
         int rlen = size;
@@ -245,6 +245,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     swap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
+    int opttail = 1;
     do {
         static uint8_t filebuffer[FILE_READSIZE];
         size = FILE_READSIZE;
@@ -256,14 +257,14 @@ static void send_data_file(struct ftdi_context *ftdi)
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[filebuffer[i]];
         if (size < FILE_READSIZE) {
-            if (use_first)
-                tailp = NULL;
-            else if (found_cortex)
+            if (found_cortex)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80));
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
+            if (use_first)
+                tailp = NULL;
         }
-        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len);
+        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, opttail);
         flush_write(ftdi, NULL);
         if (size != FILE_READSIZE)
             break;
@@ -369,7 +370,7 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
         write_item(idle_to_reset);
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
-        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME);
+        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1);
     uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
@@ -781,7 +782,7 @@ usage:
     }
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
-        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME);
+        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)

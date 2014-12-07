@@ -242,5 +242,5 @@ void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
 uint8_t *input_fileptr;
 void process_command_list(struct ftdi_context *ftdi);
 void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
-    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size);
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail);
 int found_cortex;

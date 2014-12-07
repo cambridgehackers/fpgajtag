@@ -237,11 +237,11 @@ static void write_eight_bytes(uint32_t val)
     write_dswap32(val);
 }
 
-static void idle_to_shift_dr(void)
+static void idle_to_shift_dr(int extra, int val)
 {
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (use_second)
-        write_item(DITEM(DATAWBIT, 0, 0xff));
+    if (extra)
+        write_item(DITEM(DATAWBIT, 0, val));
 }
 
 static void send_data_file(struct ftdi_context *ftdi)
@@ -249,7 +249,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     uint8_t filebuffer[FILE_READSIZE];
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
 
-    idle_to_shift_dr();
+    idle_to_shift_dr(use_second, 0xff);
     write_eight_bytes(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
@@ -395,13 +395,10 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
     uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
 
     write_irreg(0, irreg, 1, readitem);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (readitem)
-        write_item(DITEM(DATAWBIT, 0x00, 0x00));
+    idle_to_shift_dr(readitem, 0);
     if (variant > 1) {
-        write_item(DITEM(DATAWBIT, opcode_bits - (second != 0), M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
-        if (second)
-            write_item(DITEM(DATAWBIT, 0x00, 0x00));
+        write_item(DITEM(DATAWBIT, opcode_bits - (second != 0), M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+        idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
@@ -449,9 +446,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
     int temp = use_first ? (extra == 4) : (use_second * (extra != 3));
 
     write_irreg(0, extend | IRREG_CFG_IN, 1, temp); /* Select CFG_IN so that we can send out our request */
-    write_item(DITEM(IDLE_TO_SHIFT_DR)); /* Shift in actual request into DR for CFG_IN */
-    if (extra == 1 || extra == 4)
-        write_item(DITEM(DATAWBIT, 0, 0));
+    idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
     write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1 + oneformat);
     for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
         swap32(req_prefix[i]);
@@ -498,7 +493,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
     write_irreg(0, IRREG_CFG_IN, 0, use_second);
-    idle_to_shift_dr();
+    idle_to_shift_dr(use_second, 0xff);
     write_dswap32(CONFIG_DUMMY);
     write_eight_bytes(CONFIG_SYNC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
@@ -512,7 +507,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_one_word(0, corfirst, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
     write_irreg(0, IRREG_CFG_OUT, 0, use_second);
-    idle_to_shift_dr();
+    idle_to_shift_dr(use_second, 0xff);
     write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
     write_one_word(DREAD, 0, 0);
     if (corfirst)

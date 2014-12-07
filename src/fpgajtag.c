@@ -557,7 +557,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
     readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
 }
 
-static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift)
+static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
     int i, j = argj, second = 0;
     uint32_t ret;
@@ -583,6 +583,12 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
+    if (reset)
+        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    if (clock)
+        write_item(DITEM(SET_CLOCK_DIVISOR));
+    if (reset || clock)
+        flush_write(ftdi, NULL);
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
@@ -777,11 +783,8 @@ usage:
         goto exit_label;
     }
 
-    bypass_test(ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0);
-    if (firstflag)
-        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
-    bypass_test(ftdi, 3, 1, firstflag);
-    flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    bypass_test(ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0, firstflag, firstflag);
+    bypass_test(ftdi, 3, 1, firstflag, 1, 0);
     if (!firstflag)
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
@@ -804,7 +807,7 @@ usage:
         bypass_status(ftdi, 3);
     }
     for (i = 0; i < bypass_test_count; i++)
-        bypass_test(ftdi, 3, 1, (i == 0));
+        bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -844,11 +847,10 @@ usage:
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (!last_bypass_count)
-        bypass_test(ftdi, 3, 1, 0);
+        bypass_test(ftdi, 3, 1, 0, 0, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
-    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst)
-        for (i = 0; i < 1 + last_bypass_count; i++)
-            bypass_test(ftdi, 3, 1, (i == 0));
+    for (i = 0; i < (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst) + last_bypass_count; i++)
+        bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     rescan = 1;
 
     /*

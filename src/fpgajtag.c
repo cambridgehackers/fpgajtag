@@ -193,11 +193,6 @@ static int write_one_word(int dread, int short_format, uint32_t value)
     return M(value >> 24) & 0x80;
 }
 
-static void exit1_to_idle(void)
-{
-    write_item(DITEM(EXIT1_TO_IDLE));
-}
-
 void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail)
 {
@@ -274,9 +269,9 @@ static void send_data_file(struct ftdi_context *ftdi)
         if (input_filesize < FILE_READSIZE) {
             size = input_filesize;
             if (found_cortex)
-                tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80));
+                tailp = DITEM(SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
             else
-                tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
+                tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
         }
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[*input_fileptr++];
@@ -341,9 +336,9 @@ static void write_combo_irreg(int linenumber, struct ftdi_context *ftdi, int rea
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, linenumber, ret);
     }
     if (use_first && expect)
-        write_item(DITEM(EXIT1_TO_IDLE, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     else if (!use_first || expect)
-        exit1_to_idle();
+        write_item(DITEM(EXIT1_TO_IDLE));
 }
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
@@ -528,7 +523,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    exit1_to_idle();
+    write_item(DITEM(EXIT1_TO_IDLE));
     if (corfirst)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     return ret;
@@ -564,23 +559,23 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
     readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
 }
 
-static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift)
+static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift)
 {
     int i, j = argj, second = 0;
     uint32_t ret;
 
     if (trace)
-        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, linenumber, j, cortex_nowait, input_shift);
-    read_idcode(linenumber, ftdi, input_shift);
+        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, __LINE__, j, cortex_nowait, input_shift);
+    read_idcode(__LINE__, ftdi, input_shift);
     while(j > 0) {
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
             //if (trace)
-            //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, linenumber, j, i);
+            //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
             write_irreg(0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0);
-            ret = fetch_result(linenumber, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
+            ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
             if (ret != 0)
-                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, linenumber, ret);
+                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
         }
     }
     if (use_both)
@@ -591,7 +586,7 @@ static void bypass_test(int linenumber, struct ftdi_context *ftdi, int argj, int
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
     if (trace)
-        printf("[%s:%d] end\n", __FUNCTION__, linenumber);
+        printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
 static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
 {
@@ -721,6 +716,8 @@ usage:
         bypass_test_count = 1;
     if (use_first)
         bypass_test_count += 8;
+    int firstflag = device_type == DEVICE_ZC702 || use_first;
+
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
@@ -732,7 +729,6 @@ usage:
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
-    int firstflag = device_type == DEVICE_ZC702 || use_first;
 
     /*
      * See if we are reading out data
@@ -764,10 +760,10 @@ usage:
         goto exit_label;
     }
 
-    bypass_test(__LINE__, ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0);
+    bypass_test(ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0);
     if (firstflag)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
-    bypass_test(__LINE__, ftdi, 3, 1, firstflag);
+    bypass_test(ftdi, 3, 1, firstflag);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     if (!firstflag)
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
@@ -806,7 +802,7 @@ usage:
         check_status(__LINE__, ftdi, 0x301900, 0, 3);
     }
     for (i = 0; i < bypass_test_count; i++)
-        bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
+        bypass_test(ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
@@ -822,7 +818,6 @@ usage:
      */
     write_combo_irreg(__LINE__, ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, INPROGRAMMING);
     send_data_file(ftdi);
-    exit1_to_idle();
 
     /*
      * Step 8: Startup
@@ -848,11 +843,11 @@ usage:
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
     if (!last_bypass_count)
-        bypass_test(__LINE__, ftdi, 3, 1, 0);
+        bypass_test(ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
     if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst)
         for (i = 0; i < 1 + last_bypass_count; i++)
-            bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
+            bypass_test(ftdi, 3, 1, (i == 0));
     rescan = 1;
 
     /*

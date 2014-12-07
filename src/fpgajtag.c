@@ -222,12 +222,19 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     }
 }
 
-static void write_eight_bytes(void)
+static void write_dswap32(uint32_t value)
+{
+    write_dataw(4);
+    swap32(value);
+}
+
+static void write_eight_bytes(uint32_t val)
 {
     if (found_multiple) {
         write_item(DITEM(DATAW(0, 7), INT32(0)));
         write_one_word(0, 0, 0);
     }
+    write_dswap32(val);
 }
 
 static void idle_to_shift_dr(void)
@@ -239,36 +246,31 @@ static void idle_to_shift_dr(void)
 
 static void send_data_file(struct ftdi_context *ftdi)
 {
-    int size, i;
+    uint8_t filebuffer[FILE_READSIZE];
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
+
     idle_to_shift_dr();
-    write_eight_bytes();
-    write_dataw(4);
-    swap32(0);
+    write_eight_bytes(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
-        static uint8_t filebuffer[FILE_READSIZE];
-        size = FILE_READSIZE;
-        if (input_filesize < FILE_READSIZE)
+        int i, size = FILE_READSIZE;
+        if (input_filesize < FILE_READSIZE) {
             size = input_filesize;
-        memcpy(filebuffer, input_fileptr, size);
-        input_filesize -= size;
-        input_fileptr += size;
-        for (i = 0; i < size; i++)
-            filebuffer[i] = bitswap[filebuffer[i]];
-        if (size < FILE_READSIZE) {
             if (found_cortex)
                 tailp = DITEM(EXIT1_TO_IDLE, EXIT1_TO_IDLE, SHIFT_TO_EXIT1(0, 0x80));
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
+        for (i = 0; i < size; i++)
+            filebuffer[i] = bitswap[*input_fileptr++];
         send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, size == FILE_READSIZE || !use_first);
         flush_write(ftdi, NULL);
+        limit_len = MAX_SINGLE_USB_DATA;
+        input_filesize -= size;
         if (size != FILE_READSIZE)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
-        limit_len = MAX_SINGLE_USB_DATA;
     };
     printf("fpgajtag: Done sending file\n");
 }
@@ -489,12 +491,6 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
 }
 
-static void write_dswap32(uint32_t value)
-{
-    write_dataw(4);
-    swap32(value);
-}
-
 /*
  * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
  * Table 6-4.
@@ -504,8 +500,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_irreg(0, IRREG_CFG_IN, 0, use_second);
     idle_to_shift_dr();
     write_dswap32(CONFIG_DUMMY);
-    write_eight_bytes();
-    write_dswap32(CONFIG_SYNC);
+    write_eight_bytes(CONFIG_SYNC);
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_READ, data, 1));
     write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));

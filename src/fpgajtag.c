@@ -392,21 +392,16 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
 static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd, int second)
 {
     int j;
-    uint32_t ret = 0, readitem = 0;
-    write_irreg(0, irreg, 1, second != 0 && second != 2 && second != 3);
+    uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
+
+    write_irreg(0, irreg, 1, readitem);
     write_item(DITEM(IDLE_TO_SHIFT_DR));
-    if (second) {
-        if (second != 2 && second != 3) {
-            bozostyle = 0;
-            readitem = DREAD;
+    if (readitem)
+        write_item(DITEM(DATAWBIT, 0x00, 0x00));
+    if (variant > 1) {
+        write_item(DITEM(DATAWBIT, opcode_bits - (second != 0), M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
+        if (second)
             write_item(DITEM(DATAWBIT, 0x00, 0x00));
-        }
-        if (variant > 1)
-            write_item(DITEM(DATAWBIT, opcode_bits - 1, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00));
-    }
-    else {
-    if (variant > 1)
-        write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
     }
     if (variant > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69, DATAWBIT, 0x01, 0x00));
@@ -418,7 +413,7 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (bozostyle)
+        if (bozostyle && !readitem)
             write_item(DITEM(DATAR(size * sizeof(uint32_t))));
         else
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));

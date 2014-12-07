@@ -393,23 +393,18 @@ static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t
 {
     int j;
     uint32_t ret = 0, readitem = 0;
+    write_irreg(0, irreg, 1, second != 0 && second != 2 && second != 3);
+    write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (second) {
-        if (second == 2 || second == 3)
-            write_irreg(0, irreg, 1, 0);
-        else {
+        if (second != 2 && second != 3) {
             bozostyle = 0;
             readitem = DREAD;
-            write_irreg(0, irreg, 1, second);
+            write_item(DITEM(DATAWBIT, 0x00, 0x00));
         }
-        write_item(DITEM(IDLE_TO_SHIFT_DR));
-        if (!bozostyle)
-        write_item(DITEM(DATAWBIT, 0x00, 0x00));
         if (variant > 1)
             write_item(DITEM(DATAWBIT, opcode_bits - 1, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR, DATAWBIT, 0x00, 0x00));
     }
     else {
-    write_irreg(0, irreg, 1, 0);
-    write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (variant > 1)
         write_item(DITEM(DATAWBIT, opcode_bits, M(IRREG_JSTART), SHIFT_TO_UPDATE_TO_IDLE(0, 0), IDLE_TO_SHIFT_DR));
     }

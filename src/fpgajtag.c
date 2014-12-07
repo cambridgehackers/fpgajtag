@@ -60,6 +60,9 @@ static int first_time_idcode_read = 1;
 uint8_t *input_fileptr;
 static int input_filesize;
 
+static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
+static int idcode_array_index;
+
 static uint8_t bitfile_header[] = {
     0, 9, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0, 0, 1, 'a'};
 static void read_inputfile(char *filename)
@@ -68,6 +71,7 @@ static void read_inputfile(char *filename)
     static uint8_t uncompressbuf[BUFFER_MAX_LEN];
     static uint8_t gzmagic[] = {0x1f, 0x8b};
     int inputfd = 0;   /* default input for '-' is stdin */
+    uint32_t idcode;
 
     if (strcmp(filename, "-")) {
         inputfd = open(filename, O_RDONLY);
@@ -113,6 +117,18 @@ static void read_inputfile(char *filename)
         if (*input_fileptr == 'e')
             input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */
         input_filesize -= input_fileptr - inputtemp;
+    }
+
+    /*
+     * Step 5: Check Device ID
+     */
+    /*** Read device id from file to be programmed           ***/
+    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
+    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
+    /*** Check to see if idcode matches file and detect Zynq ***/
+    if (idcode != (idcode_array[use_second] & IDCODE_MASK)) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[use_second]);
+        exit(-1);
     }
     return;
 badlen:
@@ -351,9 +367,6 @@ static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
 static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
 static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
 static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
-
-static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
-static int idcode_array_index;
 /*
  * Read/validate IDCODE from device to be programmed
  */
@@ -604,10 +617,11 @@ int main(int argc, char **argv)
 {
     logfile = stdout;
     struct ftdi_context *ftdi;
-    uint32_t idcode, ret;
+    uint32_t ret;
     int i, j, rflag = 0, lflag = 0, cflag = 0;
     const char *serialno = NULL;
     int rescan = 0;
+    int bypass_test_count;
 
     opterr = 0;
     while ((i = getopt (argc, argv, "trls:c12")) != -1)
@@ -700,6 +714,13 @@ usage:
         else
             device_type = DEVICE_ZEDBOARD;
     }
+    bypass_test_count = 4;
+    if (device_type == DEVICE_AC701)
+        bypass_test_count = 3;
+    if (device_type == DEVICE_ZC702)
+        bypass_test_count = 1;
+    if (use_first)
+        bypass_test_count += 8;
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
@@ -743,22 +764,21 @@ usage:
         goto exit_label;
     }
 
-    j = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
-    bypass_test(__LINE__, ftdi, j, 0, 0);
+    bypass_test(__LINE__, ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0);
     if (firstflag)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
     bypass_test(__LINE__, ftdi, 3, 1, firstflag);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+    if (!firstflag)
+        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    if (!firstflag) {
-        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
+    for (i = 0; i < 1 + (firstflag == 0); i++)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
-    }
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
@@ -785,28 +805,9 @@ usage:
             write_bypass(ftdi);
         check_status(__LINE__, ftdi, 0x301900, 0, 3);
     }
-    j = 4;
-    if (device_type == DEVICE_AC701)
-        j = 3;
-    if (device_type == DEVICE_ZC702)
-        j = 1;
-    if (use_first)
-        j += 8;
-    for (i = 0; i < j; i++)
+    for (i = 0; i < bypass_test_count; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-
-    /*
-     * Step 5: Check Device ID
-     */
-    /*** Read device id from file to be programmed           ***/
-    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
-    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
-    /*** Check to see if idcode matches file and detect Zynq ***/
-    if (idcode != (idcode_array[use_second] & IDCODE_MASK)) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[use_second]);
-        goto exit_label;
-    }
 
     /*
      * Step 2: Initialization
@@ -845,13 +846,13 @@ usage:
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (device_type != DEVICE_ZEDBOARD)
+    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
+    if (!last_bypass_count)
         bypass_test(__LINE__, ftdi, 3, 1, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
     if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst)
-        bypass_test(__LINE__, ftdi, 3, 1, 1);
-    if (device_type == DEVICE_ZEDBOARD)
-        bypass_test(__LINE__, ftdi, 3, 1, 0);
+        for (i = 0; i < 1 + last_bypass_count; i++)
+            bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
     rescan = 1;
 
     /*

@@ -51,15 +51,14 @@
 #define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
 static int verbose;
-static int device_type;
 static int found_multiple, use_first, use_second, corfirst, use_both;
 int found_cortex;
 static int opcode_bits = 4;
 int irreg_extrabit = 0;
-static int first_time_idcode_read = 1;
 uint8_t *input_fileptr;
 static int input_filesize;
 
+static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static int idcode_array_index;
 
@@ -612,9 +611,12 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     return ftdi;
 }
 
-static void bypass_status(struct ftdi_context *ftdi, int location)
+static void bypass_status(struct ftdi_context *ftdi)
 {
-    int i, ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
+    int i, ret, location = 4;
+
+    loop:
+    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
         found_multiple, -1, location == 4 ? use_both : (use_second * 2));
     if (verbose && ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -628,6 +630,11 @@ static void bypass_status(struct ftdi_context *ftdi, int location)
             printf("fpgajtag: bypass unknown %x\n", ret);
     }
     check_status(__LINE__, ftdi, 0x301900, 0, location);
+    if (use_both && location == 4) {
+        location = 3;
+        write_item(DITEM(RESET_TO_IDLE));
+        goto loop;
+    }
 }
 
 int main(int argc, char **argv)
@@ -720,7 +727,7 @@ usage:
      */
     ftdi = get_deviceid(usb_index, uinfo[i].bcdDevice);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
-    device_type = DEVICE_OTHER;
+    int device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
         device_type = DEVICE_AC701;
     if (thisid == 0x03731093)         // zc706
@@ -738,8 +745,6 @@ usage:
         bypass_test_count = 1;
     if (use_first)
         bypass_test_count += 8;
-    int firstflag = device_type == DEVICE_ZC702 || use_first;
-    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
 
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
@@ -752,6 +757,10 @@ usage:
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
+    int firstflag = device_type == DEVICE_ZC702 || use_first;
+    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
+    int first_bypass_count = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
+    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst) + last_bypass_count;
 
     /*
      * See if we are reading out data
@@ -783,7 +792,7 @@ usage:
         goto exit_label;
     }
 
-    bypass_test(ftdi, 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple), 0, 0, firstflag, firstflag);
+    bypass_test(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
     bypass_test(ftdi, 3, 1, firstflag, 1, 0);
     if (!firstflag)
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
@@ -801,11 +810,7 @@ usage:
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex)
         write_bypass(ftdi);
-    bypass_status(ftdi, 4);
-    if (use_both) {
-        write_item(DITEM(RESET_TO_IDLE));
-        bypass_status(ftdi, 3);
-    }
+    bypass_status(ftdi);
     for (i = 0; i < bypass_test_count; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -849,7 +854,7 @@ usage:
     if (!last_bypass_count)
         bypass_test(ftdi, 3, 1, 0, 0, 0);
     check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
-    for (i = 0; i < (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst) + last_bypass_count; i++)
+    for (i = 0; i < extra_bypass_count; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     rescan = 1;
 

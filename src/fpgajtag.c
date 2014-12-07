@@ -54,8 +54,6 @@ static int verbose;
 static int device_type;
 static int found_multiple, use_first, use_second, corfirst, use_both;
 int found_cortex;
-static uint8_t *idle_to_reset = DITEM(IDLE_TO_RESET);
-static uint8_t *shift_to_exit1 = DITEM(SHIFT_TO_EXIT1(0, 0));
 static int opcode_bits = 4;
 int irreg_extrabit = 0;
 static int first_time_idcode_read = 1;
@@ -249,7 +247,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     swap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
-    do {
+    while(1) {
         static uint8_t filebuffer[FILE_READSIZE];
         size = FILE_READSIZE;
         if (input_filesize < FILE_READSIZE)
@@ -265,13 +263,13 @@ static void send_data_file(struct ftdi_context *ftdi)
             else
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
-        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, size >= FILE_READSIZE || !use_first);
+        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, size == FILE_READSIZE || !use_first);
         flush_write(ftdi, NULL);
         if (size != FILE_READSIZE)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
         limit_len = MAX_SINGLE_USB_DATA;
-    } while(size == FILE_READSIZE);
+    };
     printf("fpgajtag: Done sending file\n");
 }
 
@@ -364,9 +362,9 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
     if (input_shift)
-        write_item(shift_to_exit1);
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     else
-        write_item(idle_to_reset);
+        write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1);
@@ -472,7 +470,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
 static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
     static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
-    write_item(idle_to_reset);
+    write_item(DITEM(IDLE_TO_RESET));
     if (after)
         write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
     write_item(DITEM(RESET_TO_IDLE));
@@ -483,12 +481,12 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA,
         (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
         found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
+    write_item(DITEM(IDLE_TO_RESET));
     uint32_t status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != expected))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    write_item(idle_to_reset);
 }
 
 static void write_dswap32(uint32_t value)
@@ -722,6 +720,7 @@ usage:
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
+    int firstflag = device_type == DEVICE_ZC702 || use_first;
 
     /*
      * See if we are reading out data
@@ -753,30 +752,22 @@ usage:
         goto exit_label;
     }
 
-    j = 3;
-    if (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple)
-        j = 4;
+    j = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
     bypass_test(__LINE__, ftdi, j, 0, 0);
-    int firstflag = device_type == DEVICE_ZC702 || use_first;
     if (firstflag)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE, SET_CLOCK_DIVISOR));
     bypass_test(__LINE__, ftdi, 3, 1, firstflag);
-    if (trace)
-        printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
-    if (!firstflag)
-        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     if (!firstflag) {
-        write_item(DITEM(IN_RESET_STATE));
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
     }
-    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+    write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE, RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);

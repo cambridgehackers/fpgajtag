@@ -790,11 +790,10 @@ usage:
         j = 3;
     if (device_type == DEVICE_ZC702)
         j = 1;
+    if (use_first)
+        j += 8;
     for (i = 0; i < j; i++)
         bypass_test(__LINE__, ftdi, 3, 1, (i == 0));
-    if (use_first)
-        for (i = 0; i < 8; i++)
-            bypass_test(__LINE__, ftdi, 3, 1, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*

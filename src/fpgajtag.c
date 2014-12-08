@@ -525,6 +525,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     if (corfirst)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, combo, 0);
+    if (combo)
+        flush_write(ftdi, NULL);
     return ret;
 }
 
@@ -842,8 +844,6 @@ usage:
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT, !found_multiple)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (!found_multiple)
-        flush_write(ftdi, NULL);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);

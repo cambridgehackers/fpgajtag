@@ -288,7 +288,11 @@ static void send_data_file(struct ftdi_context *ftdi)
  */
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect)
 {
-    int extrabit = EXTRA_BIT_ADDITION(command);
+    if (flip)
+        command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
+    int extrabit = (command << (6 - opcode_bits)) & 0x80;
+    if (command == IRREG_BYPASS)
+        extrabit = 0x80;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 2) {
         write_item(DITEM(DATAW(read, 1), 0xff,
@@ -317,9 +321,6 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             write_item(DITEM(EXIT1_TO_IDLE));
         return;
     }
-    if (flip)
-        command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
-    extrabit = (command << (6 - opcode_bits)) & 0x80;
     //if (trace)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
@@ -333,7 +334,6 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         }
         if (found_cortex) {     /* 3 extra bits of IR are sent here */
             write_item(DITEM(DATAWBIT | read, 2, (command>>8) & 0xff));
-                //M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
             extrabit = (command >> (2+2)) & 0x80;
         }
     }
@@ -826,12 +826,12 @@ usage:
     write_irreg(ftdi, 0, IRREG_JPROGRAM, 0, use_second, 0, 0);
     write_irreg(ftdi, 0, IRREG_ISC_NOOP, 0, use_second, 0, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
-    write_irreg(ftdi, DREAD, IRREG_ISC_NOOP & ~EXTRA_BIT_MASK, 0, 0, 1, INPROGRAMMING);
+    write_irreg(ftdi, DREAD, IRREG_ISC_NOOP, 0, 0, 1, INPROGRAMMING);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    write_irreg(ftdi, DREAD, IRREG_CFG_IN & ~EXTRA_BIT_MASK, 0, 0, 1, INPROGRAMMING);
+    write_irreg(ftdi, DREAD, IRREG_CFG_IN, 0, 0, 1, INPROGRAMMING);
     send_data_file(ftdi);
 
     /*

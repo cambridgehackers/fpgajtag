@@ -70,10 +70,6 @@
      TMSW | (READA), 0x02, ((A) | 0x03)    /* Shift-DR -> Update-DR -> Idle */
 
 #define EXTEND_EXTRA            0xc0
-#define EXTRA_BIT_SHIFT         16
-#define EXTRA_IRREG_BIT_SHIFT    8
-#define EXTRA_BIT_MASK          (1<<EXTRA_BIT_SHIFT)
-#define EXTRA_BIT_ADDITION(A)   (((A) >> (EXTRA_BIT_SHIFT - 7)) & 0x80)
 
 /*
  * Xilinx constants
@@ -92,7 +88,7 @@
 #define IRREG_JPROGRAM       0xff0b
 #define IRREG_JSTART         0xff0c
 #define IRREG_ISC_NOOP       0xff14
-#define IRREG_BYPASS         (EXTRA_BIT_MASK | 0xff3f) // even on PCIE, this has an extra bit
+#define IRREG_BYPASS         0xff3f // even on PCIE, this has an extra bit
 
 /* Status values */
 #define FIRST_TIME    ((found_cortex | use_second) ? 0x8a : 0x20)

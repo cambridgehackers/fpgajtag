@@ -363,7 +363,7 @@ static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); //
 /*
  * Read/validate IDCODE from device to be programmed
  */
-static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shift)
+static void read_idcode(struct ftdi_context *ftdi, int input_shift)
 {
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
@@ -376,7 +376,7 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1);
-    uint8_t *rdata = read_data(linenumber, ftdi, idcode_probe_result[0]);
+    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
         memcpy(&idcode_array[idcode_array_index++], rdata, sizeof(idcode_array[0]));
@@ -470,7 +470,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
  * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
  * the JTAG Interface" and Table 6-3.
  */
-static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
+static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
     static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
     write_item(DITEM(IDLE_TO_RESET));
@@ -487,7 +487,7 @@ static void check_status(int linenumber, struct ftdi_context *ftdi, uint32_t exp
     write_item(DITEM(IDLE_TO_RESET));
     uint32_t status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != expected))
-        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, linenumber, expected, ret);
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, expected, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
 }
@@ -564,7 +564,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, __LINE__, j, cortex_nowait, input_shift);
-    read_idcode(__LINE__, ftdi, input_shift);
+    read_idcode(ftdi, input_shift);
     while(j > 0) {
     while (j-- > 0) {
         for (i = 0; i < 4; i++) {
@@ -607,7 +607,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
-        read_idcode(__LINE__, ftdi, 1);
+        read_idcode(ftdi, 1);
     }
     return ftdi;
 }
@@ -630,7 +630,7 @@ static void bypass_status(struct ftdi_context *ftdi)
         else
             printf("fpgajtag: bypass unknown %x\n", ret);
     }
-    check_status(__LINE__, ftdi, 0x301900, 0, location);
+    check_status(ftdi, 0x301900, 0, location);
     if (use_both && location == 4) {
         location = 3;
         write_item(DITEM(RESET_TO_IDLE));
@@ -850,7 +850,7 @@ usage:
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if (!last_bypass_count)
         bypass_test(ftdi, 3, 1, 0, 0, 0);
-    check_status(__LINE__, ftdi, 0xf07910, 1, use_second);
+    check_status(ftdi, 0xf07910, 1, use_second);
     for (i = 0; i < extra_bypass_count; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     rescan = 1;

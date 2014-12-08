@@ -237,7 +237,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 #define SEND_SINGLE_FRAME     99999
 
 extern int irreg_extrabit;
-void write_irreg(int read, int command, int next_state, int flip);
+void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
 uint8_t *input_fileptr;
 void process_command_list(struct ftdi_context *ftdi);

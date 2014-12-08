@@ -294,9 +294,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     if (command == IRREG_BYPASS)
         extrabit = 0x80;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (combo == 2)
-        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 0x00, 0xff));
-    else if (combo == 1) {
+    if (combo == 1) {
         if (use_second)
             write_item(DITEM(DATAWBIT, opcode_bits, 0xff));
         write_item(DITEM(DATAWBIT | read, 4, M(command)));
@@ -311,14 +309,18 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
+        extrabit = (command >> (4+2)) & 0x80;
+        read = 0;
         if (use_first && expect)
-            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 4, M(command>>8), SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-        else if (!use_first || expect)
-            write_item(DITEM(EXIT1_TO_IDLE));
-        return;
+            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 4, M(command>>8)));
+        else {
+            if (!use_first || expect)
+                write_item(DITEM(EXIT1_TO_IDLE));
+            return;
+        }
     }
-    else if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
-        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
+    else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff))
+        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2 - combo, 0xff));
     else {
         write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
         if (use_both) {

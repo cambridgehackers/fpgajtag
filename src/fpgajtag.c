@@ -290,35 +290,38 @@ static void send_data_file(struct ftdi_context *ftdi)
  */
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect)
 {
+    int extrabit;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (combo) {
-//        write_combo_irreg(ftdi, read, command, expect);
-//static void write_combo_irreg(struct ftdi_context *ftdi, int read, int command, uint32_t expect)
-//{
-    if (use_second)
-        write_item(DITEM(DATAWBIT, 5, 0xff));
-    write_item(DITEM(DATAWBIT | read, 4, M(command)));
-    if (corfirst)
-        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
-    else
-        write_item(DITEM(SHIFT_TO_EXIT1(read, EXTRA_BIT_ADDITION(command))));
-    if (read) {
-        uint16_t ret = read_data_int(__LINE__, ftdi, 1);
-        if (found_cortex)
-            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
-        if (ret != expect)
-            printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+    if (combo == 2) {
+        write_item(DITEM(DATAW(read, 1), 0xff,
+                   DATAWBIT | read, 0x00, 0xff,
+                   SHIFT_TO_UPDATE_TO_IDLE(read, 0x80)));
+        return;
     }
-    if (use_first && expect)
-        write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
-    else if (!use_first || expect)
-        write_item(DITEM(EXIT1_TO_IDLE));
-//}
+    if (combo == 1) {
+        if (use_second)
+            write_item(DITEM(DATAWBIT, 5, 0xff));
+        write_item(DITEM(DATAWBIT | read, 4, M(command)));
+        if (corfirst)
+            write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
+        else
+            write_item(DITEM(SHIFT_TO_EXIT1(read, EXTRA_BIT_ADDITION(command))));
+        if (read) {
+            uint16_t ret = read_data_int(__LINE__, ftdi, 1);
+            if (found_cortex)
+                write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
+            if (ret != expect)
+                printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+        }
+        if (use_first && expect)
+            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        else if (!use_first || expect)
+            write_item(DITEM(EXIT1_TO_IDLE));
         return;
     }
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
-    int extrabit = (command << (6 - opcode_bits)) & 0x80;
+    extrabit = (command << (6 - opcode_bits)) & 0x80;
     //if (trace)
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
@@ -342,11 +345,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
 {
-    if (found_cortex)
-        write_item(DITEM(IDLE_TO_SHIFT_IR, DATAW(DREAD, 1), 0xff,
-                  DATARWBIT, 0x00, 0xff, SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0x80)));
-    else
-        write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
+    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, found_cortex * 2, 0, 0);
     return read_data_int(__LINE__, ftdi, 1 + found_multiple);
 }
 
@@ -396,7 +395,7 @@ static void read_idcode(int linenumber, struct ftdi_context *ftdi, int input_shi
     }
 }
 
-static uint32_t fetch_result(int linenumber, struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd, int second)
+static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd, int second)
 {
     int j;
     uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
@@ -461,7 +460,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
         swap32(req[i]);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
     if (resp_len)
-        ret = fetch_result(__LINE__, ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
+        ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
     flush_write(ftdi, NULL);
     return ret;
 }
@@ -572,7 +571,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
             //if (trace)
             //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
             write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
-            ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
+            ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
             if (ret != 0)
                 printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
         }
@@ -618,7 +617,7 @@ static void bypass_status(struct ftdi_context *ftdi)
     int i, ret, location = 4;
 
     loop:
-    ret = fetch_result(__LINE__, ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
+    ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
         found_multiple, -1, location == 4 ? use_both : (use_second * 2));
     if (verbose && ret != 0xffffffff)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -843,12 +842,9 @@ usage:
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (found_multiple)
-        write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, 0, 0);
-    else {
-        write_irreg(ftdi, 0, IRREG_BYPASS, 0, 0, 1, 0);
+    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, !found_multiple, 0);
+    if (!found_multiple)
         flush_write(ftdi, NULL);
-    }
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);

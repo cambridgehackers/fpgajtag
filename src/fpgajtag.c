@@ -290,7 +290,7 @@ static void send_data_file(struct ftdi_context *ftdi)
  */
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect)
 {
-    int extrabit;
+    int extrabit = EXTRA_BIT_ADDITION(command);
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 2) {
         write_item(DITEM(DATAW(read, 1), 0xff,
@@ -303,9 +303,9 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             write_item(DITEM(DATAWBIT, 5, 0xff));
         write_item(DITEM(DATAWBIT | read, 4, M(command)));
         if (corfirst)
-            write_item(DITEM(SHIFT_TO_PAUSE(DREAD, EXTRA_BIT_ADDITION(command))));
+            write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extrabit)));
         else
-            write_item(DITEM(SHIFT_TO_EXIT1(read, EXTRA_BIT_ADDITION(command))));
+            write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
             uint16_t ret = read_data_int(__LINE__, ftdi, 1);
             if (found_cortex)
@@ -496,7 +496,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
  * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
  * Table 6-4.
  */
-static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
+static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int combo)
 {
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
@@ -524,6 +524,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_item(DITEM(EXIT1_TO_IDLE));
     if (corfirst)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, combo, 0);
     return ret;
 }
 
@@ -750,13 +751,13 @@ usage:
         opcode_bits = 5;
         irreg_extrabit = EXTRA_BIT_MASK;
     }
-    int bypass_test_count = 4;
+    int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
-        bypass_test_count = 3;
+        bypass_tc = 3;
     if (device_type == DEVICE_ZC702)
-        bypass_test_count = 1;
+        bypass_tc = 1;
     if (use_first)
-        bypass_test_count += 8;
+        bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
     int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
     int first_bypass_count = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
@@ -811,7 +812,7 @@ usage:
     if (found_cortex)
         write_bypass(ftdi);
     bypass_status(ftdi);
-    for (i = 0; i < bypass_test_count; i++)
+    for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
@@ -833,16 +834,14 @@ usage:
      * Step 8: Startup
      */
     pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (found_cortex ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS, 0)) != (found_cortex ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, 0, 0);
     write_irreg(ftdi, 0, IRREG_JSTART, 0, use_second, 0, 0);
     write_item(DITEM(TMSW_DELAY));
     write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, 0, 1, FINISHED);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT, !found_multiple)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, !found_multiple, 0);
     if (!found_multiple)
         flush_write(ftdi, NULL);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));

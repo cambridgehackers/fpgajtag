@@ -294,15 +294,11 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     if (command == IRREG_BYPASS)
         extrabit = 0x80;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (combo == 2) {
-        write_item(DITEM(DATAW(read, 1), 0xff,
-                   DATAWBIT | read, 0x00, 0xff,
-                   SHIFT_TO_UPDATE_TO_IDLE(read, 0x80)));
-        return;
-    }
-    if (combo == 1) {
+    if (combo == 2)
+        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 0x00, 0xff));
+    else if (combo == 1) {
         if (use_second)
-            write_item(DITEM(DATAWBIT, 5, 0xff));
+            write_item(DITEM(DATAWBIT, opcode_bits, 0xff));
         write_item(DITEM(DATAWBIT | read, 4, M(command)));
         if (corfirst)
             write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extrabit)));
@@ -316,24 +312,21 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
         if (use_first && expect)
-            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x04, 0xff, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+            write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 4, M(command>>8), SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
         else if (!use_first || expect)
             write_item(DITEM(EXIT1_TO_IDLE));
         return;
     }
-    //if (trace)
-    //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
-    /* send out first part of IR bit pattern */
-    if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
+    else if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
         write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
     else {
         write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
         if (use_both) {
-            write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
+            write_item(DITEM(DATAWBIT | read, 4, M(command>>8)));
             extrabit = (command >> (4+2)) & 0x80;
         }
         if (found_cortex) {     /* 3 extra bits of IR are sent here */
-            write_item(DITEM(DATAWBIT | read, 2, (command>>8) & 0xff));
+            write_item(DITEM(DATAWBIT | read, 2, M(command>>8)));
             extrabit = (command >> (2+2)) & 0x80;
         }
     }
@@ -375,7 +368,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
     else
         write_item(DITEM(IDLE_TO_RESET));
-    write_item(DITEM(TMSW, 0x04, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
+    write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);

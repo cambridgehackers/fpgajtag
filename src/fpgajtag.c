@@ -54,7 +54,6 @@ static int verbose;
 static int found_multiple, use_first, use_second, corfirst, use_both;
 int found_cortex;
 static int opcode_bits = 4;
-int irreg_extrabit = 0;
 uint8_t *input_fileptr;
 static int input_filesize;
 
@@ -308,7 +307,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         if (read) {
             uint16_t ret = read_data_int(__LINE__, ftdi, 1);
             if (found_cortex)
-                write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 0x02, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
+                write_item(DITEM(PAUSE_TO_SHIFT, DATAWBIT, 2, 0xff, SHIFT_TO_EXIT1(0, 0x80)));
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
@@ -325,7 +324,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     //    printf("[%s] read %x command %x goto %x\n", __FUNCTION__, read, command, next_state);
     /* send out first part of IR bit pattern */
     if (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)
-        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 0x02, 0xff));
+        write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2, 0xff));
     else {
         write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
         if (use_both) {
@@ -333,8 +332,8 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             extrabit = (command >> (4+2)) & 0x80;
         }
         if (found_cortex) {     /* 3 extra bits of IR are sent here */
-            write_item(DITEM(DATAWBIT | read, 0x02,
-                M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
+            write_item(DITEM(DATAWBIT | read, 2, (command>>8) & 0xff));
+                //M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
             extrabit = (command >> (2+2)) & 0x80;
         }
     }
@@ -673,14 +672,12 @@ int main(int argc, char **argv)
             corfirst = 1;
             found_multiple = 1;
             opcode_bits = 5;
-            irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
             break;
         case '2':
             use_second = 1;
             use_both = 1;
             found_multiple = 1;
             opcode_bits = 5;
-            irreg_extrabit = EXTRA_BIT_MASK | (0xff << 8);
             break;
         case 'c':
             cflag = 1;
@@ -756,7 +753,6 @@ usage:
         found_multiple = 1;
     /*** Depending on the idcode read, change some default actions ***/
         opcode_bits = 5;
-        irreg_extrabit = EXTRA_BIT_MASK;
     }
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)

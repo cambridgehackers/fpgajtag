@@ -82,20 +82,17 @@
 #define CLOCK_FREQUENCY      30000000
 #define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
 
-#define COMBINE_IR_REG(FPGAREG, CORTEXREG) \
-     (((CORTEXREG) << EXTRA_IRREG_BIT_SHIFT) | (irreg_extrabit | (FPGAREG)))
-
 /* FPGA JTAG registers */
-#define IRREG_USER2          COMBINE_IR_REG(0x03, 0xf)
-#define IRREG_CFG_OUT        COMBINE_IR_REG(0x04, 0xf)
-#define IRREG_CFG_IN         COMBINE_IR_REG(0x05, 0xf)
-#define IRREG_USERCODE       COMBINE_IR_REG(0x08, 0xf)
-#define IRREG_IDCODE         COMBINE_IR_REG(0x09, 0xf)
-#define IRREG_JSHUTDOWN      COMBINE_IR_REG(0x0d, 0xf)
-#define IRREG_JPROGRAM       COMBINE_IR_REG(0x0b, 0xf)
-#define IRREG_JSTART         COMBINE_IR_REG(0x0c, 0xf)
-#define IRREG_ISC_NOOP       COMBINE_IR_REG(0x14, 0xf)
-#define IRREG_BYPASS         COMBINE_IR_REG((EXTRA_BIT_MASK | 0x3f), 0xf) // even on PCIE, this has an extra bit
+#define IRREG_USER2          0xff03
+#define IRREG_CFG_OUT        0xff04
+#define IRREG_CFG_IN         0xff05
+#define IRREG_USERCODE       0xff08
+#define IRREG_IDCODE         0xff09
+#define IRREG_JSHUTDOWN      0xff0d
+#define IRREG_JPROGRAM       0xff0b
+#define IRREG_JSTART         0xff0c
+#define IRREG_ISC_NOOP       0xff14
+#define IRREG_BYPASS         (EXTRA_BIT_MASK | 0xff3f) // even on PCIE, this has an extra bit
 
 /* Status values */
 #define FIRST_TIME    ((found_cortex | use_second) ? 0x8a : 0x20)
@@ -179,14 +176,14 @@
 #define CORTEX_IDCODE 0x4ba00477
 
 /* ARM JTAG-DP registers */
-#define IRREGA_ABORT         COMBINE_IR_REG(0xff, 0x8)   /* 35 bit register */
-#define IRREGA_DPACC         COMBINE_IR_REG(0xff, 0xa)   /* Debug Port access, 35 bit register */
-#define IRREGA_APACC         COMBINE_IR_REG(0xff, 0xb)   /* Access Port access, 35 bit register */
+#define IRREGA_ABORT         0xf8ff   /* 35 bit register */
+#define IRREGA_DPACC         0xfaff   /* Debug Port access, 35 bit register */
+#define IRREGA_APACC         0xfbff   /* Access Port access, 35 bit register */
     #define AP_CSW           0                           /* MEM-AP registers */
     #define AP_TAR           2
     #define AP_DRW           6
-#define IRREGA_IDCODE        COMBINE_IR_REG(0xff, 0xe)   /* 32 bit register */
-#define IRREGA_BYPASS        COMBINE_IR_REG(0xff, 0xf)
+#define IRREGA_IDCODE        0xfeff   /* 32 bit register */
+#define IRREGA_BYPASS        0xffff
 
 /* Cortex request extra 3 bit field */
 /* 2 bits of register selector */
@@ -236,7 +233,6 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 #define SEND_SINGLE_FRAME     99999
 
-extern int irreg_extrabit;
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
 uint8_t *input_fileptr;

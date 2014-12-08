@@ -330,13 +330,17 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
         if (use_both) {
             write_item(DITEM(DATAWBIT | read, 4, (command>>8) & 0xff));
-            extrabit = (command >> 6) & 0x80;
+            extrabit = (command >> (4+2)) & 0x80;
         }
-        if (found_cortex)     /* 3 extra bits of IR are sent here */
+        if (found_cortex) {     /* 3 extra bits of IR are sent here */
             write_item(DITEM(DATAWBIT | read, 0x02,
                 M((IRREG_BYPASS<<4) | ((command >> EXTRA_IRREG_BIT_SHIFT) & 0xf))));
+            extrabit = (command >> (2+2)) & 0x80;
+        }
     }
-    if (next_state)
+    if (next_state == 2)
+        write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
+    else if (next_state)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     else
         write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
@@ -757,14 +761,17 @@ usage:
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;
+    if (device_type == DEVICE_ZEDBOARD)
+        bypass_tc = 2;
     if (device_type == DEVICE_ZC702)
         bypass_tc = 1;
     if (use_first)
         bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
-    int last_bypass_count = (device_type == DEVICE_ZEDBOARD);
     int first_bypass_count = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
-    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst) + last_bypass_count;
+    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst);
+    if (device_type == DEVICE_ZEDBOARD)
+        extra_bypass_count = 0;
 
     /*
      * See if we are reading out data
@@ -846,11 +853,10 @@ usage:
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if (!last_bypass_count)
-        bypass_test(ftdi, 3, 1, 0, 0, 0);
+    bypass_test(ftdi, 3, 1, 0, 0, 0);
     check_status(ftdi, 0xf07910, 1, use_second);
     for (i = 0; i < extra_bypass_count; i++)
-        bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
+        bypass_test(ftdi, 3, 1, (device_type != DEVICE_ZEDBOARD) && (i == 0), 0, 0);
     rescan = 1;
 
     /*

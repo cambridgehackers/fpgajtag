@@ -612,31 +612,42 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     return ftdi;
 }
 
-static void bypass_status(struct ftdi_context *ftdi)
+static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype)
 {
-    int i, ret, location = 4;
+    int i, j, ret;
 
-    if (found_cortex)
-        write_bypass(ftdi);
-    loop:
-    ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
-        found_multiple, -1, location == 4 ? use_both : (use_second * 2));
-    if (verbose && ret != 0xffffffff)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    for (i = 0; i < 3; i++) {
-        ret = write_bypass(ftdi) & 0xfff;
-        if (ret == FIRST_TIME)
-            printf("fpgajtag: bypass first time %x\n", ret);
-        else if (ret == PROGRAMMED)
-            printf("fpgajtag: bypass already programmed %x\n", ret);
-        else
-            printf("fpgajtag: bypass unknown %x\n", ret);
+    if (writeb) {
+        ret = write_bypass(ftdi);
+        if (ret != PROGRAMMED)
+            printf("[%s] not programmed %x\n", __FUNCTION__, ret);
     }
-    check_status(ftdi, 0x301900, 0, location);
-    if (use_both && location == 4) {
-        location = 3;
-        write_item(DITEM(RESET_TO_IDLE));
-        goto loop;
+    if (!btype) {
+        for (j = 0; j < 2; j++) {
+            ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
+                found_multiple, -1, (!j) ? use_both : (use_second * 2));
+            if (verbose && ret != 0xffffffff)
+                printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+            for (i = 0; i < 3; i++) {
+                ret = write_bypass(ftdi) & 0xfff;
+                if (ret == FIRST_TIME)
+                    printf("fpgajtag: bypass first time %x\n", ret);
+                else if (ret == PROGRAMMED)
+                    printf("fpgajtag: bypass already programmed %x\n", ret);
+                else
+                    printf("fpgajtag: bypass unknown %x\n", ret);
+            }
+            check_status(ftdi, 0x301900, 0, (!j) ? 4 : 3);
+            if (j || !use_both)
+                break;
+            write_item(DITEM(RESET_TO_IDLE));
+        }
+    }
+    else {
+        for (i = 0; i < btype; i++) {
+            bypass_test(ftdi, 3, 1, (i == 1), 0, 0);
+            if (i == 0)
+                check_status(ftdi, 0xf07910, 1, use_second);
+        }
     }
 }
 
@@ -812,7 +823,7 @@ usage:
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
-    bypass_status(ftdi);
+    bypass_status(ftdi, found_cortex, 0);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
@@ -845,13 +856,7 @@ usage:
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
-    if ((ret = write_bypass(ftdi)) != PROGRAMMED)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    for (i = 0; i < extra_bypass_count+1; i++) {
-        bypass_test(ftdi, 3, 1, (i == 1), 0, 0);
-        if (i == 0)
-            check_status(ftdi, 0xf07910, 1, use_second);
-    }
+    bypass_status(ftdi, 1, extra_bypass_count+1);
     rescan = 1;
 
     /*

@@ -107,13 +107,12 @@ static void read_inputfile(char *filename)
     if (!memcmp(bitfile_header, input_fileptr, sizeof(bitfile_header))) {
         uint8_t *inputtemp = input_fileptr;
         input_fileptr += sizeof(bitfile_header) - 1;
-        while(*input_fileptr < 'e') {
-            input_fileptr++;
+        while(*input_fileptr++ < 'e') {
             int len = *input_fileptr++;
             len = (len << 8) | *input_fileptr++;
             input_fileptr += len;
         }
-        if (*input_fileptr == 'e')
+        if (*--input_fileptr == 'e')
             input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */
         input_filesize -= input_fileptr - inputtemp;
     }
@@ -345,7 +344,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
 
 static uint32_t write_bypass(struct ftdi_context *ftdi)
 {
-    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, found_cortex * 2, 0, 0);
+    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, found_cortex * 2, 0);
     return read_data_int(__LINE__, ftdi, 1 + found_multiple);
 }
 
@@ -473,10 +472,10 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
     static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
-    write_item(DITEM(IDLE_TO_RESET));
     if (after)
-        write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
-    write_item(DITEM(RESET_TO_IDLE));
+        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
+    else
+        write_item(DITEM(IDLE_TO_RESET, RESET_TO_IDLE));
     /*
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
@@ -619,6 +618,8 @@ static void bypass_status(struct ftdi_context *ftdi)
 {
     int i, ret, location = 4;
 
+    if (found_cortex)
+        write_bypass(ftdi);
     loop:
     ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
         found_multiple, -1, location == 4 ? use_both : (use_second * 2));
@@ -811,8 +812,6 @@ usage:
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    if (found_cortex)
-        write_bypass(ftdi);
     bypass_status(ftdi);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);

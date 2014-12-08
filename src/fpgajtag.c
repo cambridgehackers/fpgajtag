@@ -811,6 +811,7 @@ usage:
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+
     bypass_status(ftdi);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
@@ -843,12 +844,14 @@ usage:
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+
     if ((ret = write_bypass(ftdi)) != PROGRAMMED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    bypass_test(ftdi, 3, 1, 0, 0, 0);
-    check_status(ftdi, 0xf07910, 1, use_second);
-    for (i = 0; i < extra_bypass_count; i++)
-        bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
+    for (i = 0; i < extra_bypass_count+1; i++) {
+        bypass_test(ftdi, 3, 1, (i == 1), 0, 0);
+        if (i == 0)
+            check_status(ftdi, 0xf07910, 1, use_second);
+    }
     rescan = 1;
 
     /*

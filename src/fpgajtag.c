@@ -798,14 +798,15 @@ usage:
     bypass_test(ftdi, 3, 1, firstflag, 1, 0);
     if (!firstflag)
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
+    for (i = 0; i < 1 + (firstflag == 0); i++)
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
+    write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
+
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    for (i = 0; i < 1 + (firstflag == 0); i++)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
-    write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
@@ -847,7 +848,7 @@ usage:
     bypass_test(ftdi, 3, 1, 0, 0, 0);
     check_status(ftdi, 0xf07910, 1, use_second);
     for (i = 0; i < extra_bypass_count; i++)
-        bypass_test(ftdi, 3, 1, (device_type != DEVICE_ZEDBOARD) && (i == 0), 0, 0);
+        bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
     rescan = 1;
 
     /*

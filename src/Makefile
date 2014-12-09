@@ -2,6 +2,7 @@
 OS := $(shell uname)
 
 #USE_LIBFTDI = 1
+# make VARIANT="-DUSE_LOGGING"
 ifeq ($(USE_LIBFTDI),1)
 CFLAGS += -DUSE_LIBFTDI -I/home/$(USER)/git/system-tools/librarywrap/libftdi1-1.1/src/
 FTDILIB = /scratch/Xilinx/Vivado/2013.2/lib/lnx64.o/libxftdi.so

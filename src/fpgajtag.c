@@ -197,18 +197,17 @@ static void swap32(uint32_t value)
 }
 int write_bit(int read, int bits, int data)
 {
-    write_item(DITEM(DATAWBIT | read, bits, M(data)));
-    return (data << (6 - bits)) & 0x80;
+    write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
+    return (data << (7 - bits)) & 0x80;
 }
 
 static int write_one_word(int dread, int short_format, uint32_t value)
 {
-    if (short_format)
-        write_item(DITEM(INT32(value)));
-    else {
+    if (!short_format) {
         write_item(DITEM(M(value), M(value >> 8), M(value >> 16)));
-        return write_bit(dread, 0x06, value >> 24);
+        return write_bit(dread, 7, value >> 24);
     }
+    write_item(DITEM(INT32(value)));
     return 0;
 }
 
@@ -271,7 +270,7 @@ void idle_to_shift_dr(int extra, int val)
 {
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (extra)
-        write_bit(0, 0, val);
+        write_bit(0, 1, val);
 }
 
 static void send_data_file(struct ftdi_context *ftdi)
@@ -316,17 +315,17 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 1) {
         if (use_second)
-            write_bit(0, opcode_bits, 0xff);
-        extrabit = write_bit(read, 4, command);
+            write_bit(0, opcode_bits+1, 0xff);
+        extrabit = write_bit(read, 5, command);
         if (corfirst)
-            write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extrabit)));
+            write_item(DITEM(SHIFT_TO_PAUSE(read, extrabit)));
         else
             write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
             uint16_t ret = read_data_int(__LINE__, ftdi, 1);
             if (found_cortex) {
                 write_item(DITEM(PAUSE_TO_SHIFT));
-                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, 2, 0xff))));
+                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, 3, 0xff))));
             }
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -335,7 +334,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         read = 0;
         if (use_first && expect) {
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_bit(0, 4, command>>8);
+            write_bit(0, 5, command>>8);
         }
         else {
             if (!use_first || expect)
@@ -345,14 +344,14 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
         write_item(DITEM(DATAW(read, 1), 0xff));
-        extrabit = write_bit(read, 2 - combo, command);
+        extrabit = write_bit(read, 3 - combo, command);
     }
     else {
-        extrabit = write_bit(read, opcode_bits, command);
+        extrabit = write_bit(read, opcode_bits+1, command);
         if (use_both)
-            extrabit = write_bit(read, 4, command>>8);
+            extrabit = write_bit(read, 5, command>>8);
         if (found_cortex)     /* 3 extra bits of IR are sent here */
-            extrabit = write_bit(read, 2, command>>8);
+            extrabit = write_bit(read, 3, command>>8);
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
@@ -422,15 +421,15 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
     write_irreg(ftdi, 0, irreg, 1, readitem, 0, 0);
     idle_to_shift_dr(readitem, 0);
     if (variant > 1) {
-        write_bit(0, opcode_bits - (second != 0), IRREG_JSTART);
+        write_bit(0, opcode_bits - (second != 0)+1, IRREG_JSTART);
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
         idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
         write_item(DITEM(DATAW(0, 1), 0x69));
-        write_bit(0, 1, 0);
+        write_bit(0, 2, 0);
         if (found_multiple)
-            write_bit(0, 0, 0);
+            write_bit(0, 1, 0);
     }
     while (resp_len > 0) {
         int size = resp_len;

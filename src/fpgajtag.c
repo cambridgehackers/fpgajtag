@@ -612,17 +612,19 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
     return ftdi;
 }
 
-static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype)
+static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound)
 {
     int i, j, ret;
 
     if (writeb) {
         ret = write_bypass(ftdi);
-        if (ret != PROGRAMMED)
+        if (ret != PROGRAMMED && btype)
             printf("[%s] not programmed %x\n", __FUNCTION__, ret);
     }
-    if (!btype) {
-        for (j = 0; j < 2; j++) {
+    for (j = 0; j < upperbound; j++) {
+        if (!btype) {
+            if (j)
+                write_item(DITEM(RESET_TO_IDLE));
             ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
                 found_multiple, -1, (!j) ? use_both : (use_second * 2));
             if (verbose && ret != 0xffffffff)
@@ -637,15 +639,10 @@ static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype)
                     printf("fpgajtag: bypass unknown %x\n", ret);
             }
             check_status(ftdi, 0x301900, 0, (!j) ? 4 : 3);
-            if (j || !use_both)
-                break;
-            write_item(DITEM(RESET_TO_IDLE));
         }
-    }
-    else {
-        for (i = 0; i < btype; i++) {
-            bypass_test(ftdi, 3, 1, (i == 1), 0, 0);
-            if (i == 0)
+        else {
+            bypass_test(ftdi, 3, 1, (j == 1), 0, 0);
+            if (j == 0)
                 check_status(ftdi, 0xf07910, 1, use_second);
         }
     }
@@ -771,9 +768,7 @@ usage:
         bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
     int first_bypass_count = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
-    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || corfirst);
-    if (device_type == DEVICE_ZEDBOARD)
-        extra_bypass_count = 0;
+    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || (corfirst && (device_type != DEVICE_ZEDBOARD))) + 1;
 
     /*
      * See if we are reading out data
@@ -811,26 +806,26 @@ usage:
         flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     for (i = 0; i < 1 + (firstflag == 0); i++)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
-    write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
+    write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
-    write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
-    bypass_status(ftdi, found_cortex, 0);
+    write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+    bypass_status(ftdi, found_cortex, 0, 1 + use_both);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
-    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
     /*
      * Step 2: Initialization
      */
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_JPROGRAM, 0, use_second, 0, 0);
     write_irreg(ftdi, 0, IRREG_ISC_NOOP, 0, use_second, 0, 0);
     pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
@@ -854,9 +849,9 @@ usage:
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT, !found_multiple)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
 
-    bypass_status(ftdi, 1, extra_bypass_count+1);
+    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
+    bypass_status(ftdi, 1, 1, extra_bypass_count);
     rescan = 1;
 
     /*

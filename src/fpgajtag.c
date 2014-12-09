@@ -195,14 +195,21 @@ static void swap32(uint32_t value)
 {
     write_item(DITEM(INT32(swap32i(value))));
 }
+static int write_bit(int read, int bits, int data)
+{
+    write_item(DITEM(DATAWBIT | read, bits, M(data)));
+    return (data << (6 - bits)) & 0x80;
+}
 
 static int write_one_word(int dread, int short_format, uint32_t value)
 {
     if (short_format)
         write_item(DITEM(INT32(value)));
-    else
-        write_item(DITEM(M(value), M(value >> 8), M(value >> 16), DATAWBIT | dread, 0x06, M(value >> 24)));
-    return M(value >> 24) & 0x80;
+    else {
+        write_item(DITEM(M(value), M(value >> 8), M(value >> 16)));
+        return write_bit(dread, 0x06, M(value >> 24));
+    }
+    return 0;
 }
 
 void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
@@ -312,7 +319,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     if (combo == 1) {
         if (use_second)
             write_item(DITEM(DATAWBIT, opcode_bits, 0xff));
-        write_item(DITEM(DATAWBIT | read, 4, M(command)));
+        extrabit = write_bit(read, 4, command);
         if (corfirst)
             write_item(DITEM(SHIFT_TO_PAUSE(DREAD, extrabit)));
         else
@@ -337,15 +344,11 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff))
         write_item(DITEM(DATAW(read, 1), 0xff, DATAWBIT | read, 2 - combo, 0xff));
     else {
-        write_item(DITEM(DATAWBIT | read, opcode_bits, M(command)));
-        if (use_both) {
-            write_item(DITEM(DATAWBIT | read, 4, M(command>>8)));
-            extrabit = (command >> (4+2)) & 0x80;
-        }
-        if (found_cortex) {     /* 3 extra bits of IR are sent here */
-            write_item(DITEM(DATAWBIT | read, 2, M(command>>8)));
-            extrabit = (command >> (2+2)) & 0x80;
-        }
+        extrabit = write_bit(read, opcode_bits, command);
+        if (use_both)
+            extrabit = write_bit(read, 4, command>>8);
+        if (found_cortex)     /* 3 extra bits of IR are sent here */
+            extrabit = write_bit(read, 2, command>>8);
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));

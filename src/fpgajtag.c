@@ -579,6 +579,10 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
     readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
 }
 
+static void set_clock_divisor(struct ftdi_context *ftdi)
+{
+    flush_write(ftdi, DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
+}
 static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
     int i, j = argj, second = 0;
@@ -608,7 +612,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
     if (reset)
         flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     if (clock)
-        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
+        set_clock_divisor(ftdi);
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
@@ -621,8 +625,9 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
      */
     idcode_array_index = 0;
     if (ftdi) {
-        write_item(DITEM(LOOPBACK_END, DIS_DIV_5, SET_CLOCK_DIVISOR,
-                     SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+        write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
+        set_clock_divisor(ftdi);
+        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
         if (use_both || usb_bcddevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/

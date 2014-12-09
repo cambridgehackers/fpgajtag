@@ -68,9 +68,11 @@
 /*
  * Xilinx constants
  */
-//#define CLOCK_FREQUENCY      15000000
+#ifdef USE_LOGGING // when comparing to old libftdi output, use slower clock
+#define CLOCK_FREQUENCY      15000000
+#else
 #define CLOCK_FREQUENCY      30000000
-#define SET_CLOCK_DIVISOR    TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)
+#endif
 
 /* FPGA JTAG registers */
 #define IRREG_USER2          0xff03

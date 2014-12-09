@@ -142,12 +142,20 @@ badlen:
  * the SMT2, it has an example connecting GPIO2 -> PS_SRST_B
  * on the Zynq-7000. (but the zedboard uses SMT1)
  */
-static void pulse_gpio(struct ftdi_context *ftdi, int delay)
+static void pulse_gpio(struct ftdi_context *ftdi, int adelay)
 {
+    int delay;
 #define GPIO_DONE            0x10
 #define GPIO_01              0x01
 #define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
 
+    switch (adelay) {
+    case 1250:  delay = CLOCK_FREQUENCY/800; break;
+    case 12500: delay = CLOCK_FREQUENCY/80; break;
+    default:
+           printf("pulse_gpio: unsupported time delay %d\n", adelay);
+           exit(-1);
+    }
     write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
                      SET_LSB_DIRECTION(GPIO_DONE)));
     while(delay > 65536) {
@@ -157,6 +165,13 @@ static void pulse_gpio(struct ftdi_context *ftdi, int delay)
     write_item(DITEM(CLK_BYTES, INT16(delay-1)));
     write_item(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
                      SET_LSB_DIRECTION(GPIO_01)));
+}
+
+void tmsw_delay(int delay_time)
+{
+    int i;
+    for (i = 0; i < delay_time; i++)
+        write_item(DITEM(TMSW, 0x06, 0x00));
 }
 
 static void write_dataw(uint32_t value)
@@ -553,7 +568,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
     //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1, 0, 0, 1, 0);
     //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1, 0, 0, 1, 0);
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0);
-    write_item(DITEM(TMS_WAIT, TMS_WAIT));
+    tmsw_delay(6);
     readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
 }
 
@@ -616,6 +631,7 @@ static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int 
 {
     int i, j, ret;
 
+    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (writeb) {
         ret = write_bypass(ftdi);
         if (ret != PROGRAMMED && btype)
@@ -816,8 +832,8 @@ usage:
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     check_read_data(__LINE__, ftdi, idcode_validate_result);
+    write_item(DITEM(FORCE_RETURN_TO_RESET));
 
-    write_item(DITEM(FORCE_RETURN_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     bypass_status(ftdi, found_cortex, 0, 1 + use_both);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
@@ -828,7 +844,7 @@ usage:
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_JPROGRAM, 0, use_second, 0, 0);
     write_irreg(ftdi, 0, IRREG_ISC_NOOP, 0, use_second, 0, 0);
-    pulse_gpio(ftdi, CLOCK_FREQUENCY/80/* 12.5 msec */);
+    pulse_gpio(ftdi, 12500 /*msec*/);
     write_irreg(ftdi, DREAD, IRREG_ISC_NOOP, 0, 0, 1, INPROGRAMMING);
 
     /*
@@ -840,17 +856,19 @@ usage:
     /*
      * Step 8: Startup
      */
-    pulse_gpio(ftdi, CLOCK_FREQUENCY/800/*1.25 msec*/);
+    pulse_gpio(ftdi, 1250 /*msec*/);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS, 0)) != (found_cortex ? 0x03000000 : 0x01000000))
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_irreg(ftdi, 0, IRREG_JSTART, 0, use_second, 0, 0);
-    write_item(DITEM(TMSW_DELAY));
+    write_item(DITEM(RESET_TO_IDLE));
+    tmsw_delay(14);
+    write_item(DITEM(TMSW, 0x01, 0x00));
     write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, 0, 1, FINISHED);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT, !found_multiple)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+    write_item(DITEM(IDLE_TO_RESET));
 
-    write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
     bypass_status(ftdi, 1, 1, extra_bypass_count);
     rescan = 1;
 

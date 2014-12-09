@@ -88,8 +88,14 @@ static void write_select(int bus)
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
-static uint8_t *waitreq[2] = {DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x03, 0x00),
-                              DITEM(RESET_TO_IDLE, TMS_WAIT, TMSW, 0x02, 0x00)};
+static uint8_t *waitreqstr[2] = {DITEM(TMSW, 0x03, 0x00),
+                              DITEM(TMSW, 0x02, 0x00)};
+void sendwait(int ind)
+{
+    write_item(DITEM(RESET_TO_IDLE));
+    tmsw_delay(3);
+    write_item(waitreqstr[ind]);
+}
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
     uint32_t *cresp[2];
@@ -118,7 +124,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         write_select(i);
         loaddr(DREAD, 0, AP_CSW | DPACC_WRITE);
         if (wait)
-           write_item(waitreq[i]);
+           sendwait(i);
     }
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 }
@@ -152,7 +158,7 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
         write_select(i);
         loaddr(DREAD, cread[i], AP_CSW);
         if (wait)
-            write_item(waitreq[i]);
+            sendwait(i);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
     write_select(0);
@@ -161,10 +167,10 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
     for (i = 0; i < 2; i++) {
         loaddr(DREAD, address_table[i], AP_TAR);
         if (wait)
-            write_item(waitreq[0]);
+            sendwait(0);
         read_rdbuff();
         if (wait)
-            write_item(waitreq[0]);
+            sendwait(0);
         else
             write_item(cortex_reset);
     }

@@ -312,9 +312,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
 {
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
-    int extrabit = (command << (6 - opcode_bits)) & 0x80;
-    if (command == IRREG_BYPASS)
-        extrabit = 0x80;
+    int extrabit;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 1) {
         if (use_second)
@@ -347,7 +345,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
         write_item(DITEM(DATAW(read, 1), 0xff));
-        write_bit(read, 2 - combo, 0xff);
+        extrabit = write_bit(read, 2 - combo, command);
     }
     else {
         extrabit = write_bit(read, opcode_bits, command);

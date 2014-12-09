@@ -28,7 +28,8 @@ fpgajtag: $(OBJS) Makefile
 	gcc -g -o fpgajtag $(OBJS) -lpthread $(FTDILIB) $(USBLIB) -lz
 
 fpgajtag.o: $(HEADERS) Makefile
-
+process.o: $(HEADERS) Makefile
+cortex.o: $(HEADERS) Makefile
 util.o: $(HEADERS) Makefile
 
 install: fpgajtag

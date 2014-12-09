@@ -86,9 +86,9 @@
 
 /* Status values */
 #define FIRST_TIME    ((found_cortex | use_second) ? 0x8a : 0x20)
-#define INPROGRAMMING (found_cortex ? 0x10 : 0x88)
-#define PROGRAMMED    ((found_cortex | use_second) ? 0xae : 0xbc)
-#define FINISHED      ((found_cortex | use_second) ? 0x5c : 0xac)
+#define INPROGRAMMING ((found_cortex | use_first) ? 0x10 : 0x88)
+#define PROGRAMMED    ((found_cortex | use_both) ? 0xae : 0xbc)
+#define FINISHED      ((found_cortex | use_first) ? 0x5c : 0xac)
 
 /*
  * Xilinx Configuration Packets

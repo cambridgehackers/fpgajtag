@@ -78,13 +78,13 @@ static void cortex_pair(uint32_t v)
     loaddr(DREAD, 0x0310c002, AP_DRW);
 }
 
-static void write_select(int bus)
+static void write_select(struct ftdi_context *ftdi, int bus)
 {
-    write_irreg(NULL, 0, IRREGA_DPACC, 2, 0, 0, 0);
+    write_irreg(ftdi, 0, IRREGA_DPACC, 2, 0, 0, 0);
     loaddr(0,      // Coresight: Table 2-11
         bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
         DPACC_SELECT);
-    write_irreg(NULL, 0, IRREGA_APACC, 2, 0, 0, 0);
+    write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
@@ -121,7 +121,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         if (trace)
             printf("[%s:%d] wait %d i %d\n", __FUNCTION__, __LINE__, wait, i);
         check_read_cortex(__LINE__, ftdi, cresp[i], i);
-        write_select(i);
+        write_select(ftdi, i);
         loaddr(DREAD, 0, AP_CSW | DPACC_WRITE);
         if (wait)
            sendwait(i);
@@ -134,9 +134,9 @@ static void tar_read(uint32_t v)
     loaddr(DREAD, DEBUG_REGISTER_BASE | v, AP_TAR);
     read_rdbuff();
 }
-static void tar_write(uint32_t v)
+static void tar_write(struct ftdi_context *ftdi, uint32_t v)
 {
-    write_irreg(NULL, 0, IRREGA_APACC, 2, 0, 0, 0);
+    write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
     loaddr(0, v, AP_TAR);
     read_rdbuff();
 }
@@ -155,13 +155,13 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
           (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}};
 
     for (i = 0; i < 2; i++) {
-        write_select(i);
+        write_select(ftdi, i);
         loaddr(DREAD, cread[i], AP_CSW);
         if (wait)
             sendwait(i);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
-    write_select(0);
+    write_select(ftdi, 0);
 #define VAL3          0x1f000200
 #define VAL5          0x00028000
     for (i = 0; i < 2; i++) {
@@ -177,11 +177,11 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW,
           VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
-        tar_write(ADDRESS_DEVCFG_MCTRL);
+        tar_write(ftdi, ADDRESS_DEVCFG_MCTRL);
         write_item(cortex_reset);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
-    write_select(1);
+    write_select(ftdi, 1);
     for (i = 0; i < 2; i++) {
         if (i == 1) {
             write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
@@ -210,11 +210,11 @@ void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){8, 0, 0, 0, 0, 1, 1,
             DEBUGID_VAL1, CORTEX_DEFAULT_STATUS,}, 1);
 #define VAL6          0xe001b400
-    tar_write(DEBUG_REGISTER_BASE | DBGITR);
+    tar_write(ftdi, DEBUG_REGISTER_BASE | DBGITR);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
+    tar_write(ftdi, DEBUG_REGISTER_BASE | 0x2000 | DBGPRSR);
     tar_read(0x2000 | DBGDSCRext);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){5, VAL6, 1, 1, DEBUGID_VAL1, CORTEX_DEFAULT_STATUS,}, 1);
-    tar_write(DEBUG_REGISTER_BASE | 0x2000 | DBGITR);
+    tar_write(ftdi, DEBUG_REGISTER_BASE | 0x2000 | DBGITR);
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, DEBUGID_VAL1, VAL6, CORTEX_DEFAULT_STATUS,}, 1);
 }

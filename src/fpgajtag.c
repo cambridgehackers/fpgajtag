@@ -195,7 +195,7 @@ static void swap32(uint32_t value)
 {
     write_item(DITEM(INT32(swap32i(value))));
 }
-static int write_bit(int read, int bits, int data)
+int write_bit(int read, int bits, int data)
 {
     write_item(DITEM(DATAWBIT | read, bits, M(data)));
     return (data << (6 - bits)) & 0x80;
@@ -267,7 +267,7 @@ static void write_eight_bytes(uint32_t val)
     write_dswap32(val);
 }
 
-static void idle_to_shift_dr(int extra, int val)
+void idle_to_shift_dr(int extra, int val)
 {
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (extra)

@@ -537,8 +537,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     if (corfirst)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, combo, 0);
-    if (combo)
-        flush_write(ftdi, NULL);
+    flush_write(ftdi, NULL);
     return ret;
 }
 
@@ -599,11 +598,9 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
     if (reset)
-        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE));
+        flush_write(ftdi, DITEM(IDLE_TO_RESET, IN_RESET_STATE));
     if (clock)
-        write_item(DITEM(SET_CLOCK_DIVISOR));
-    if (reset || clock)
-        flush_write(ftdi, NULL);
+        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
@@ -817,9 +814,7 @@ usage:
     }
 
     bypass_test(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
-    bypass_test(ftdi, 3, 1, firstflag, 1, 0);
-    if (!firstflag)
-        flush_write(ftdi, DITEM(SET_CLOCK_DIVISOR));
+    bypass_test(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
         write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
 

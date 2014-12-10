@@ -70,7 +70,6 @@ uint8_t *buffer_current_ptr(void);
 
 uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size);
 uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size);
-uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf);
 void tmsw_delay(int delay_time);
 int write_bit(int read, int bits, int data);
 void idle_to_shift_dr(int extra, int val);

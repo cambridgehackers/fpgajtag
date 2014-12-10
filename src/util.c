@@ -316,19 +316,6 @@ uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
     return ret;
 }
 
-uint8_t *check_read_data(int linenumber, struct ftdi_context *ftdi, uint8_t *buf)
-{
-    if (trace)
-        printf("[%s:%d]\n", __FUNCTION__, linenumber);
-    uint8_t *rdata = read_data(linenumber, ftdi, buf[0]);
-    if (last_read_data_length != buf[0] || memcmp(buf+1, rdata, buf[0])) {
-        printf("[%s] mismatch on line %d\n", __FUNCTION__, linenumber);
-        memdump(buf+1, buf[0], "EXPECT");
-        memdump(rdata, last_read_data_length, "ACTUAL");
-    }
-    return rdata;
-}
-
 /*
  * USB interface
  */

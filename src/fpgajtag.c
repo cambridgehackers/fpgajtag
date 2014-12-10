@@ -520,9 +520,9 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     else
         write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
-    write_item(DITEM(EXIT1_TO_IDLE));
     if (corfirst)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE));
+        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
+    write_item(DITEM(EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, combo, 0);
     flush_write(ftdi, NULL);
     return ret;
@@ -839,7 +839,13 @@ usage:
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
-    check_read_data(__LINE__, ftdi, idcode_validate_result);
+    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_validate_result[0]);
+    if (last_read_data_length != idcode_validate_result[0]
+     || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {
+        printf("fpgajtag: mismatch validate data\n");
+        memdump(idcode_validate_result+1, idcode_validate_result[0], "EXPECT");
+        memdump(rdata, last_read_data_length, "ACTUAL");
+    }
     write_item(DITEM(FORCE_RETURN_TO_RESET));
 
     bypass_status(ftdi, found_cortex, 0, 1 + use_both, 4, 0x301900);

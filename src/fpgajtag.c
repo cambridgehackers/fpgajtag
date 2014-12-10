@@ -257,13 +257,12 @@ static void write_dswap32(uint32_t value)
     swap32(value);
 }
 
-static void write_eight_bytes(uint32_t val)
+static void write_eight_bytes()
 {
     if (found_multiple) {
         write_item(DITEM(DATAW(0, 7), INT32(0)));
         write_one_word(0, 0, 0);
     }
-    write_dswap32(val);
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -279,7 +278,8 @@ static void send_data_file(struct ftdi_context *ftdi)
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
 
     idle_to_shift_dr(use_second, 0xff);
-    write_eight_bytes(0);
+    write_eight_bytes();
+    write_dswap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -515,17 +515,22 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
  */
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int combo)
 {
+    uint32_t req[] = {CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_READ, data, 1),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
+        CONFIG_CMD_DESYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
+    int i;
+
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
     write_dswap32(CONFIG_DUMMY);
-    write_eight_bytes(CONFIG_SYNC);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_READ, data, 1));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG));
-    write_dswap32(CONFIG_CMD_DESYNC);
-    write_dswap32(CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
+    write_eight_bytes();
+    for (i = 0; i < sizeof(req)/sizeof(req[0]); i++)
+        write_dswap32(req[i]);
     write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +corfirst)));
     write_one_word(0, corfirst, 4);
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));

@@ -286,10 +286,8 @@ static void send_data_file(struct ftdi_context *ftdi)
         int i, size = FILE_READSIZE;
         if (input_filesize < FILE_READSIZE) {
             size = input_filesize;
-            if (found_cortex)
-                tailp = DITEM(SHIFT_TO_PAUSE(0, 0), PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80), EXIT1_TO_IDLE);
-            else
-                tailp = DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE);
+            if (!found_cortex)
+                tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[*input_fileptr++];
@@ -301,6 +299,9 @@ static void send_data_file(struct ftdi_context *ftdi)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
     };
+    if (found_cortex)
+        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
+    write_item(DITEM(EXIT1_TO_IDLE));
     printf("fpgajtag: Done sending file\n");
 }
 
@@ -837,7 +838,7 @@ usage:
      * on the first call
      */
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DWRITE | DREAD, DITEM(PAUSE_TO_SHIFT),
+    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_validate_result[0]);
     if (last_read_data_length != idcode_validate_result[0]

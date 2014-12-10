@@ -56,6 +56,8 @@ int found_cortex;
 static int opcode_bits = 4;
 uint8_t *input_fileptr;
 static int input_filesize;
+static uint32_t file_idcode;
+static USB_INFO *uinfo;
 
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
@@ -69,7 +71,6 @@ static void read_inputfile(char *filename)
     static uint8_t uncompressbuf[BUFFER_MAX_LEN];
     static uint8_t gzmagic[] = {0x1f, 0x8b};
     int inputfd = 0;   /* default input for '-' is stdin */
-    uint32_t idcode;
 
     if (strcmp(filename, "-")) {
         inputfd = open(filename, O_RDONLY);
@@ -120,13 +121,8 @@ static void read_inputfile(char *filename)
      * Step 5: Check Device ID
      */
     /*** Read device id from file to be programmed           ***/
-    memcpy(&idcode, input_fileptr+0x80, sizeof(idcode));
-    idcode = (M(idcode) << 24) | (M(idcode >> 8) << 16) | (M(idcode >> 16) << 8) | M(idcode >> 24);
-    /*** Check to see if idcode matches file and detect Zynq ***/
-    if (idcode != (idcode_array[use_second] & IDCODE_MASK)) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, idcode, idcode_array[use_second]);
-        exit(-1);
-    }
+    memcpy(&file_idcode, input_fileptr+0x80, sizeof(file_idcode));
+    file_idcode = (M(file_idcode) << 24) | (M(file_idcode >> 8) << 16) | (M(file_idcode >> 16) << 8) | M(file_idcode >> 24);
     return;
 badlen:
     printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
@@ -211,7 +207,7 @@ static int write_one_word(int dread, int short_format, uint32_t value)
     return 0;
 }
 
-void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
+void send_data_frame(struct ftdi_context *ftdi, uint8_t read,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail)
 {
     while (size > 0) {
@@ -222,28 +218,24 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
         int tlen = rlen;
         if (rlen < max_frame_size && opttail)
             tlen--;                   // last byte is actually loaded with DATAWBIT command
-        write_item(DITEM(read_param, INT16(tlen-1)));
-        if (read_param & MPSSE_DO_WRITE) {
-            write_data(ptrin, rlen);
-            ptrin += rlen;
-        }
+        write_item(DITEM(DATAW(read, tlen)));
+        write_data(ptrin, rlen);
+        ptrin += rlen;
         uint8_t *cptr = buffer_current_ptr();
         if (rlen < max_frame_size) {
             uint8_t ch = cptr[-1];
             if (opttail) {
-                cptr[-1] = read_param | MPSSE_BITMODE; /* replace last byte of data with DATAWBIT op */
+                cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
                 write_item(DITEM(6)); // 7 bits of data here
-                if (read_param & MPSSE_DO_WRITE)
-                    write_data(&ch, 1);
+                write_data(&ch, 1);
                 cptr += 2;
             }
             else
                 ch = 0x80; /* this is the 'bypass' bit value */
             write_item(tail);
             if (tail[1] & MPSSE_WRITE_TMS) {
-                cptr[0] |= (read_param & DREAD); // this is a TMS instruction to shift state
-                if (read_param & MPSSE_DO_WRITE)
-                    cptr[2] |= 0x80 & ch; // insert 1 bit of data here
+                cptr[0] |= read; // this is a TMS instruction to shift state
+                cptr[2] |= 0x80 & ch; // insert 1 bit of data here
             }
         }
         if (size > 0)
@@ -291,7 +283,7 @@ static void send_data_file(struct ftdi_context *ftdi)
         }
         for (i = 0; i < size; i++)
             filebuffer[i] = bitswap[*input_fileptr++];
-        send_data_frame(ftdi, DWRITE, tailp, filebuffer, size, limit_len, size == FILE_READSIZE || !use_first);
+        send_data_frame(ftdi, 0, tailp, filebuffer, size, limit_len, size == FILE_READSIZE || !use_first);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_filesize -= size;
@@ -396,7 +388,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
+    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -654,7 +646,7 @@ static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int 
     }
 }
 
-static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
+static struct ftdi_context *get_deviceid(int device_index)
 {
     fpgausb_open(device_index);            /*** Open selected USB interface ***/
     struct ftdi_context *ftdi = init_ftdi();
@@ -666,7 +658,7 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
         write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
         set_clock_divisor(ftdi);
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (use_both || usb_bcddevice == 0x700) /* not a zedboard */
+        if (use_both || uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
@@ -724,14 +716,14 @@ int main(int argc, char **argv)
      */
     for (i = 0; i < sizeof(bitswap); i++)
         bitswap[i] = BSWAP(i);
-    USB_INFO *uinfo = fpgausb_init();   /*** Initialize USB interface ***/
+    uinfo = fpgausb_init();   /*** Initialize USB interface ***/
     int usb_index = 0;
     for (i = 0; uinfo[i].dev; i++) {
         fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
         if (lflag) {
             idcode_array_index = 0;
-            ftdi = get_deviceid(i, uinfo[i].bcdDevice);  /*** Generic initialization of FTDI chip ***/
+            ftdi = get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
             fpgausb_close(ftdi);
             if (idcode_array_index > 0)
                 fprintf(stderr, "; IDCODE:");
@@ -760,7 +752,7 @@ usage:
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    ftdi = get_deviceid(usb_index, uinfo[i].bcdDevice);          /*** Generic initialization of FTDI chip ***/
+    ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
     int device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
@@ -827,6 +819,12 @@ usage:
         goto exit_label;
     }
 
+    /*** Check to see if file_idcode matches file and detect Zynq ***/
+    if (file_idcode != (idcode_array[use_second] & IDCODE_MASK)) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[use_second]);
+        exit(-1);
+    }
+
     bypass_test(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
     bypass_test(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
@@ -838,7 +836,7 @@ usage:
      * on the first call
      */
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
+    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_validate_result[0]);
     if (last_read_data_length != idcode_validate_result[0]

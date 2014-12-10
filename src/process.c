@@ -96,7 +96,7 @@ void process_command_list(struct ftdi_context *ftdi)
             write_item(DITEM(IDLE_TO_SHIFT_DR));
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
-            send_data_frame(ftdi, DWRITE | DREAD, DITEM(SHIFT_TO_EXIT1(DREAD, 0)),
+            send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_EXIT1(DREAD, 0)),
                 tempbuf2, len, SEND_SINGLE_FRAME, 1);
             if (found_cortex)
                  write_item(DITEM(TMSW, 0x03, 0x0a));

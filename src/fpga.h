@@ -75,10 +75,10 @@
 #endif
 
 /* FPGA JTAG registers */
-#define IRREG_USER2          0xff03
+#define IRREG_USER2          0xffc3
 #define IRREG_CFG_OUT        0xff04
 #define IRREG_CFG_IN         0xff05
-#define IRREG_USERCODE       0xff08
+#define IRREG_USERCODE       0xffc8
 #define IRREG_IDCODE         0xff09
 #define IRREG_JSHUTDOWN      0xff0d
 #define IRREG_JPROGRAM       0xff0b

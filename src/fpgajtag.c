@@ -330,16 +330,14 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
-        read = 0;
-        if (use_first && expect) {
-            write_item(DITEM(PAUSE_TO_SHIFT));
-            extrabit = write_bit(0, 5, command>>8);
-        }
-        else {
+        if (!use_first || !expect) {
             if (!use_first || expect)
                 write_item(DITEM(EXIT1_TO_IDLE));
             return;
         }
+        read = 0;
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        extrabit = write_bit(0, 5, command>>8);
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
         write_item(DITEM(DATAW(read, 1), 0xff));
@@ -360,10 +358,16 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
 }
 
-static uint32_t write_bypass(struct ftdi_context *ftdi)
+static void write_bypass(struct ftdi_context *ftdi)
 {
     write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, found_cortex * 2, 0);
-    return read_data_int(__LINE__, ftdi, 1 + found_multiple) & 0xfff;
+    uint32_t ret = read_data_int(__LINE__, ftdi, 1 + found_multiple) & 0xfff;
+    if (ret == FIRST_TIME)
+        printf("fpgajtag: bypass first time %x\n", ret);
+    else if (ret == PROGRAMMED)
+        printf("fpgajtag: bypass already programmed %x\n", ret);
+    else
+        printf("fpgajtag: bypass unknown %x\n", ret);
 }
 
 #define REPEAT5(A) INT32(A), INT32(A), INT32(A), INT32(A), INT32(A)
@@ -483,33 +487,6 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
 }
 
 /*
- * Read status register.
- * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
- * the JTAG Interface" and Table 6-3.
- */
-static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
-{
-    static uint32_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
-    if (after)
-        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
-    else
-        write_item(DITEM(IDLE_TO_RESET, RESET_TO_IDLE));
-    /*
-     * Read Xilinx configuration status register
-     * See: ug470_7Series_Config.pdf, Chapter 6
-     */
-    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA,
-        (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
-        found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
-    write_item(DITEM(IDLE_TO_RESET));
-    uint32_t status = ret >> 8;
-    if (verbose && (bitswap[M(ret)] != 2 || status != expected))
-        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, expected, ret);
-    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
-        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-}
-
-/*
  * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
  * Table 6-4.
  */
@@ -597,20 +574,20 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, __LINE__, j, cortex_nowait, input_shift);
     read_idcode(ftdi, input_shift);
     while(j > 0) {
-    while (j-- > 0) {
-        for (i = 0; i < 4; i++) {
-            //if (trace)
-            //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
-            write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
-            ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USER2, i, 1, found_multiple, -1, second);
-            if (ret != 0)
-                printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
+        while (j-- > 0) {
+            for (i = 0; i < 4; i++) {
+                //if (trace)
+                //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
+                write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
+                ret = fetch_result(ftdi, IRREG_USER2, i, 1, found_multiple, -1, second);
+                if (ret != 0)
+                    printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
+            }
         }
-    }
-    if (use_both)
-        j = argj;
-    second++;
-    argj = 0;
+        if (use_both)
+            j = argj;
+        second++;
+        argj = 0;
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
@@ -621,6 +598,61 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
+
+/*
+ * Read status register.
+ * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
+ * the JTAG Interface" and Table 6-3.
+ */
+static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
+{
+    static uint32_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
+    if (after)
+        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
+    else
+        write_item(DITEM(IDLE_TO_RESET, RESET_TO_IDLE));
+    /*
+     * Read Xilinx configuration status register
+     * See: ug470_7Series_Config.pdf, Chapter 6
+     */
+    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA,
+        (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
+        found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
+    write_item(DITEM(IDLE_TO_RESET));
+    uint32_t status = ret >> 8;
+    if (verbose && (bitswap[M(ret)] != 2 || status != expected))
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, expected, ret);
+    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
+        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+}
+
+static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound, int statparam, uint32_t checkval)
+{
+    int i, j, ret;
+
+    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
+    if (writeb)
+        write_bypass(ftdi);
+    for (j = 0; j < upperbound; j++) {
+        if (!btype) {
+            if (j)
+                write_item(DITEM(RESET_TO_IDLE));
+            ret = fetch_result(ftdi, IRREG_USERCODE, 0, 1,
+                found_multiple, -1, (!j) ? use_both : (use_second * 2));
+            if (verbose && ret != 0xffffffff)
+                printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+            for (i = 0; i < 3; i++)
+                write_bypass(ftdi);
+        }
+        else
+            bypass_test(ftdi, 3, 1, (j == 1), 0, 0);
+        if (!btype || j == 0)
+            check_status(ftdi, checkval, btype, statparam);
+        if (!btype)
+            statparam = 3;
+    }
+}
+
 static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
 {
     fpgausb_open(device_index);            /*** Open selected USB interface ***/
@@ -640,43 +672,6 @@ static struct ftdi_context *get_deviceid(int device_index, int usb_bcddevice)
         read_idcode(ftdi, 1);
     }
     return ftdi;
-}
-
-static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound)
-{
-    int i, j, ret;
-
-    write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
-    if (writeb) {
-        ret = write_bypass(ftdi);
-        if (ret != PROGRAMMED)
-            printf("[%s] not programmed %x\n", __FUNCTION__, ret);
-    }
-    for (j = 0; j < upperbound; j++) {
-        if (!btype) {
-            if (j)
-                write_item(DITEM(RESET_TO_IDLE));
-            ret = fetch_result(ftdi, EXTEND_EXTRA | IRREG_USERCODE, 0, 1,
-                found_multiple, -1, (!j) ? use_both : (use_second * 2));
-            if (verbose && ret != 0xffffffff)
-                printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-            for (i = 0; i < 3; i++) {
-                ret = write_bypass(ftdi);
-                if (ret == FIRST_TIME)
-                    printf("fpgajtag: bypass first time %x\n", ret);
-                else if (ret == PROGRAMMED)
-                    printf("fpgajtag: bypass already programmed %x\n", ret);
-                else
-                    printf("fpgajtag: bypass unknown %x\n", ret);
-            }
-            check_status(ftdi, 0x301900, 0, (!j) ? 4 : 3);
-        }
-        else {
-            bypass_test(ftdi, 3, 1, (j == 1), 0, 0);
-            if (j == 0)
-                check_status(ftdi, 0xf07910, 1, use_second);
-        }
-    }
 }
 
 int main(int argc, char **argv)
@@ -847,7 +842,7 @@ usage:
     check_read_data(__LINE__, ftdi, idcode_validate_result);
     write_item(DITEM(FORCE_RETURN_TO_RESET));
 
-    bypass_status(ftdi, found_cortex, 0, 1 + use_both);
+    bypass_status(ftdi, found_cortex, 0, 1 + use_both, 4, 0x301900);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
 
@@ -882,7 +877,7 @@ usage:
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_item(DITEM(IDLE_TO_RESET));
 
-    bypass_status(ftdi, 1, 1, extra_bypass_count);
+    bypass_status(ftdi, 1, 1, extra_bypass_count, use_second, 0xf07910);
     rescan = 1;
 
     /*

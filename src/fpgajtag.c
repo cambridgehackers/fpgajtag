@@ -330,11 +330,10 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
-        extrabit = (command >> (4+2)) & 0x80;
         read = 0;
         if (use_first && expect) {
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_bit(0, 5, command>>8);
+            extrabit = write_bit(0, 5, command>>8);
         }
         else {
             if (!use_first || expect)
@@ -421,7 +420,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
     write_irreg(ftdi, 0, irreg, 1, readitem, 0, 0);
     idle_to_shift_dr(readitem, 0);
     if (variant > 1) {
-        write_bit(0, opcode_bits - (second != 0)+1, IRREG_JSTART);
+        write_bit(0, opcode_bits + (second == 0), IRREG_JSTART);
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
         idle_to_shift_dr(second, 0);
     }
@@ -452,7 +451,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
                 int skip = skipsize;
                 if (skip > size)
                     skip = size;
-		skipsize -= skip;
+                skipsize -= skip;
                 size -= skip;
                 rdata += skip * sizeof(uint32_t);
                 resp_len += skip;
@@ -466,16 +465,14 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat, int extra)
 {
-    static uint32_t req_prefix[] = {CONFIG_DUMMY, CONFIG_SYNC};
     int i;
     uint32_t ret = 0;
-    int temp = use_first ? (extra == 4) : (use_second * (extra != 3));
 
-    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1, temp, 0, 0); /* Select CFG_IN so that we can send out our request */
+    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1,
+        use_first ? (extra == 4) : (use_second * (extra != 3)),
+        0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    write_dataw(sizeof(req_prefix) + req_len * sizeof(uint32_t) - 1 + oneformat);
-    for (i = 0; i < sizeof(req_prefix)/sizeof(req_prefix[0]); i++)
-        swap32(req_prefix[i]);
+    write_dataw(req_len * sizeof(uint32_t) - 1 + oneformat);
     for (i = 0; i < req_len - 1; i++)
         swap32(req[i]);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
@@ -492,7 +489,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
  */
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
-    static uint32_t req[] = {CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
+    static uint32_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
     if (after)
         write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
     else
@@ -553,17 +550,20 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
 #if 0
     static uint32_t req_stat[] = {
+        CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
     static uint32_t req_rcrc[] = {
+        CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 #endif
     uint32_t req_rcfg[] = {
+        CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,

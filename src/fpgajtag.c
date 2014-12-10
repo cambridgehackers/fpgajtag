@@ -51,7 +51,7 @@
 #define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
 static int verbose;
-static int found_multiple, use_first, use_second, corfirst, use_both;
+static int found_multiple, use_first, use_second, corfirst, use_both, device_type;
 int found_cortex;
 static int opcode_bits = 4;
 uint8_t *input_fileptr;
@@ -437,7 +437,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         else
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(readitem, 0)));
+            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(idcode_array_index == 1 ? DREAD : readitem, 0)));
         uint8_t *rdata = read_data(__LINE__, ftdi, size * sizeof(uint32_t));
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size * sizeof(uint32_t); j++)
@@ -754,7 +754,7 @@ usage:
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
-    int device_type = DEVICE_OTHER;
+    device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
         device_type = DEVICE_AC701;
     if (thisid == 0x03731093)         // zc706

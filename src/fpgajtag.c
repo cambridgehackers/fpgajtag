@@ -103,11 +103,6 @@ void tmsw_delay(int delay_time)
         write_item(DITEM(TMSW, 0x06, 0x00));
 }
 
-static void write_dataw(uint32_t value)
-{
-    write_item(DITEM(DATAW(0, value)));
-}
-
 static uint32_t swap32i(uint32_t value)
 {
     int i;
@@ -182,8 +177,9 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
 
 static void write_dswap32(uint32_t value)
 {
-    write_dataw(4);
+    write_item(DITEM(DATAW(0, 4)));
     swap32(value);
+    //send_data_frame(ftdi, 0, NULL, &value, sizeof(value), SEND_SINGLE_FRAME, 0);
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -236,6 +232,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
     int extrabit;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
+    static uint8_t constantff = 0xff;
     if (combo == 1) {
         if (use_second)
             write_bit(0, opcode_bits+1, 0xff);
@@ -263,6 +260,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         extrabit = write_bit(0, 5, command>>8);
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
+        //send_data_frame(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 1);
         write_item(DITEM(DATAW(read, 1), 0xff));
         extrabit = write_bit(read, 3 - combo, command);
     }
@@ -343,6 +341,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
 {
     int j;
     uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
+    static uint8_t constant69 = 0x69;
 
     write_irreg(ftdi, 0, irreg, 1, readitem, 0, 0);
     idle_to_shift_dr(readitem, 0);
@@ -352,6 +351,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
+        //send_data_frame(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 1);
         write_item(DITEM(DATAW(0, 1), 0x69));
         write_bit(0, 2, 0);
         if (found_multiple)
@@ -399,7 +399,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
         use_first ? (extra == 4) : (use_second * (extra != 3)),
         0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    write_dataw(req_len * sizeof(uint32_t) - 1 + oneformat);
+    write_item(DITEM(DATAW(0, req_len * sizeof(uint32_t) - 1 + oneformat)));
     for (i = 0; i < req_len - 1; i++)
         swap32(req[i]);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));

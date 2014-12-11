@@ -229,5 +229,5 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
 void process_command_list(struct ftdi_context *ftdi);
 int send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
-    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail);
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits);
 int found_cortex;

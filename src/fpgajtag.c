@@ -755,18 +755,20 @@ usage:
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
     device_type = DEVICE_OTHER;
-    if (thisid == 0x03636093)         // ac701
+    if (thisid == DEVICE_AC701)         // ac701
         device_type = DEVICE_AC701;
-    else if (thisid == 0x03731093)         // zc706
+    else if (thisid == DEVICE_ZC706)         // zc706
         device_type = DEVICE_ZC706;
-    else if (thisid == 0x03727093) {       // zc702 and zedboard
+    else if (thisid == DEVICE_VC707)         // vc707
+        device_type = DEVICE_VC707;
+    else if (thisid == DEVICE_KC705)         // vc707
+        device_type = DEVICE_KC705;
+    else if (thisid == DEVICE_ZC702) {       // zc702 and zedboard
         if (uinfo[usb_index].bcdDevice == 0x700)
             device_type = DEVICE_ZC702;
         else
             device_type = DEVICE_ZEDBOARD;
     }
-    else if (thisid == 0x3687093)         // vc707
-        device_type = DEVICE_VC707;
     else {
         printf("[%s:%d]unknown device %x\n", __FUNCTION__, __LINE__, thisid);
         //exit(1);

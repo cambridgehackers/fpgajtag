@@ -48,12 +48,14 @@
 #define IDCODE_MASK      0x0fffffff
 #define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
 
-static int verbose;
-static int found_multiple, use_first, use_second, corfirst, use_both, device_type;
-int found_cortex;
-static int opcode_bits = 4;
 uint8_t *input_fileptr;
 int input_filesize;
+int found_cortex;
+
+static int verbose;
+static int found_multiple, use_first, use_second, corfirst, use_both, device_type;
+static int opcode_bits = 4;
+static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
 static int first_time_idcode_read = 1;
@@ -138,9 +140,10 @@ static int write_one_word(int dread, int short_format, uint32_t value)
     return 0;
 }
 
-void send_data_frame(struct ftdi_context *ftdi, uint8_t read,
+int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail)
 {
+    uint8_t ch = 0;
     while (size > 0) {
         int rlen = size;
         size -= max_frame_size;
@@ -154,7 +157,7 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read,
         ptrin += rlen;
         uint8_t *cptr = buffer_current_ptr();
         if (rlen < max_frame_size) {
-            uint8_t ch = cptr[-1];
+            ch = cptr[-1];
             if (opttail) {
                 cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
                 write_item(DITEM(6)); // 7 bits of data here
@@ -163,29 +166,24 @@ void send_data_frame(struct ftdi_context *ftdi, uint8_t read,
             }
             else
                 ch = 0x80; /* this is the 'bypass' bit value */
-            write_item(tail);
-            if (tail[1] & MPSSE_WRITE_TMS) {
-                cptr[0] |= read; // this is a TMS instruction to shift state
-                cptr[2] |= 0x80 & ch; // insert 1 bit of data here
+            if (tail) {
+                write_item(tail);
+                if (tail[1] & MPSSE_WRITE_TMS) {
+                    cptr[0] |= read; // this is a TMS instruction to shift state
+                    cptr[2] |= 0x80 & ch; // insert 1 bit of data here
+                }
             }
         }
         if (size > 0)
             flush_write(ftdi, NULL);
     }
+    return 0x80 & ch;
 }
 
 static void write_dswap32(uint32_t value)
 {
     write_dataw(4);
     swap32(value);
-}
-
-static void write_eight_bytes()
-{
-    if (found_multiple) {
-        write_item(DITEM(DATAW(0, 7), INT32(0)));
-        write_one_word(0, 0, 0);
-    }
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -201,7 +199,8 @@ static void send_data_file(struct ftdi_context *ftdi)
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
 
     idle_to_shift_dr(use_second, 0xff);
-    write_eight_bytes();
+    if (found_multiple)
+        send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1);
     write_dswap32(0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
@@ -425,20 +424,21 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         CONFIG_CMD_DESYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
     int i;
+    uint8_t *constant4 = DITEM(INT32(4));
+    uint8_t *constant0 = DITEM(0, 0, 0, 0);
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
     write_dswap32(CONFIG_DUMMY);
-    write_eight_bytes();
+    if (found_multiple)
+        send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1);
     for (i = 0; i < sizeof(req)/sizeof(req[0]); i++)
         write_dswap32(req[i]);
-    write_item(DITEM(DATAW(0, sizeof(uint32_t) - 1 +corfirst)));
-    write_one_word(0, corfirst, 4);
+    send_data_frame(ftdi, 0, NULL, constant4+1, constant4[0], SEND_SINGLE_FRAME, !corfirst);
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
-    write_item(DITEM(DATAW(DREAD, sizeof(uint32_t) - 1 )));
-    write_one_word(DREAD, 0, 0);
+    send_data_frame(ftdi, DREAD, NULL, constant0+1, constant0[0], SEND_SINGLE_FRAME, 1);
     if (corfirst)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else

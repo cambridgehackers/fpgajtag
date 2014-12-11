@@ -22,7 +22,6 @@
 // SOFTWARE.
 
 #define DITEM(...) ((uint8_t[]){sizeof((uint8_t[]){ __VA_ARGS__ }), __VA_ARGS__})
-#define M(A)               ((A) & 0xff)
 #define INT16(A)           M(A), M((A) >> 8)
 #define INT32(A)           INT16(A), INT16((A) >> 16)
 #define BSWAP(A) ((((A) & 1) << 7) | (((A) & 2) << 5) | (((A) & 4) << 3) | (((A) & 8) << 1) \
@@ -228,7 +227,6 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
-uint8_t *input_fileptr;
 void process_command_list(struct ftdi_context *ftdi);
 void send_data_frame(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail);

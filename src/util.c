@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <zlib.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <libusb.h>
@@ -35,6 +36,7 @@
 // for using libftdi.so
 //#define USE_LIBFTDI
 
+#define BUFFER_MAX_LEN    100000000
 #define USB_TIMEOUT     5000
 #define ENDPOINT_IN     0x02
 #define ENDPOINT_OUT    0x81
@@ -475,4 +477,74 @@ struct ftdi_context *init_ftdi(void)
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
         memdump(retcode, sizeof(retcode), "RETab");
     return ftdi;
+}
+
+/*
+ * File support
+ */
+uint32_t read_inputfile(char *filename)
+{
+    static uint8_t bitfile_header[] = {
+        0, 9, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0, 0, 1, 'a'};
+    static uint8_t filebuf[BUFFER_MAX_LEN];
+    static uint8_t uncompressbuf[BUFFER_MAX_LEN];
+    static uint8_t gzmagic[] = {0x1f, 0x8b};
+    int inputfd = 0;   /* default input for '-' is stdin */
+
+    if (strcmp(filename, "-")) {
+        inputfd = open(filename, O_RDONLY);
+        if (inputfd == -1) {
+            printf("fpgajtag: Unable to open file '%s'\n", filename);
+            exit(-1);
+        }
+    }
+    input_filesize = read(inputfd, filebuf, sizeof(filebuf));
+    input_fileptr = filebuf;
+    close(inputfd);
+    if (input_filesize <= 0 || input_filesize >= sizeof(filebuf) - 1)
+        goto badlen;
+    if (!memcmp(input_fileptr, gzmagic, sizeof(gzmagic))) {
+        printf("fpgajtag: unzip input file, len %d\n", input_filesize);
+        z_stream strm;
+        strm.zalloc = Z_NULL;
+        strm.zfree = Z_NULL;
+        strm.opaque = Z_NULL;
+        int ret = inflateInit2(&strm, 16+MAX_WBITS); // inflate gzip'ed file
+        if (ret != Z_OK)
+            goto badlen;
+        strm.next_in = input_fileptr;
+        strm.avail_in = input_filesize;
+        strm.next_out = uncompressbuf;
+        strm.avail_out = sizeof(uncompressbuf);
+        ret = inflate(&strm, Z_FINISH);
+        inflateEnd(&strm);
+        input_filesize = sizeof(uncompressbuf) - strm.avail_out;
+        if (ret != Z_STREAM_END)
+            goto badlen;
+        input_fileptr = uncompressbuf;
+    }
+    if (!memcmp(bitfile_header, input_fileptr, sizeof(bitfile_header))) {
+        uint8_t *inputtemp = input_fileptr;
+        input_fileptr += sizeof(bitfile_header) - 1;
+        while(*input_fileptr++ < 'e') {
+            int len = *input_fileptr++;
+            len = (len << 8) | *input_fileptr++;
+            input_fileptr += len;
+        }
+        if (*--input_fileptr == 'e')
+            input_fileptr += 1 + sizeof(uint32_t); /* skip over 'e' and length */
+        input_filesize -= input_fileptr - inputtemp;
+    }
+
+    /*
+     * Step 5: Check Device ID
+     */
+    /*** Read device id from file to be programmed           ***/
+    uint32_t tempidcode;
+    memcpy(&tempidcode, input_fileptr+0x80, sizeof(tempidcode));
+    tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
+    return tempidcode;
+badlen:
+    printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
+    exit(-1);
 }

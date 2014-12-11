@@ -41,11 +41,15 @@
 struct ftdi_context;
 #endif
 
+#define M(A)               ((A) & 0xff)
+
 extern FILE *logfile;
 extern int usb_bcddevice;
 extern uint8_t bitswap[256];
 extern int last_read_data_length;
 extern int trace;
+extern uint8_t *input_fileptr;
+extern int input_filesize;
 
 void memdump(const uint8_t *p, int len, char *title);
 
@@ -73,3 +77,4 @@ uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size);
 void tmsw_delay(int delay_time);
 int write_bit(int read, int bits, int data);
 void idle_to_shift_dr(int extra, int val);
+uint32_t read_inputfile(char *filename);

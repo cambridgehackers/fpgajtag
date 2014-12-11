@@ -115,24 +115,10 @@ static uint32_t swap32i(uint32_t value)
         tempo.c[i] = bitswap[temp.c[3-i]];
     return tempo.i;
 }
-static void swap32(uint32_t value)
-{
-    write_item(DITEM(INT32(swap32i(value))));
-}
 int write_bit(int read, int bits, int data)
 {
     write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
     return (data << (7 - bits)) & 0x80;
-}
-
-static int write_one_word(int dread, int short_format, uint32_t value)
-{
-    if (!short_format) {
-        write_item(DITEM(M(value), M(value >> 8), M(value >> 16)));
-        return write_bit(dread, 7, value >> 24);
-    }
-    write_item(DITEM(INT32(value)));
-    return 0;
 }
 
 int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
@@ -163,9 +149,9 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
                 write_data(&ch, 1);
                 cptr += 2;
             }
-            else
-                ch = 0x80; /* this is the 'bypass' bit value */
             if (tail) {
+                if (!opttail)
+                    ch = 0x80; /* this is the 'bypass' bit value */
                 write_item(tail);
                 if (tail[1] & MPSSE_WRITE_TMS) {
                     cptr[0] |= read; // this is a TMS instruction to shift state
@@ -179,10 +165,10 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
     return 0x80 & ch;
 }
 
-static void write_dswap32(struct ftdi_context *ftdi, uint32_t value)
+static uint8_t *write_int32(struct ftdi_context *ftdi, uint8_t *data)
 {
-    uint32_t temp = swap32i(value);
-    send_data_frame(ftdi, 0, NULL, (uint8_t *)&temp, sizeof(temp), SEND_SINGLE_FRAME, 0, 0);
+    send_data_frame(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0);
+    return data + sizeof(uint32_t);
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -199,7 +185,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     idle_to_shift_dr(use_second, 0xff);
     if (found_multiple)
         send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0);
-    write_dswap32(ftdi, 0);
+    send_data_frame(ftdi, 0, NULL, zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -389,19 +375,16 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
     return ret;
 }
 
-static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat, int extra)
+static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat, int extra)
 {
-    int i;
     uint32_t ret = 0;
 
     write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1,
         use_first ? (extra == 4) : (use_second * (extra != 3)),
         0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    write_item(DITEM(DATAW(0, req_len * sizeof(uint32_t) - 1 + oneformat)));
-    for (i = 0; i < req_len - 1; i++)
-        swap32(req[i]);
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, write_one_word(0, oneformat, swap32i(req[req_len-1])))));
+    int extendbit = send_data_frame(ftdi, 0, NULL, req, req_len, SEND_SINGLE_FRAME, !oneformat, 0);
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extendbit)));
     if (resp_len)
         ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
     flush_write(ftdi, NULL);
@@ -414,7 +397,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint32_t *req, int req_le
  */
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int combo)
 {
-    uint32_t req[] = {CONFIG_SYNC,
+    uint8_t req[] = {CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
         CONFIG_TYPE1(CONFIG_OP_READ, data, 1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
@@ -422,17 +405,18 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
         CONFIG_CMD_DESYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
-    int i;
     uint8_t *constant4 = DITEM(INT32(4));
     uint8_t *constant0 = DITEM(0, 0, 0, 0);
+    uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
-    write_dswap32(ftdi, CONFIG_DUMMY);
+    write_int32(ftdi, dummy);
     if (found_multiple)
         send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0);
-    for (i = 0; i < sizeof(req)/sizeof(req[0]); i++)
-        write_dswap32(ftdi, req[i]);
+    uint8_t *ptr = req;
+    while (ptr < req + sizeof(req))
+        ptr = write_int32(ftdi, ptr);
     send_data_frame(ftdi, 0, NULL, constant4+1, constant4[0], SEND_SINGLE_FRAME, !corfirst, 0);
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0, 0);
@@ -454,20 +438,20 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
 #if 0
-    static uint32_t req_stat[] = {
+    static uint8_t req_stat[] = {
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    static uint32_t req_rcrc[] = {
+    static uint8_t req_rcrc[] = {
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 #endif
-    uint32_t req_rcfg[] = {
+    uint8_t req_rcfg[] = {
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
@@ -477,11 +461,11 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
 
-    //readout_seq(ftdi, req_stat, sizeof(req_stat)/sizeof(req_stat[0]), 1, -1, 0, 0, 1, 0);
-    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc)/sizeof(req_rcrc[0]), 0, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_stat, sizeof(req_stat), 1, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc), 0, -1, 0, 0, 1, 0);
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0);
     tmsw_delay(6);
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg)/sizeof(req_rcfg[0]), size, fd, 0, 0, 1, 0);
+    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg), size, fd, 0, 0, 1, 0);
 }
 
 static void set_clock_divisor(struct ftdi_context *ftdi)
@@ -529,7 +513,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
  */
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
-    static uint32_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), 0};
+    static uint8_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)};
     if (after)
         write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
     else
@@ -538,7 +522,7 @@ static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after
      * Read Xilinx configuration status register
      * See: ug470_7Series_Config.pdf, Chapter 6
      */
-    uint32_t ret = readout_seq(ftdi, req, sizeof(req)/sizeof(req[0]), 1, -1, EXTEND_EXTRA,
+    uint32_t ret = readout_seq(ftdi, req, sizeof(req), 1, -1, EXTEND_EXTRA,
         (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
         found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
     write_item(DITEM(IDLE_TO_RESET));
@@ -738,7 +722,7 @@ usage:
          * (and must be converted to bits)
          */
         int fd = creat("xx.bozo", 0666);
-        uint32_t header = {CONFIG_TYPE2(0x000f6c78)};
+        uint32_t header = {CONFIG_TYPE2_RAW(0x000f6c78)};
         header = htonl(header);
         write(fd, &header, sizeof(header));
         read_config_memory(ftdi, fd, 0x000f6c78);

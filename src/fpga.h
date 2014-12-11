@@ -26,6 +26,8 @@
 #define INT32(A)           INT16(A), INT16((A) >> 16)
 #define BSWAP(A) ((((A) & 1) << 7) | (((A) & 2) << 5) | (((A) & 4) << 3) | (((A) & 8) << 1) \
          | (((A) & 0x10) >> 1) | (((A) & 0x20) >> 3) | (((A) & 0x40) >> 5) | (((A) & 0x80) >> 7))
+#define SINT16(A)          BSWAP((A) >> 8), BSWAP(A)
+#define SINT32(A)          SINT16((A) >> 16), SINT16(A)
 
 /*
  * FTDI constants
@@ -106,7 +108,7 @@
 #define CONFIG_TYPE1_WORDCNT_MASK    0x7ff
 
 #define CONFIG_TYPE1(OPCODE,REG,COUNT) \
-    (0x20000000 | ((OPCODE) << CONFIG_TYPE1_OPCODE_SHIFT) | ((REG) << CONFIG_TYPE1_REG_SHIFT) | (COUNT))
+    SINT32(0x20000000 | ((OPCODE) << CONFIG_TYPE1_OPCODE_SHIFT) | ((REG) << CONFIG_TYPE1_REG_SHIFT) | (COUNT))
 
 // Type 1 OPCODE Format, Table 5-18
 #define CONFIG_OP_NOP         0
@@ -120,23 +122,23 @@
 #define CONFIG_REG_FDRI    0x02
 #define CONFIG_REG_FDRO    0x03
 #define CONFIG_REG_CMD     0x04  // CMD register, Table 5-22
-#define     CONFIG_CMD_NULL     0x00
-#define     CONFIG_CMD_WCFG     0x01
-#define     CONFIG_CMD_MFW      0x02
-#define     CONFIG_CMD_DGHIGH   0x03
-#define     CONFIG_CMD_RCFG     0x04
-#define     CONFIG_CMD_START    0x05
-#define     CONFIG_CMD_RCAP     0x06
-#define     CONFIG_CMD_RCRC     0x07
-#define     CONFIG_CMD_AGHIGH   0x08
-#define     CONFIG_CMD_SWITCH   0x09
-#define     CONFIG_CMD_GRESTORE 0x0a
-#define     CONFIG_CMD_SHUTDOWN 0x0b
-#define     CONFIG_CMD_GCAPTURE 0x0c
-#define     CONFIG_CMD_DESYNC   0x0d  // end of configuration procedure
-#define     CONFIG_CMD_IPROG    0x0f
-#define     CONFIG_CMD_CRCC     0x10
-#define     CONFIG_CMD_LTIMER   0x11
+#define     CONFIG_CMD_NULL     SINT32(0x00)
+#define     CONFIG_CMD_WCFG            0x01
+#define     CONFIG_CMD_MFW      SINT32(0x02)
+#define     CONFIG_CMD_DGHIGH   SINT32(0x03)
+#define     CONFIG_CMD_RCFG     SINT32(0x04)
+#define     CONFIG_CMD_START    SINT32(0x05)
+#define     CONFIG_CMD_RCAP     SINT32(0x06)
+#define     CONFIG_CMD_RCRC     SINT32(0x07)
+#define     CONFIG_CMD_AGHIGH   SINT32(0x08)
+#define     CONFIG_CMD_SWITCH   SINT32(0x09)
+#define     CONFIG_CMD_GRESTORE SINT32(0x0a)
+#define     CONFIG_CMD_SHUTDOWN SINT32(0x0b)
+#define     CONFIG_CMD_GCAPTURE SINT32(0x0c)
+#define     CONFIG_CMD_DESYNC   SINT32(0x0d)  // end of configuration procedure
+#define     CONFIG_CMD_IPROG    SINT32(0x0f)
+#define     CONFIG_CMD_CRCC     SINT32(0x10)
+#define     CONFIG_CMD_LTIMER   SINT32(0x11)
 #define CONFIG_REG_CTL0    0x05
 #define CONFIG_REG_MASK    0x06
 #define CONFIG_REG_STAT    0x07  // STAT register, Table 5-25
@@ -154,11 +156,12 @@
 
 // Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
 //
-#define CONFIG_TYPE2(LEN) (0x40000000 | (LEN))
+#define CONFIG_TYPE2_RAW(LEN) (0x40000000 | (LEN))
+#define CONFIG_TYPE2(LEN) SINT32(CONFIG_TYPE2_RAW(LEN))
 
 // Constants used in accessing Configuration Registers
-#define CONFIG_DUMMY           0xffffffff
-#define CONFIG_SYNC            0xaa995566
+#define CONFIG_DUMMY           SINT32(0xffffffff)
+#define CONFIG_SYNC            SINT32(0xaa995566)
 
 /*
  * ARM Cortex constants

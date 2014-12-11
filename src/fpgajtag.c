@@ -757,13 +757,19 @@ usage:
     device_type = DEVICE_OTHER;
     if (thisid == 0x03636093)         // ac701
         device_type = DEVICE_AC701;
-    if (thisid == 0x03731093)         // zc706
+    else if (thisid == 0x03731093)         // zc706
         device_type = DEVICE_ZC706;
-    if (thisid == 0x03727093) {       // zc702 and zedboard
+    else if (thisid == 0x03727093) {       // zc702 and zedboard
         if (uinfo[usb_index].bcdDevice == 0x700)
             device_type = DEVICE_ZC702;
         else
             device_type = DEVICE_ZEDBOARD;
+    }
+    else if (thisid == 0x3687093)         // vc707
+        device_type = DEVICE_VC707;
+    else {
+        printf("[%s:%d]unknown device %x\n", __FUNCTION__, __LINE__, thisid);
+        //exit(1);
     }
 
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
@@ -779,6 +785,8 @@ usage:
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;
+    if (device_type == DEVICE_VC707 && !found_multiple)
+        bypass_tc = 6;
     if (device_type == DEVICE_ZEDBOARD)
         bypass_tc = 2;
     if (device_type == DEVICE_ZC702)
@@ -786,8 +794,8 @@ usage:
     if (use_first)
         bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
-    int first_bypass_count = 3 + (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
-    int extra_bypass_count = (device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || (corfirst && (device_type != DEVICE_ZEDBOARD))) + 1;
+    int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
+    int extra_bypass_count = (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || (corfirst && (device_type != DEVICE_ZEDBOARD))) + 1;
 
     /*
      * See if we are reading out data

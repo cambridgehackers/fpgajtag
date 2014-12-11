@@ -502,7 +502,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
 }
 
 
-static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound, int statparam, uint32_t checkval)
+static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, int statparam, uint32_t checkval)
 {
 /*
  * Read status register.
@@ -514,7 +514,7 @@ static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int 
     int i, j, ret;
 
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
-    if (writeb)
+    if (found_cortex || btype)
         write_bypass(ftdi);
     for (j = 0; j < upperbound; j++) {
         if (!btype) {
@@ -759,7 +759,7 @@ usage:
     }
     write_item(DITEM(FORCE_RETURN_TO_RESET));
 
-    bypass_status(ftdi, found_cortex, 0, 1 + use_both, 4, 0x301900);
+    bypass_status(ftdi, 0, 1 + use_both, 4, 0x301900);
     for (i = 0; i < bypass_tc; i++)
         bypass_test(ftdi, 3, 1, (i == 0), 0, 0);
 
@@ -794,7 +794,7 @@ usage:
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_item(DITEM(IDLE_TO_RESET));
 
-    bypass_status(ftdi, 1, 1, extra_bypass_count, use_second, 0xf07910);
+    bypass_status(ftdi, 1, extra_bypass_count, use_second, 0xf07910);
     rescan = 1;
 
     /*

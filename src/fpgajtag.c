@@ -121,7 +121,6 @@ int write_bit(int read, int bits, int data)
     return (data << (7 - bits)) & 0x80;
 }
 
-uint8_t globalch;
 int write_bytes(struct ftdi_context *ftdi, uint8_t read,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
@@ -144,7 +143,6 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
         cptr = buffer_current_ptr();
         if (rlen < max_frame_size) {
             ch = cptr[-1];
-globalch = ch;
             if (opttail) {
                 cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
                 write_item(DITEM(6)); // 7 bits of data here
@@ -226,10 +224,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         if (use_second)
             write_bit(0, opcode_bits+1, 0xff);
         extrabit = write_bit(read, 5, command);
-        if (corfirst)
-            write_item(DITEM(SHIFT_TO_PAUSE(read, extrabit)));
-        else
-            write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+        write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
             uint16_t ret = read_data_int(__LINE__, ftdi, 1);
             if (found_cortex) {
@@ -385,8 +380,8 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int req_len
         use_first ? (extra == 4) : (use_second * (extra != 3)),
         0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    int extendbit = write_bytes(ftdi, 0, NULL, req, req_len, SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extendbit)));
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req, req_len,
+        SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     if (resp_len)
         ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
     flush_write(ftdi, NULL);
@@ -419,15 +414,13 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
-    int extendbit = write_bytes(ftdi, 0, NULL, constant4, sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, extendbit), EXIT1_TO_IDLE));
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
+        sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
     write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
-    write_bytes(ftdi, DREAD, NULL, constant0, sizeof(constant0), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    if (corfirst)
-        write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
-    else
-        write_item(DITEM(SHIFT_TO_EXIT1(DREAD, 0)));
+    write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
+                                      : DITEM(SHIFT_TO_EXIT1(0, 0)),
+        constant0, sizeof(constant0), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
     if (corfirst)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));

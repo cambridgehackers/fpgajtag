@@ -27,6 +27,10 @@
 #include "util.h"
 #include "fpga.h"
 
+static void write_creg(struct ftdi_context *ftdi, int regname)
+{
+    write_irreg(ftdi, 0, regname, 2, 0, 0, 0);
+}
 static void loaddr(int aread, uint32_t v, int extra3bits)
 {
     uint64_t temp = (((uint64_t)v) << 3) | extra3bits;
@@ -49,7 +53,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
     uint32_t *testp = buf+1;
 
     if (load)
-        write_irreg(ftdi, 0, IRREGA_DPACC, 2, 0, 0, 0);
+        write_creg(ftdi, IRREGA_DPACC);
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
     rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
@@ -80,11 +84,11 @@ static void cortex_pair(uint32_t v)
 
 static void write_select(struct ftdi_context *ftdi, int bus)
 {
-    write_irreg(ftdi, 0, IRREGA_DPACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_DPACC);
     loaddr(0,      // Coresight: Table 2-11
         bus ? SELECT_DEBUG/*dedicated Debug Bus*/ : 0/*main system bus*/,
         DPACC_SELECT);
-    write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_APACC);
 }
 
 static uint8_t *cortex_reset = DITEM(RESET_TO_IDLE, TMSW, 0x01, 0x00);
@@ -101,21 +105,21 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
     uint32_t *cresp[2];
     int i;
 
-    write_irreg(ftdi, 0, IRREGA_ABORT, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_ABORT);
     loaddr(0, 1, 0);
-    write_irreg(ftdi, 0, IRREGA_DPACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_DPACC);
     loaddr(0, 0x50000033, DPACC_CTRL);
     // in Debug, 2.3.2: CTRL/STAT, Control/Status register
     //CSYSPWRUPREQ,CDBGPWRUPREQ,STICKYERR,STICKYCMP,STICKYORUN,ORUNDETECT
     if (!clear_wait)
         cresp[0] = (uint32_t[]){2, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     else {
-        write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
+        write_creg(ftdi, IRREGA_APACC);
         cortex_pair(0x2000 | DBGDSCRext);
         cresp[0] = (uint32_t[]){5, 0, 0, 0, CORTEX_DEFAULT_STATUS, CORTEX_DEFAULT_STATUS,};
     }
     cresp[1] = (uint32_t[]){3, 0, 0x00800042/*SPIStatus=High*/, CORTEX_DEFAULT_STATUS};
-    write_irreg(ftdi, 0, IRREGA_DPACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_DPACC);
     loaddr(clear_wait?DREAD:0, 0, DPACC_CTRL | DPACC_WRITE);
     for (i = 0; i < 2; i++) {
         if (trace)
@@ -136,7 +140,7 @@ static void tar_read(uint32_t v)
 }
 static void tar_write(struct ftdi_context *ftdi, uint32_t v)
 {
-    write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_APACC);
     loaddr(0, v, AP_TAR);
     read_rdbuff();
 }
@@ -184,7 +188,7 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
     write_select(ftdi, 1);
     for (i = 0; i < 2; i++) {
         if (i == 1) {
-            write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
+            write_creg(ftdi, IRREGA_APACC);
             cortex_pair(DBGDSCRext);
         }
         tar_read((i * 0x2000) | DBGDIDR);
@@ -203,7 +207,7 @@ void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait)
         cortex_csw(ftdi, 0, 1);
     }
     read_csw(ftdi, 0, VAL3);
-    write_irreg(ftdi, 0, IRREGA_APACC, 2, 0, 0, 0);
+    write_creg(ftdi, IRREGA_APACC);
     cortex_pair(0x2000 | DBGDSCRext);
     tar_read(DBGPRSR);
     tar_read(DBGDSCRext);

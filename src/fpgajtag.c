@@ -121,8 +121,9 @@ int write_bit(int read, int bits, int data)
     return (data << (7 - bits)) & 0x80;
 }
 
-int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
-    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits)
+uint8_t globalch;
+int write_bytes(struct ftdi_context *ftdi, uint8_t read,
+    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
     while (size > 0) {
@@ -143,15 +144,16 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
         cptr = buffer_current_ptr();
         if (rlen < max_frame_size) {
             ch = cptr[-1];
+globalch = ch;
             if (opttail) {
                 cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
                 write_item(DITEM(6)); // 7 bits of data here
                 write_data(&ch, 1);
                 cptr += 2;
             }
+            else
+                ch = default_ext; /* this is the 'bypass' bit value */
             if (tail) {
-                if (!opttail)
-                    ch = 0x80; /* this is the 'bypass' bit value */
                 write_item(tail);
                 if (tail[1] & MPSSE_WRITE_TMS) {
                     cptr[0] |= read; // this is a TMS instruction to shift state
@@ -167,7 +169,7 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
 
 static uint8_t *write_int32(struct ftdi_context *ftdi, uint8_t *data)
 {
-    send_data_frame(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0);
+    write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0x80);
     return data + sizeof(uint32_t);
 }
 
@@ -184,8 +186,8 @@ static void send_data_file(struct ftdi_context *ftdi)
 
     idle_to_shift_dr(use_second, 0xff);
     if (found_multiple)
-        send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0);
-    send_data_frame(ftdi, 0, NULL, zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0);
+        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    write_bytes(ftdi, 0, NULL, zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0x80);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -195,7 +197,7 @@ static void send_data_file(struct ftdi_context *ftdi)
             if (!found_cortex)
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
-        send_data_frame(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE || !use_first, 1);
+        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE || !use_first, 1, 0x80);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
@@ -247,7 +249,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         extrabit = write_bit(0, 5, command>>8);
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
-        send_data_frame(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 0, 0);
+        write_bytes(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
         extrabit = write_bit(read, 3 - combo, command);
     }
     else {
@@ -302,8 +304,8 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
-        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0);
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
+        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
@@ -337,7 +339,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
-        send_data_frame(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 0, 0);
+        write_bytes(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
         write_bit(0, 2, 0);
         if (found_multiple)
             write_bit(0, 1, 0);
@@ -383,7 +385,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int req_len
         use_first ? (extra == 4) : (use_second * (extra != 3)),
         0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    int extendbit = send_data_frame(ftdi, 0, NULL, req, req_len, SEND_SINGLE_FRAME, !oneformat, 0);
+    int extendbit = write_bytes(ftdi, 0, NULL, req, req_len, SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extendbit)));
     if (resp_len)
         ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
@@ -405,23 +407,23 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
         CONFIG_CMD_DESYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
-    uint8_t *ptr = req;
-    uint8_t *constant4 = DITEM(INT32(4));
-    uint8_t *constant0 = DITEM(0, 0, 0, 0);
+    uint8_t *preq = req;
+    uint8_t constant4[] = {INT32(4)};
+    uint8_t constant0[] = {INT32(0)};
     uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
     write_int32(ftdi, dummy);
     if (found_multiple)
-        send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0);
-    while (ptr < req + sizeof(req))
-        ptr = write_int32(ftdi, ptr);
-    send_data_frame(ftdi, 0, NULL, constant4+1, constant4[0], SEND_SINGLE_FRAME, !corfirst, 0);
-    write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
+        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    while (preq < req + sizeof(req))
+        preq = write_int32(ftdi, preq);
+    int extendbit = write_bytes(ftdi, 0, NULL, constant4, sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
+    write_item(DITEM(SHIFT_TO_EXIT1(0, extendbit), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
-    send_data_frame(ftdi, DREAD, NULL, constant0+1, constant0[0], SEND_SINGLE_FRAME, 1, 0);
+    write_bytes(ftdi, DREAD, NULL, constant0, sizeof(constant0), SEND_SINGLE_FRAME, 1, 0, 0x80);
     if (corfirst)
         write_item(DITEM(SHIFT_TO_PAUSE(DREAD, 0)));
     else
@@ -513,7 +515,8 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
  */
 static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
 {
-    static uint8_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0), CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)};
+    static uint8_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
+         CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)};
     if (after)
         write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
     else
@@ -760,8 +763,8 @@ usage:
      * on the first call
      */
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    send_data_frame(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
-        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0);
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
+        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint8_t *rdata = read_data(__LINE__, ftdi, idcode_validate_result[0]);
     if (last_read_data_length != idcode_validate_result[0]
      || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {

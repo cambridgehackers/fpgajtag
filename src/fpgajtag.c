@@ -249,10 +249,10 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     }
     else {
         extrabit = write_bit(read, opcode_bits+1, command);
-        if (use_both)
-            extrabit = write_bit(read, 5, command>>8);
         if (found_cortex)     /* 3 extra bits of IR are sent here */
             extrabit = write_bit(read, 3, command>>8);
+        else if (found_multiple)
+            extrabit = write_bit(read, 5, command>>8);
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
@@ -320,7 +320,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     }
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int bozostyle, int fd, int second)
+static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int optreq, int fd, int second)
 {
     int j;
     uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
@@ -344,7 +344,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (bozostyle && !readitem)
+        if (optreq && !readitem)
             write_item(DITEM(DATAR(size * sizeof(uint32_t))));
         else
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
@@ -501,36 +501,16 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
 
+
+static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound, int statparam, uint32_t checkval)
+{
 /*
  * Read status register.
  * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
  * the JTAG Interface" and Table 6-3.
  */
-static void check_status(struct ftdi_context *ftdi, uint32_t expected, int after, int extra)
-{
     static uint8_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
          CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)};
-    if (after)
-        write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0), RESET_TO_IDLE));
-    else
-        write_item(DITEM(IDLE_TO_RESET, RESET_TO_IDLE));
-    /*
-     * Read Xilinx configuration status register
-     * See: ug470_7Series_Config.pdf, Chapter 6
-     */
-    uint32_t ret = readout_seq(ftdi, req, sizeof(req), 1, -1, EXTEND_EXTRA,
-        (found_cortex || (use_first ? (extra != 4) : (extra == 3))),
-        found_multiple, (use_first && extra == 4) ? extra : (use_second * extra));
-    write_item(DITEM(IDLE_TO_RESET));
-    uint32_t status = ret >> 8;
-    if (verbose && (bitswap[M(ret)] != 2 || status != expected))
-        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, expected, ret);
-    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
-        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-}
-
-static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int upperbound, int statparam, uint32_t checkval)
-{
     int i, j, ret;
 
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
@@ -546,11 +526,29 @@ static void bypass_status(struct ftdi_context *ftdi, int writeb, int btype, int 
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi);
+            write_item(DITEM(IDLE_TO_RESET));
         }
-        else
+        else {
             bypass_test(ftdi, 3, 1, (j == 1), 0, 0);
-        if (!btype || j == 0)
-            check_status(ftdi, checkval, btype, statparam);
+            if (j == 0)
+                write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
+        }
+        /*
+         * Read Xilinx configuration status register
+         * See: ug470_7Series_Config.pdf, Chapter 6
+         */
+        if (!btype || j == 0) {
+            write_item(DITEM(RESET_TO_IDLE));
+            uint32_t ret = readout_seq(ftdi, req, sizeof(req), 1, -1, EXTEND_EXTRA,
+                (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
+                found_multiple, (use_first && statparam == 4) ? 4 : (use_second * statparam));
+            write_item(DITEM(IDLE_TO_RESET));
+            uint32_t status = ret >> 8;
+            if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
+                printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
+            printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
+                status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+        }
         if (!btype)
             statparam = 3;
     }
@@ -568,7 +566,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
         set_clock_divisor(ftdi);
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (use_both || uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
+        if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
@@ -603,13 +601,11 @@ int main(int argc, char **argv)
             use_both = 1;
             corfirst = 1;
             found_multiple = 1;
-            opcode_bits = 5;
             break;
         case '2':
             use_second = 1;
             use_both = 1;
             found_multiple = 1;
-            opcode_bits = 5;
             break;
         case 'c':
             cflag = 1;
@@ -665,14 +661,9 @@ usage:
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
     device_type = DEVICE_OTHER;
-    if (thisid == DEVICE_AC701)         // ac701
-        device_type = DEVICE_AC701;
-    else if (thisid == DEVICE_ZC706)         // zc706
-        device_type = DEVICE_ZC706;
-    else if (thisid == DEVICE_VC707)         // vc707
-        device_type = DEVICE_VC707;
-    else if (thisid == DEVICE_KC705)         // vc707
-        device_type = DEVICE_KC705;
+    if (thisid == DEVICE_AC701 || thisid == DEVICE_ZC706
+     || thisid == DEVICE_VC707 || thisid == DEVICE_KC705)
+        device_type = thisid;
     else if (thisid == DEVICE_ZC702) {       // zc702 and zedboard
         if (uinfo[usb_index].bcdDevice == 0x700)
             device_type = DEVICE_ZC702;
@@ -692,8 +683,9 @@ usage:
         corfirst = 1;
         found_multiple = 1;
     /*** Depending on the idcode read, change some default actions ***/
-        opcode_bits = 5;
     }
+    if (found_multiple)
+        opcode_bits = 5;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;
@@ -706,8 +698,8 @@ usage:
     if (use_first)
         bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || use_first;
-    int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || found_multiple);
-    int extra_bypass_count = (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || device_type == DEVICE_ZC706 || (corfirst && (device_type != DEVICE_ZEDBOARD))) + 1;
+    int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || found_multiple);
+    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (corfirst && (device_type != DEVICE_ZEDBOARD)));
 
     /*
      * See if we are reading out data

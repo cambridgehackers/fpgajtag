@@ -175,11 +175,10 @@ int send_data_frame(struct ftdi_context *ftdi, uint8_t read,
     return 0x80 & ch;
 }
 
-static void write_dswap32(uint32_t value)
+static void write_dswap32(struct ftdi_context *ftdi, uint32_t value)
 {
-    write_item(DITEM(DATAW(0, 4)));
-    swap32(value);
-    //send_data_frame(ftdi, 0, NULL, &value, sizeof(value), SEND_SINGLE_FRAME, 0);
+    uint32_t temp = swap32i(value);
+    send_data_frame(ftdi, 0, NULL, (uint8_t *)&temp, sizeof(temp), SEND_SINGLE_FRAME, 0);
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -197,7 +196,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     idle_to_shift_dr(use_second, 0xff);
     if (found_multiple)
         send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1);
-    write_dswap32(0);
+    write_dswap32(ftdi, 0);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -427,11 +426,11 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
     idle_to_shift_dr(use_second, 0xff);
-    write_dswap32(CONFIG_DUMMY);
+    write_dswap32(ftdi, CONFIG_DUMMY);
     if (found_multiple)
         send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1);
     for (i = 0; i < sizeof(req)/sizeof(req[0]); i++)
-        write_dswap32(req[i]);
+        write_dswap32(ftdi, req[i]);
     send_data_frame(ftdi, 0, NULL, constant4+1, constant4[0], SEND_SINGLE_FRAME, !corfirst);
     write_item(DITEM(SHIFT_TO_EXIT1(0, corfirst ? 0x80 : 0), EXIT1_TO_IDLE));
     write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0, 0);

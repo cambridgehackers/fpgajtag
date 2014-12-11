@@ -405,6 +405,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
         CONFIG_CMD_DESYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
+    uint8_t *ptr = req;
     uint8_t *constant4 = DITEM(INT32(4));
     uint8_t *constant0 = DITEM(0, 0, 0, 0);
     uint8_t dummy[] = {CONFIG_DUMMY};
@@ -414,7 +415,6 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     write_int32(ftdi, dummy);
     if (found_multiple)
         send_data_frame(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0);
-    uint8_t *ptr = req;
     while (ptr < req + sizeof(req))
         ptr = write_int32(ftdi, ptr);
     send_data_frame(ftdi, 0, NULL, constant4+1, constant4[0], SEND_SINGLE_FRAME, !corfirst, 0);

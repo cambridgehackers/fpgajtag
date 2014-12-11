@@ -260,8 +260,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         extrabit = write_bit(0, 5, command>>8);
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
-        //send_data_frame(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 1);
-        write_item(DITEM(DATAW(read, 1), 0xff));
+        send_data_frame(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 0);
         extrabit = write_bit(read, 3 - combo, command);
     }
     else {
@@ -351,8 +350,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
-        //send_data_frame(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 1);
-        write_item(DITEM(DATAW(0, 1), 0x69));
+        send_data_frame(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 0);
         write_bit(0, 2, 0);
         if (found_multiple)
             write_bit(0, 1, 0);

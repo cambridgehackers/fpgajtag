@@ -46,7 +46,7 @@
 #define MAX_SINGLE_USB_DATA    4046
 #define IDCODE_ARRAY_SIZE        20
 #define IDCODE_MASK      0x0fffffff
-#define SEGMENT_LENGTH           64 /* sizes above 256bits seem to get more bytes back in response than were requested */
+#define SEGMENT_LENGTH           (64 * sizeof(uint32_t)) /* sizes above 256bits seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
 int input_filesize;
@@ -336,14 +336,14 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
             size = SEGMENT_LENGTH;
         resp_len -= size;
         if (found_multiple && !readitem)
-            write_item(DITEM(DATAR(size * sizeof(uint32_t))));
+            write_item(DITEM(DATAR(size)));
         else
-            write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
+            write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
             write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(idcode_array_index == 1 ? DREAD : readitem, 0)));
-        uint8_t *rdata = read_data(ftdi, size * sizeof(uint32_t));
+        uint8_t *rdata = read_data(ftdi, size);
         ret = swap32i(*(uint32_t *)rdata);
-        for (j = 0; j < size * sizeof(uint32_t); j++)
+        for (j = 0; j < size; j++)
             rdata[j] = bitswap[rdata[j]];
         if (fd != -1) {
             static int skipsize = BITFILE_ITEMSIZE; /* 1 framebuffer of delay until data is output */
@@ -353,11 +353,11 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
                     skip = size;
                 skipsize -= skip;
                 size -= skip;
-                rdata += skip * sizeof(uint32_t);
+                rdata += skip;
                 resp_len += skip;
             }
             if (size)
-                write(fd, rdata, size * sizeof(uint32_t));
+                write(fd, rdata, size);
         }
     }
     return ret;
@@ -448,7 +448,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 
-    //readout_seq(ftdi, req_stat, 1, -1, 0, 0, 0);
+    //readout_seq(ftdi, req_stat, sizeof(uint32_t), -1, 0, 0, 0);
     //readout_seq(ftdi, req_rcrc, 0, -1, 0, 0, 0);
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0, -1);
     tmsw_delay(6);
@@ -486,7 +486,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
                     if (found_multiple)
                         write_bit(0, 1, 0);
                 }
-                ret = fetch_result(ftdi, 1, -1, readitem);
+                ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem);
                 if (ret != 0)
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
@@ -522,7 +522,7 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
             write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0, 0);
-            ret = fetch_result(ftdi, 1, -1, readitem);
+            ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem);
             if (verbose && ret != 0xffffffff)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
             for (i = 0; i < 3; i++)
@@ -548,7 +548,7 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
             uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
-                1, -1, EXTEND_EXTRA,
+                sizeof(uint32_t), -1, EXTEND_EXTRA,
                 (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
                 (use_first && statparam == 4) ? 4 : (use_second * statparam));
             write_item(DITEM(IDLE_TO_RESET));
@@ -723,7 +723,7 @@ usage:
         uint32_t header = {CONFIG_TYPE2_RAW(0x000f6c78)};
         header = htonl(header);
         write(fd, &header, sizeof(header));
-        read_config_memory(ftdi, fd, 0x000f6c78);
+        read_config_memory(ftdi, fd, 0x000f6c78 * sizeof(uint32_t));
         close(fd);
         return 0;
     }

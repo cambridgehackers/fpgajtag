@@ -224,7 +224,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 /*
  * Bit file constants
  */
-#define BITFILE_ITEMSIZE 101
+#define BITFILE_ITEMSIZE (101 * sizeof(uint32_t))
 
 #define SEND_SINGLE_FRAME     99999
 

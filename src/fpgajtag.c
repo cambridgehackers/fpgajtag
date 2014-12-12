@@ -145,8 +145,7 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
             ch = cptr[-1];
             if (opttail) {
                 cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
-                write_item(DITEM(6)); // 7 bits of data here
-                write_data(&ch, 1);
+                write_item(DITEM(6, ch)); // 7 bits of data here
                 cptr += 2;
             }
             else
@@ -512,7 +511,10 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
 static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, int statparam, uint32_t checkval)
 {
     int i, j, ret;
+    uint32_t readitem = 0;
 
+    if (use_both)
+        readitem = DREAD;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi);
@@ -520,8 +522,6 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
         if (!btype) {
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
-            int extra = (!j) ? use_both : (use_second * 2);
-            uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
             write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0, 0);
             ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
             if (verbose && ret != 0xffffffff)
@@ -561,6 +561,7 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
         }
         if (!btype)
             statparam = 3;
+        readitem = 0;
     }
 }
 

@@ -324,24 +324,12 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     }
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int variant, int resp_len, int optreq, int fd, int second)
+static uint32_t fetch_result(struct ftdi_context *ftdi,
+     int resp_len, int optreq, int fd, int readitem)
 {
     int j;
-    uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
+    uint32_t ret = 0;
 
-    write_irreg(ftdi, 0, irreg, 1, readitem, 0, 0);
-    idle_to_shift_dr(readitem, 0);
-    if (variant > 1) {
-        write_bit(0, opcode_bits + (second == 0), IRREG_JSTART);
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-        idle_to_shift_dr(second, 0);
-    }
-    if (variant > 0) {
-        write_one_byte(ftdi, 0, 0x69);
-        write_bit(0, 2, 0);
-        if (found_multiple)
-            write_bit(0, 1, 0);
-    }
     while (resp_len > 0) {
         int size = resp_len;
         if (size > SEGMENT_LENGTH)
@@ -386,8 +374,12 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
-    if (resp_len)
-        ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
+    if (resp_len) {
+        uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
+        write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, readitem, 0, 0);
+        idle_to_shift_dr(readitem, 0);
+        ret = fetch_result(ftdi, resp_len, fetchformat, fd, readitem);
+    }
     flush_write(ftdi, NULL);
     return ret;
 }
@@ -484,7 +476,21 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
                 //if (trace)
                 //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
                 write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
-                ret = fetch_result(ftdi, IRREG_USER2, i, 1, found_multiple, -1, second);
+                uint32_t readitem = (second && second != 2 && second != 3) ? DREAD : 0;
+                write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0, 0);
+                idle_to_shift_dr(readitem, 0);
+                if (i > 1) {
+                    write_bit(0, opcode_bits + (second == 0), IRREG_JSTART);
+                    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+                    idle_to_shift_dr(second, 0);
+                }
+                if (i > 0) {
+                    write_one_byte(ftdi, 0, 0x69);
+                    write_bit(0, 2, 0);
+                    if (found_multiple)
+                        write_bit(0, 1, 0);
+                }
+                ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
                 if (ret != 0)
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
@@ -516,8 +522,11 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
         if (!btype) {
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
-            ret = fetch_result(ftdi, IRREG_USERCODE, 0, 1,
-                found_multiple, -1, (!j) ? use_both : (use_second * 2));
+        int extra = (!j) ? use_both : (use_second * 2);
+        uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
+        write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0);
+        idle_to_shift_dr(readitem, 0);
+            ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
             if (verbose && ret != 0xffffffff)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
             for (i = 0; i < 3; i++)

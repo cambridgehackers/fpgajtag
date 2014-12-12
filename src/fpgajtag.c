@@ -20,7 +20,6 @@
 // ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-
 //
 // FTDI interface documented at:
 //     http://www.ftdichip.com/Documents/AppNotes/AN2232C-01_MPSSE_Cmnd.pdf
@@ -112,10 +111,10 @@ static uint32_t swap32i(uint32_t value)
     int i;
     union {
         uint32_t i;
-        uint8_t c[4];
+        uint8_t c[sizeof(uint32_t)];
     } temp, tempo;
     temp.i = value;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < sizeof(uint32_t); i++)
         tempo.c[i] = bitswap[temp.c[sizeof(uint32_t)-1-i]];
     return tempo.i;
 }
@@ -319,7 +318,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command,
         extrabit = write_bit(0, XILINX_IR_LENGTH - 1, command>>8);
     }
     else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read
-       && opcode_bits == XILINX_IR_LENGTH && (command & 0xffff) == 0xffff)) {
+         && (command & 0xffff) == 0xffff)) {
         write_one_byte(ftdi, read, 0xff);
         extrabit = write_bit(read, 3 - combo, command);
     }

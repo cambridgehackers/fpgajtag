@@ -288,7 +288,8 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect, int shiftdr)
+void write_irreg(struct ftdi_context *ftdi, int read, int command,
+    int next_state, int flip, int combo, uint32_t expect, int shiftdr)
 {
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
@@ -393,11 +394,9 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
      int fd, int extend, int oneformat, int extra)
 {
-    uint32_t ret = 0;
+    uint32_t ret = 0, flip = use_first ? (extra == 4) : (use_second * (extra != 3));
 
-    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1,
-        use_first ? (extra == 4) : (use_second * (extra != 3)),
-        0, 0, -1); /* Select CFG_IN so that we can send out our request */
+    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1, flip, 0, 0, -1); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);

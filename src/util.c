@@ -262,8 +262,9 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
          */
         }
     }
-    if (size)
+    if (expected_len + extra_bytes)
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len + extra_bytes);
+#if 0
     if (expected_len != size) {
         printf("Error: expected len %d minus extrabytes %d does not match size %d actual %d\n", expected_len, extra_bytes, size, last_read_data_length);
         for (i = 0; i < read_size_ptr; i++)
@@ -271,7 +272,8 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
         //if (!trace)
         //    exit(-1);
     }
-    if (size) {
+#endif
+    if (expected_len) {
         uint8_t *p = last_read_data;
         int validbits = 0;
         for (i = 0; i < read_size_ptr; i++) {
@@ -294,7 +296,7 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
 
                     /* delete unused byte from read result */
                     last_read_data_length--;
-                    for (j = 0; j < size; j++)  /* copies too much, but... */
+                    for (j = 0; j < expected_len; j++)  /* copies too much, but... */
                         *(p+j) = *(p+j+1);  /* move the data down in the buffer 1 byte */
                 }
                 else

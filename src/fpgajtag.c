@@ -215,6 +215,52 @@ static void send_data_file(struct ftdi_context *ftdi)
 }
 
 /*
+ * Read/validate IDCODE from device to be programmed
+ */
+#define REPEAT5(A) INT32(A), INT32(A), INT32(A), INT32(A), INT32(A)
+#define REPEAT10(A) REPEAT5(A), REPEAT5(A)
+
+#define IDCODE_PROBE_PATTERN REPEAT10(0xff), REPEAT5(0xff)
+#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
+            REPEAT10(0xffffffff), INT32(0xffffffff)
+
+static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
+static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
+static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
+static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
+static void read_idcode(struct ftdi_context *ftdi, int input_shift)
+{
+    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
+        memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
+        memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
+    }
+    if (input_shift)
+        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+    else
+        write_item(DITEM(IDLE_TO_RESET));
+    write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
+        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    uint8_t *rdata = read_data(ftdi, idcode_probe_result[0]);
+    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
+        first_time_idcode_read = 0;
+        memcpy(&idcode_array[idcode_array_index++], rdata, sizeof(idcode_array[0]));
+        memcpy(idcode_validate_result+1, rdata, sizeof(idcode_array[1])); // copy returned idcode
+        memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
+        if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
+            memcpy(&idcode_array[idcode_array_index++], rdata+4, sizeof(idcode_array[0]));
+            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
+            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
+        }
+    }
+    if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
+        printf("[%s]\n", __FUNCTION__);
+        memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
+        memdump(rdata, idcode_probe_result[0], "ACTUAL");
+    }
+}
+
+/*
  * Functions for setting Instruction Register(IR)
  */
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int combo, uint32_t expect, int shiftdr)
@@ -277,52 +323,6 @@ static void write_bypass(struct ftdi_context *ftdi)
         printf("fpgajtag: bypass already programmed %x\n", ret);
     else
         printf("fpgajtag: bypass unknown %x\n", ret);
-}
-
-#define REPEAT5(A) INT32(A), INT32(A), INT32(A), INT32(A), INT32(A)
-#define REPEAT10(A) REPEAT5(A), REPEAT5(A)
-
-#define IDCODE_PROBE_PATTERN REPEAT10(0xff), REPEAT5(0xff)
-#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
-            REPEAT10(0xffffffff), INT32(0xffffffff)
-
-static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
-static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
-static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
-static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
-/*
- * Read/validate IDCODE from device to be programmed
- */
-static void read_idcode(struct ftdi_context *ftdi, int input_shift)
-{
-    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
-        memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
-        memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
-    }
-    if (input_shift)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
-    else
-        write_item(DITEM(IDLE_TO_RESET));
-    write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
-        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    uint8_t *rdata = read_data(ftdi, idcode_probe_result[0]);
-    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
-        first_time_idcode_read = 0;
-        memcpy(&idcode_array[idcode_array_index++], rdata, sizeof(idcode_array[0]));
-        memcpy(idcode_validate_result+1, rdata, sizeof(idcode_array[1])); // copy returned idcode
-        memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
-        if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
-            memcpy(&idcode_array[idcode_array_index++], rdata+4, sizeof(idcode_array[0]));
-            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
-            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
-        }
-    }
-    if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
-        printf("[%s]\n", __FUNCTION__);
-        memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
-        memdump(rdata, idcode_probe_result[0], "ACTUAL");
-    }
 }
 
 static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem)

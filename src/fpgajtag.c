@@ -309,9 +309,8 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
         }
-        if (!use_first || !expect) {
-            if (!use_first || expect)
-                write_item(DITEM(EXIT1_TO_IDLE));
+        if (!use_first) {
+            write_item(DITEM(EXIT1_TO_IDLE));
             return ret;
         }
         read = 0;
@@ -414,7 +413,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
  * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
  * Table 6-4.
  */
-static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int combo)
+static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
     uint8_t req[] = {CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
@@ -444,8 +443,6 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     if (corfirst)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
-    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, combo, 0, -1);
-    flush_write(ftdi, NULL);
     return ret;
 }
 
@@ -776,16 +773,20 @@ usage:
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS, 0)) != (corfirst ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (corfirst ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
+    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, 0, 0, -1);
+    flush_write(ftdi, NULL);
     write_irreg(ftdi, 0, IRREG_JSTART, 0, use_second, 0, 0, -1);
     write_item(DITEM(RESET_TO_IDLE));
     tmsw_delay(14);
     flush_write(ftdi, DITEM(TMSW, 0x01, 0x00));
     write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, 0, 1, FINISHED, -1);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT, idcode_count == 1)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
+    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, idcode_count == 1, 0, -1);
+    flush_write(ftdi, NULL);
     write_item(DITEM(IDLE_TO_RESET));
 
     readout_status(ftdi, 1, extra_bypass_count, use_second, 0xf07910);

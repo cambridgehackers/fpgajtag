@@ -165,6 +165,11 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
     return 0x80 & ch;
 }
 
+static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
+{
+    write_bytes(ftdi, read, NULL, &data, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
+}
+
 static uint8_t *write_int32(struct ftdi_context *ftdi, uint8_t *data)
 {
     write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0x80);
@@ -185,7 +190,7 @@ static void send_data_file(struct ftdi_context *ftdi)
     idle_to_shift_dr(use_second, 0xff);
     if (found_multiple)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    write_bytes(ftdi, 0, NULL, zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0x80);
+    write_int32(ftdi, zerodata);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -219,7 +224,6 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
     int extrabit;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    static uint8_t constantff = 0xff;
     if (combo == 1) {
         if (use_second)
             write_bit(0, opcode_bits+1, 0xff);
@@ -244,7 +248,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         extrabit = write_bit(0, 5, command>>8);
     }
     else if ((combo == 2) || (use_both && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
-        write_bytes(ftdi, read, NULL, &constantff, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
+        write_one_byte(ftdi, read, 0xff);
         extrabit = write_bit(read, 3 - combo, command);
     }
     else {
@@ -324,7 +328,6 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
 {
     int j;
     uint32_t ret = 0, readitem = (second && second != 2 && second != 3) ? DREAD : 0;
-    static uint8_t constant69 = 0x69;
 
     write_irreg(ftdi, 0, irreg, 1, readitem, 0, 0);
     idle_to_shift_dr(readitem, 0);
@@ -334,7 +337,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
         idle_to_shift_dr(second, 0);
     }
     if (variant > 0) {
-        write_bytes(ftdi, 0, NULL, &constant69, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
+        write_one_byte(ftdi, 0, 0x69);
         write_bit(0, 2, 0);
         if (found_multiple)
             write_bit(0, 1, 0);
@@ -405,7 +408,6 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
     uint8_t *preq = req;
     uint8_t constant4[] = {INT32(4)};
-    uint8_t constant0[] = {INT32(0)};
     uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0, 0);
@@ -421,7 +423,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     idle_to_shift_dr(use_second, 0xff);
     write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
                                       : DITEM(SHIFT_TO_EXIT1(0, 0)),
-        constant0, sizeof(constant0), SEND_SINGLE_FRAME, 1, 0, 0x80);
+        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(__LINE__, ftdi, 4);
     if (corfirst)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));

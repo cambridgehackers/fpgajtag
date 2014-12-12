@@ -54,7 +54,7 @@ int found_cortex;
 
 static int verbose;
 static int use_first, use_second, corfirst, device_type;
-static int opcode_bits = 5;
+static int opcode_bits = XILINX_IR_LENGTH - 1;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -116,7 +116,7 @@ static uint32_t swap32i(uint32_t value)
     } temp, tempo;
     temp.i = value;
     for (i = 0; i < 4; i++)
-        tempo.c[i] = bitswap[temp.c[3-i]];
+        tempo.c[i] = bitswap[temp.c[sizeof(uint32_t)-1-i]];
     return tempo.i;
 }
 int write_bit(int read, int bits, int data)
@@ -297,13 +297,13 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     if (combo == 1) {
         if (use_second)
             write_bit(0, opcode_bits, 0xff);
-        extrabit = write_bit(read, 5, command);
+        extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
         write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
             uint16_t ret = read_data_int(ftdi, 1);
             if (found_cortex) {
                 write_item(DITEM(PAUSE_TO_SHIFT));
-                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, 3, 0xff))));
+                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
             }
             if (ret != expect)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
@@ -315,18 +315,19 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         }
         read = 0;
         write_item(DITEM(PAUSE_TO_SHIFT));
-        extrabit = write_bit(0, 5, command>>8);
+        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, command>>8);
     }
-    else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read && opcode_bits == 6 && (command & 0xffff) == 0xffff)) {
+    else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read
+       && opcode_bits == XILINX_IR_LENGTH && (command & 0xffff) == 0xffff)) {
         write_one_byte(ftdi, read, 0xff);
         extrabit = write_bit(read, 3 - combo, command);
     }
     else {
         extrabit = write_bit(read, opcode_bits, command);
-        if (found_cortex)     /* 3 extra bits of IR are sent here */
-            extrabit = write_bit(read, 3, command>>8);
+        if (found_cortex)     /* extra bits of IR are sent here */
+            extrabit = write_bit(read, CORTEX_IR_LENGTH, command>>8);
         else if (idcode_count > 1)
-            extrabit = write_bit(read, 5, command>>8);
+            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command>>8);
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
@@ -678,7 +679,7 @@ usage:
     /*** Depending on the idcode read, change some default actions ***/
     }
     if (idcode_count > 1)
-        opcode_bits = 6;
+        opcode_bits = XILINX_IR_LENGTH;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;

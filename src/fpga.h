@@ -75,6 +75,8 @@
 #define CLOCK_FREQUENCY      30000000
 #endif
 
+#define XILINX_IR_LENGTH         6 /* 6 bits in Xilinx IR register */
+#define CORTEX_IR_LENGTH         3 /* 3 bits in ARM Cortex IR register */
 /* FPGA JTAG registers */
 #define IRREG_USER2          0xffc3
 #define IRREG_CFG_OUT        0xff04

@@ -365,7 +365,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi,
 }
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
-     int fd, int extend, int oneformat, int fetchformat, int extra)
+     int fd, int extend, int oneformat, int extra)
 {
     uint32_t ret = 0;
 
@@ -378,7 +378,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     if (resp_len) {
         uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
         write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, readitem, 0, 0, 0);
-        ret = fetch_result(ftdi, resp_len, fetchformat, fd, readitem);
+        ret = fetch_result(ftdi, resp_len, found_multiple, fd, readitem);
     }
     flush_write(ftdi, NULL);
     return ret;
@@ -449,11 +449,11 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 
-    //readout_seq(ftdi, req_stat, 1, -1, 0, 0, 1, 0);
-    //readout_seq(ftdi, req_rcrc, 0, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_stat, 1, -1, 0, 0, 0);
+    //readout_seq(ftdi, req_rcrc, 0, -1, 0, 0, 0);
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0, -1);
     tmsw_delay(6);
-    readout_seq(ftdi, req_rcfg, size, fd, 0, 0, 1, 0);
+    readout_seq(ftdi, req_rcfg, size, fd, 0, 0, 0);
 }
 
 static void set_clock_divisor(struct ftdi_context *ftdi)
@@ -551,7 +551,7 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 1, -1, EXTEND_EXTRA,
                 (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
-                found_multiple, (use_first && statparam == 4) ? 4 : (use_second * statparam));
+                (use_first && statparam == 4) ? 4 : (use_second * statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != checkval))

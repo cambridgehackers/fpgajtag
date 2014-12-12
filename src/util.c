@@ -235,7 +235,7 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 /*
  * Read utility functions
  */
-uint8_t *read_data(struct ftdi_context *ftdi, int size)
+uint8_t *read_data(struct ftdi_context *ftdi)
 {
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
@@ -263,16 +263,8 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
         }
     }
     if (expected_len + extra_bytes)
-        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len + extra_bytes);
-#if 0
-    if (expected_len != size) {
-        printf("Error: expected len %d minus extrabytes %d does not match size %d actual %d\n", expected_len, extra_bytes, size, last_read_data_length);
-        for (i = 0; i < read_size_ptr; i++)
-            printf("      : sizevector [%d]=%d\n", i, read_size[i]);
-        //if (!trace)
-        //    exit(-1);
-    }
-#endif
+        ftdi_read_data(ftdi, last_read_data, expected_len + extra_bytes);
+    last_read_data_length = expected_len;
     if (expected_len) {
         uint8_t *p = last_read_data;
         int validbits = 0;
@@ -293,9 +285,6 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
                 if (i > 0 && read_size[i-1] < 0) {
                     *(p-1) = *p >> (8-validbits);    /* put result into LSBs */
                     /* Note: union datatypes work correctly, but read_data_int needs the data as MSBs! */
-
-                    /* delete unused byte from read result */
-                    last_read_data_length--;
                     for (j = 0; j < expected_len; j++)  /* copies too much, but... */
                         *(p+j) = *(p+j+1);  /* move the data down in the buffer 1 byte */
                 }
@@ -312,11 +301,11 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
     return last_read_data;
 }
 
-uint64_t read_data_int(struct ftdi_context *ftdi, int size)
+uint64_t read_data_int(struct ftdi_context *ftdi)
 {
-    uint8_t *bufp = read_data(ftdi, size);
+    uint8_t *bufp = read_data(ftdi);
     uint64_t ret = 0;
-    uint8_t *backp = bufp + size;
+    uint8_t *backp = bufp + last_read_data_length;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
     return ret;

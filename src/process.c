@@ -101,7 +101,7 @@ void process_command_list(struct ftdi_context *ftdi)
             if (found_cortex)
                  write_item(DITEM(TMSW, 0x03, 0x0a));
             write_item(DITEM(EXIT1_TO_IDLE));
-            uint8_t *rdata = read_data(ftdi, len);
+            uint8_t *rdata = read_data(ftdi);
             int i = 0;
             while(i < len) {
                 uint8_t t = rdata[len-1-i];
@@ -115,5 +115,4 @@ void process_command_list(struct ftdi_context *ftdi)
         str = NULL;
     }
     flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
-    //read_data(ftdi, 1);
 }

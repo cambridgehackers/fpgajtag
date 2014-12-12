@@ -72,8 +72,8 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req);
 int buffer_current_size(void);
 uint8_t *buffer_current_ptr(void);
 
-uint8_t *read_data(struct ftdi_context *ftdi, int size);
-uint64_t read_data_int(struct ftdi_context *ftdi, int size);
+uint8_t *read_data(struct ftdi_context *ftdi);
+uint64_t read_data_int(struct ftdi_context *ftdi);
 void tmsw_delay(int delay_time);
 int write_bit(int read, int bits, int data);
 void idle_to_shift_dr(int extra, int val);

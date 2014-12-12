@@ -311,7 +311,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
         }
         read = 0;
         write_item(DITEM(PAUSE_TO_SHIFT));
-        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, command>>8);
+        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
     }
     else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read
          && (command & 0xffff) == 0xffff)) {

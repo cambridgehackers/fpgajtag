@@ -230,7 +230,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         extrabit = write_bit(read, 5, command);
         write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
-            uint16_t ret = read_data_int(__LINE__, ftdi, 1);
+            uint16_t ret = read_data_int(ftdi, 1);
             if (found_cortex) {
                 write_item(DITEM(PAUSE_TO_SHIFT));
                 write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, 3, 0xff))));
@@ -269,7 +269,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
 static void write_bypass(struct ftdi_context *ftdi)
 {
     write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, found_cortex * 2, 0);
-    uint32_t ret = read_data_int(__LINE__, ftdi, 1 + found_multiple) & 0xfff;
+    uint32_t ret = read_data_int(ftdi, 1 + found_multiple) & 0xfff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
     else if (ret == PROGRAMMED)
@@ -305,7 +305,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_probe_result[0]);
+    uint8_t *rdata = read_data(ftdi, idcode_probe_result[0]);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
         memcpy(&idcode_array[idcode_array_index++], rdata, sizeof(idcode_array[0]));
@@ -353,7 +353,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
             write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(idcode_array_index == 1 ? DREAD : readitem, 0)));
-        uint8_t *rdata = read_data(__LINE__, ftdi, size * sizeof(uint32_t));
+        uint8_t *rdata = read_data(ftdi, size * sizeof(uint32_t));
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size * sizeof(uint32_t); j++)
             rdata[j] = bitswap[rdata[j]];
@@ -424,7 +424,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
     write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
                                       : DITEM(SHIFT_TO_EXIT1(0, 0)),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    uint64_t ret = read_data_int(__LINE__, ftdi, 4);
+    uint64_t ret = read_data_int(ftdi, 4);
     if (corfirst)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
@@ -754,7 +754,7 @@ usage:
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
     write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    uint8_t *rdata = read_data(__LINE__, ftdi, idcode_validate_result[0]);
+    uint8_t *rdata = read_data(ftdi, idcode_validate_result[0]);
     if (last_read_data_length != idcode_validate_result[0]
      || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {
         printf("fpgajtag: mismatch validate data\n");

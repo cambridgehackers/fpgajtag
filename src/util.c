@@ -235,13 +235,13 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 /*
  * Read utility functions
  */
-uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
+uint8_t *read_data(struct ftdi_context *ftdi, int size)
 {
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
 
     if (trace)
-        printf("[%s:%d]\n", __FUNCTION__, linenumber);
+        printf("[%s]\n", __FUNCTION__);
     if (buffer_current_size())
         *usbreadbuffer_ptr++ = SEND_IMMEDIATE; /* tell the FTDI that we are waiting... */
     flush_write(ftdi, NULL);
@@ -264,7 +264,7 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
     if (size)
         last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);
     if (expected_len - extra_bytes != size) {
-        printf("Error: on line %d, expected len %d minus extrabytes %d does not match size %d actual %d\n", linenumber, expected_len, extra_bytes, size, last_read_data_length);
+        printf("Error: expected len %d minus extrabytes %d does not match size %d actual %d\n", expected_len, extra_bytes, size, last_read_data_length);
         for (i = 0; i < read_size_ptr; i++)
             printf("      : sizevector [%d]=%d\n", i, read_size[i]);
         //if (!trace)
@@ -277,7 +277,7 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
             if (read_size[i] < 0) {
                 validbits -= read_size[i];
                 if (validbits < 0 || validbits > 8) {
-                    printf("[%s:%d] validbits %d big\n", __FUNCTION__, linenumber, validbits);
+                    printf("[%s] validbits %d big\n", __FUNCTION__, validbits);
                     validbits = 8;
                     //exit(-1);
                 }
@@ -308,9 +308,9 @@ uint8_t *read_data(int linenumber, struct ftdi_context *ftdi, int size)
     return last_read_data;
 }
 
-uint64_t read_data_int(int linenumber, struct ftdi_context *ftdi, int size)
+uint64_t read_data_int(struct ftdi_context *ftdi, int size)
 {
-    uint8_t *bufp = read_data(linenumber, ftdi, size);
+    uint8_t *bufp = read_data(ftdi, size);
     uint64_t ret = 0;
     uint8_t *backp = bufp + size;
     while (backp > bufp)

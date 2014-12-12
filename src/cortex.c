@@ -56,7 +56,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
         write_creg(ftdi, IRREGA_DPACC);
     loaddr(DREAD, 0, DPACC_CTRL | DPACC_WRITE);
     read_rdbuff();
-    rdata = read_data(linenumber, ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
+    rdata = read_data(ftdi, buf[0] * 5); /* each item read is 35 bits -> 5 bytes */
     for (i = 0; i < last_read_data_length/6; i++) {
         uint64_t ret = 0;              // Clear out MSB before copy
         memcpy(&ret, rdata, 5);        // copy into bottom of uint64 data target

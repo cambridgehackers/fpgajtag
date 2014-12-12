@@ -95,6 +95,10 @@ static void pulse_gpio(struct ftdi_context *ftdi, int adelay)
     flush_write(ftdi, DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
                      SET_LSB_DIRECTION(GPIO_01)));
 }
+static void set_clock_divisor(struct ftdi_context *ftdi)
+{
+    flush_write(ftdi, DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
+}
 
 void tmsw_delay(int delay_time)
 {
@@ -258,6 +262,27 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
         memdump(rdata, idcode_probe_result[0], "ACTUAL");
     }
+}
+
+static struct ftdi_context *get_deviceid(int device_index)
+{
+    fpgausb_open(device_index);            /*** Open selected USB interface ***/
+    struct ftdi_context *ftdi = init_ftdi();
+    /*
+     * Set JTAG clock speed and GPIO pins for our i/f
+     */
+    idcode_array_index = 0;
+    if (ftdi) {
+        write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
+        set_clock_divisor(ftdi);
+        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+        if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
+            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+        flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
+        first_time_idcode_read = 1;
+        read_idcode(ftdi, 1);
+    }
+    return ftdi;
 }
 
 /*
@@ -425,40 +450,29 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
 #if 0
-    static uint8_t *req_stat = DITEM(
-        CONFIG_DUMMY, CONFIG_SYNC,
+    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-    static uint8_t *req_rcrc = DITEM(
-        CONFIG_DUMMY, CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 0, 0, 0);
+    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 0, 0, 0);
 #endif
-    uint8_t *req_rcfg = DITEM(
-        CONFIG_DUMMY, CONFIG_SYNC,
+    write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0, -1);
+    tmsw_delay(6);
+    readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
-
-    //readout_seq(ftdi, req_stat, sizeof(uint32_t), -1, 0, 0, 0);
-    //readout_seq(ftdi, req_rcrc, 0, -1, 0, 0, 0);
-    write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0, -1);
-    tmsw_delay(6);
-    readout_seq(ftdi, req_rcfg, size, fd, 0, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 0, 0, 0);
 }
 
-static void set_clock_divisor(struct ftdi_context *ftdi)
-{
-    flush_write(ftdi, DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
-}
 static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
     int testi, j = argj;
@@ -562,27 +576,6 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
             statparam = 3;
         readitem = 0;
     }
-}
-
-static struct ftdi_context *get_deviceid(int device_index)
-{
-    fpgausb_open(device_index);            /*** Open selected USB interface ***/
-    struct ftdi_context *ftdi = init_ftdi();
-    /*
-     * Set JTAG clock speed and GPIO pins for our i/f
-     */
-    idcode_array_index = 0;
-    if (ftdi) {
-        write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
-        set_clock_divisor(ftdi);
-        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
-            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-        flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET)); /*** Force TAP controller to Reset state ***/
-        first_time_idcode_read = 1;
-        read_idcode(ftdi, 1);
-    }
-    return ftdi;
 }
 
 int main(int argc, char **argv)

@@ -250,9 +250,10 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
         if (read_size[i] > 0)
             expected_len += read_size[i];
         else {
-            expected_len++;
             if (i > 0 && read_size[i-1] < 0)
                 extra_bytes++; /* we will squeeze out partial bytes in the processing below */
+            else
+                expected_len++;
         /* When there are 2 bit operations in a row, this is just accumulating
          * shifted bits into a register for return to user.  When exiting
          * Shift-DR/IR state, the last bit shifted is not performed with DATAWBITS,
@@ -262,8 +263,8 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
         }
     }
     if (size)
-        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len);
-    if (expected_len - extra_bytes != size) {
+        last_read_data_length = ftdi_read_data(ftdi, last_read_data, expected_len + extra_bytes);
+    if (expected_len != size) {
         printf("Error: expected len %d minus extrabytes %d does not match size %d actual %d\n", expected_len, extra_bytes, size, last_read_data_length);
         for (i = 0; i < read_size_ptr; i++)
             printf("      : sizevector [%d]=%d\n", i, read_size[i]);
@@ -305,6 +306,7 @@ uint8_t *read_data(struct ftdi_context *ftdi, int size)
             }
         }
     }
+    read_size_ptr = 0;
     return last_read_data;
 }
 

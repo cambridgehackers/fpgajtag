@@ -325,8 +325,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     }
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi,
-     int resp_len, int optreq, int fd, int readitem)
+static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem)
 {
     int j;
     uint32_t ret = 0;
@@ -336,7 +335,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi,
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (optreq && !readitem)
+        if (found_multiple && !readitem)
             write_item(DITEM(DATAR(size * sizeof(uint32_t))));
         else
             write_item(DITEM(DATAR(size * sizeof(uint32_t) - 1), DATARBIT, 0x06));
@@ -378,7 +377,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     if (resp_len) {
         uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
         write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, readitem, 0, 0, 0);
-        ret = fetch_result(ftdi, resp_len, found_multiple, fd, readitem);
+        ret = fetch_result(ftdi, resp_len, fd, readitem);
     }
     flush_write(ftdi, NULL);
     return ret;
@@ -487,7 +486,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
                     if (found_multiple)
                         write_bit(0, 1, 0);
                 }
-                ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
+                ret = fetch_result(ftdi, 1, -1, readitem);
                 if (ret != 0)
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
@@ -523,7 +522,7 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
             write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0, 0);
-            ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
+            ret = fetch_result(ftdi, 1, -1, readitem);
             if (verbose && ret != 0xffffffff)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
             for (i = 0; i < 3; i++)

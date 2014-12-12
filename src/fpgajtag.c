@@ -287,9 +287,10 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-void write_irreg(struct ftdi_context *ftdi, int read, int command,
+int write_irreg(struct ftdi_context *ftdi, int read, int command,
     int next_state, int flip, int combo, uint32_t expect, int shiftdr)
 {
+    int ret = 0;
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
     int extrabit;
@@ -300,7 +301,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command,
         extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
         write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
-            uint16_t ret = read_data_int(ftdi);
+            ret = read_data_int(ftdi);
             if (found_cortex) {
                 write_item(DITEM(PAUSE_TO_SHIFT));
                 write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
@@ -311,7 +312,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command,
         if (!use_first || !expect) {
             if (!use_first || expect)
                 write_item(DITEM(EXIT1_TO_IDLE));
-            return;
+            return ret;
         }
         read = 0;
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -337,6 +338,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command,
         write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
     if (shiftdr >= 0)
         idle_to_shift_dr(flip, shiftdr);
+    return ret;
 }
 
 static void write_bypass(struct ftdi_context *ftdi)

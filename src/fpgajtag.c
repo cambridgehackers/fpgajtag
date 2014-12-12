@@ -350,7 +350,8 @@ static void write_bypass(struct ftdi_context *ftdi)
         printf("fpgajtag: bypass unknown %x\n", ret);
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem)
+static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
+    int readitem)
 {
     int j;
     uint32_t ret = 0;
@@ -485,8 +486,6 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     while(j > 0) {
         while (j-- > 0) {
             for (testi = 0; testi < 4; testi++) {
-                //if (trace)
-                //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, testi);
                 write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0, -1);
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0, 0, 0);
                 if (testi) {
@@ -505,7 +504,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
         }
-        if ((idcode_count > 1 && !found_cortex))
+        if (idcode_count > 1 && !found_cortex)
             j = argj;
         readitem = DREAD;
         argj = 0;
@@ -524,10 +523,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, int statparam, uint32_t checkval)
 {
     int i, j, ret;
-    uint32_t readitem = 0;
-
-    if ((idcode_count > 1 && !found_cortex))
-        readitem = DREAD;
+    uint32_t readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi);
@@ -537,22 +533,21 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 write_item(DITEM(RESET_TO_IDLE));
             write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0, 0);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem);
-            if (verbose && ret != 0xffffffff)
-                printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+            if (ret != 0xffffffff)
+                printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi);
-            write_item(DITEM(IDLE_TO_RESET));
         }
-        else {
+        else
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
-            if (j == 0)
-                write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
-        }
         /*
          * Read Xilinx configuration status register
          * See: ug470_7Series_Config.pdf, Chapter 6
          */
         if (!btype || j == 0) {
+            write_item(DITEM(IDLE_TO_RESET));
+            if (btype)
+                write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
             write_item(DITEM(RESET_TO_IDLE));
             /*
              * Read status register.

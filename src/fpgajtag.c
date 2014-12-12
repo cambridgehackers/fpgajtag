@@ -362,12 +362,12 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (idcode_count > 1 && !readitem)
+        if (!readitem)
             write_item(DITEM(DATAR(size)));
         else
             write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(idcode_count == 1 ? DREAD : readitem, 0)));
+            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(readitem, 0)));
         uint8_t *rdata = read_data(ftdi, size);
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size; j++)
@@ -404,7 +404,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     if (resp_len) {
         uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
         write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, readitem, 0, 0, 0);
-        ret = fetch_result(ftdi, resp_len, fd, readitem);
+        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 ? DREAD: readitem);
     }
     flush_write(ftdi, NULL);
     return ret;
@@ -500,7 +500,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                     if (idcode_count > 1)
                         write_bit(0, 1, 0);
                 }
-                ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem);
+                ret = fetch_result(ftdi, sizeof(uint32_t), -1, idcode_count == 1 ? DREAD: readitem);
                 if (ret != 0)
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
@@ -533,7 +533,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
             write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0, 0);
-            ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem);
+            ret = fetch_result(ftdi, sizeof(uint32_t), -1, idcode_count == 1 ? DREAD: readitem);
             if (ret != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)

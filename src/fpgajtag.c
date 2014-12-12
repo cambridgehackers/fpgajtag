@@ -372,7 +372,8 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, uint32_t irreg, int vari
     return ret;
 }
 
-static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int req_len, int resp_len, int fd, int extend, int oneformat, int fetchformat, int extra)
+static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
+     int fd, int extend, int oneformat, int fetchformat, int extra)
 {
     uint32_t ret = 0;
 
@@ -380,7 +381,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int req_len
         use_first ? (extra == 4) : (use_second * (extra != 3)),
         0, 0); /* Select CFG_IN so that we can send out our request */
     idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req, req_len,
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     if (resp_len)
         ret = fetch_result(ftdi, extend | IRREG_CFG_OUT, 0, resp_len, fetchformat, fd, extra);
@@ -433,20 +434,20 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data, int co
 static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
 {
 #if 0
-    static uint8_t req_stat[] = {
+    static uint8_t *req_stat = DITEM(
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
-    static uint8_t req_rcrc[] = {
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
+    static uint8_t *req_rcrc = DITEM(
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 #endif
-    uint8_t req_rcfg[] = {
+    uint8_t *req_rcfg = DITEM(
         CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
@@ -454,13 +455,13 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)};
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0));
 
-    //readout_seq(ftdi, req_stat, sizeof(req_stat), 1, -1, 0, 0, 1, 0);
-    //readout_seq(ftdi, req_rcrc, sizeof(req_rcrc), 0, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_stat, 1, -1, 0, 0, 1, 0);
+    //readout_seq(ftdi, req_rcrc, 0, -1, 0, 0, 1, 0);
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, 0, 0);
     tmsw_delay(6);
-    readout_seq(ftdi, req_rcfg, sizeof(req_rcfg), size, fd, 0, 0, 1, 0);
+    readout_seq(ftdi, req_rcfg, size, fd, 0, 0, 1, 0);
 }
 
 static void set_clock_divisor(struct ftdi_context *ftdi)
@@ -504,13 +505,6 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
 
 static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, int statparam, uint32_t checkval)
 {
-/*
- * Read status register.
- * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers through
- * the JTAG Interface" and Table 6-3.
- */
-    static uint8_t req[] = {CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
-         CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)};
     int i, j, ret;
 
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
@@ -539,7 +533,15 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
          */
         if (!btype || j == 0) {
             write_item(DITEM(RESET_TO_IDLE));
-            uint32_t ret = readout_seq(ftdi, req, sizeof(req), 1, -1, EXTEND_EXTRA,
+            /*
+             * Read status register.
+             * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
+             * through the JTAG Interface" and Table 6-3.
+             */
+            uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
+                CONFIG_SYNC, CONFIG_TYPE2(0),
+                CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
+                1, -1, EXTEND_EXTRA,
                 (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
                 found_multiple, (use_first && statparam == 4) ? 4 : (use_second * statparam));
             write_item(DITEM(IDLE_TO_RESET));

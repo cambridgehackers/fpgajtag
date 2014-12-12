@@ -46,7 +46,7 @@
 #define MAX_SINGLE_USB_DATA    4046
 #define IDCODE_ARRAY_SIZE        20
 #define IDCODE_MASK      0x0fffffff
-#define SEGMENT_LENGTH           (64 * sizeof(uint32_t)) /* sizes above 256bits seem to get more bytes back in response than were requested */
+#define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
 int input_filesize;
@@ -54,7 +54,7 @@ int found_cortex;
 
 static int verbose;
 static int use_first, use_second, corfirst, device_type;
-static int opcode_bits = 4;
+static int opcode_bits = 5;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -296,7 +296,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 1) {
         if (use_second)
-            write_bit(0, opcode_bits+1, 0xff);
+            write_bit(0, opcode_bits, 0xff);
         extrabit = write_bit(read, 5, command);
         write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
         if (read) {
@@ -317,12 +317,12 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int next_stat
         write_item(DITEM(PAUSE_TO_SHIFT));
         extrabit = write_bit(0, 5, command>>8);
     }
-    else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read && opcode_bits == 5 && (command & 0xffff) == 0xffff)) {
+    else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read && opcode_bits == 6 && (command & 0xffff) == 0xffff)) {
         write_one_byte(ftdi, read, 0xff);
         extrabit = write_bit(read, 3 - combo, command);
     }
     else {
-        extrabit = write_bit(read, opcode_bits+1, command);
+        extrabit = write_bit(read, opcode_bits, command);
         if (found_cortex)     /* 3 extra bits of IR are sent here */
             extrabit = write_bit(read, 3, command>>8);
         else if (idcode_count > 1)
@@ -490,7 +490,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0, 0, 0);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, opcode_bits + (readitem == 0), IRREG_JSTART); /* DR data */
+                        write_bit(0, opcode_bits -1 + (readitem == 0), IRREG_JSTART); /* DR data */
                         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
                         idle_to_shift_dr(readitem, 0);
                     }
@@ -678,7 +678,7 @@ usage:
     /*** Depending on the idcode read, change some default actions ***/
     }
     if (idcode_count > 1)
-        opcode_bits = 5;
+        opcode_bits = 6;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;

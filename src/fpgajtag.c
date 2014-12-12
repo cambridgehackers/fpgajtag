@@ -464,27 +464,27 @@ static void set_clock_divisor(struct ftdi_context *ftdi)
 }
 static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
-    int i, j = argj, second = 0;
+    int testi, j = argj;
     uint32_t ret;
+    uint32_t readitem = 0;
 
     if (trace)
         printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, __LINE__, j, cortex_nowait, input_shift);
     read_idcode(ftdi, input_shift);
     while(j > 0) {
         while (j-- > 0) {
-            for (i = 0; i < 4; i++) {
+            for (testi = 0; testi < 4; testi++) {
                 //if (trace)
-                //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, i);
+                //    printf("[%s:%d] j %d i %d\n", __FUNCTION__, __LINE__, j, testi);
                 write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, 0);
-                uint32_t readitem = (second && second != 2 && second != 3) ? DREAD : 0;
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0, 0);
                 idle_to_shift_dr(readitem, 0);
-                if (i > 1) {
-                    write_bit(0, opcode_bits + (second == 0), IRREG_JSTART);
-                    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
-                    idle_to_shift_dr(second, 0);
-                }
-                if (i > 0) {
+                if (testi) {
+                    if (testi > 1) {
+                        write_bit(0, opcode_bits + (readitem == 0), IRREG_JSTART);
+                        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+                        idle_to_shift_dr(readitem, 0);
+                    }
                     write_one_byte(ftdi, 0, 0x69);
                     write_bit(0, 2, 0);
                     if (found_multiple)
@@ -497,7 +497,7 @@ static void bypass_test(struct ftdi_context *ftdi, int argj, int cortex_nowait, 
         }
         if (use_both)
             j = argj;
-        second++;
+        readitem = DREAD;
         argj = 0;
     }
     if (found_cortex)
@@ -522,10 +522,10 @@ static void bypass_status(struct ftdi_context *ftdi, int btype, int upperbound, 
         if (!btype) {
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
-        int extra = (!j) ? use_both : (use_second * 2);
-        uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
-        write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0);
-        idle_to_shift_dr(readitem, 0);
+            int extra = (!j) ? use_both : (use_second * 2);
+            uint32_t readitem = (extra && extra != 2 && extra != 3) ? DREAD : 0;
+            write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0, 0);
+            idle_to_shift_dr(readitem, 0);
             ret = fetch_result(ftdi, 1, found_multiple, -1, readitem);
             if (verbose && ret != 0xffffffff)
                 printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);

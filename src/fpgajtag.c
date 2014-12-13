@@ -313,10 +313,12 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
         write_item(DITEM(PAUSE_TO_SHIFT));
         extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
     }
-    else if ((combo == 2) || ((idcode_count > 1 && !found_cortex) && read
-         && (command & 0xffff) == 0xffff)) {
+    else if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
         write_one_byte(ftdi, read, 0xff);
-        extrabit = write_bit(read, 3 - combo, command);
+        if (read && found_cortex)
+            extrabit = write_bit(read, 1, command);
+        else
+            extrabit = write_bit(read, 3, command);
     }
     else {
         extrabit = write_bit(read, opcode_bits, command);
@@ -338,7 +340,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
 
 static void write_bypass(struct ftdi_context *ftdi)
 {
-    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, found_cortex * 2, -1);
+    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, 0, -1);
     uint32_t ret = read_data_int(ftdi) & 0xfff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);

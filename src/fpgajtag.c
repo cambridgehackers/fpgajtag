@@ -322,16 +322,14 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
             extrabit = write_bit(read, 3, command);
     }
     else {
-        if (idcode_count == 1)
-            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
-        else {
+        int extralen = XILINX_IR_LENGTH - 1;
+        if (idcode_count > 1) {
             extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
             command = command >> 8;
-        if (found_cortex)     /* extra bits of IR are sent here */
-            extrabit = write_bit(read, CORTEX_IR_LENGTH, command);
-        else if (idcode_count > 1)
-            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
+            if (found_cortex)     /* extra bits of IR are sent here */
+                extralen = CORTEX_IR_LENGTH;
         }
+        extrabit = write_bit(read, extralen, command);
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));

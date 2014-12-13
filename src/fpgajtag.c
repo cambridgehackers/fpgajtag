@@ -53,7 +53,6 @@ int found_cortex;
 
 static int verbose;
 static int use_first, use_second, corfirst, device_type;
-static int opcode_bits = XILINX_IR_LENGTH - 1;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -297,7 +296,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (combo == 1) {
         if (use_second) {
-            write_bit(0, opcode_bits, command);
+            write_bit(0, XILINX_IR_LENGTH, command);
             command = command >> 8;
         }
         extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
@@ -323,11 +322,16 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
             extrabit = write_bit(read, 3, command);
     }
     else {
-        extrabit = write_bit(use_second?0:read, opcode_bits, command);
+        if (idcode_count == 1)
+            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
+        else {
+            extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
+            command = command >> 8;
         if (found_cortex)     /* extra bits of IR are sent here */
-            extrabit = write_bit(read, CORTEX_IR_LENGTH, command>>8);
+            extrabit = write_bit(read, CORTEX_IR_LENGTH, command);
         else if (idcode_count > 1)
-            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command>>8);
+            extrabit = write_bit(read, XILINX_IR_LENGTH - 1, command);
+        }
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
@@ -488,7 +492,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0, 0);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, opcode_bits -1 + (readitem == 0), IRREG_JSTART); /* DR data */
+                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + (readitem == 0), IRREG_JSTART); /* DR data */
                         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
                         idle_to_shift_dr(readitem, 0);
                     }
@@ -675,8 +679,6 @@ usage:
         corfirst = 1;
     /*** Depending on the idcode read, change some default actions ***/
     }
-    if (idcode_count > 1)
-        opcode_bits = XILINX_IR_LENGTH;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;

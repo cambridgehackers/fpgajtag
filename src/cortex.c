@@ -29,7 +29,7 @@
 
 static void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, 2, 0, -1);
+    write_irreg(ftdi, 0, regname, 2, 0);
 }
 static void loaddr(int aread, uint32_t v, int extra3bits)
 {

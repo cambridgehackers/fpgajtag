@@ -286,7 +286,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int shiftdr)
+int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip)
 {
     int ret = 0;
     int extrabit, extralen = XILINX_IR_LENGTH - 1;
@@ -333,18 +333,22 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
             ret = read_data_int(ftdi);
         write_item(DITEM(EXIT1_TO_IDLE));
     }
-    if (shiftdr >= 0)
-        idle_to_shift_dr(flip, shiftdr);
     return ret;
 }
-int write_cirreg(struct ftdi_context *ftdi, int read, int command)
+static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    return write_irreg(ftdi, read, command, 0, use_second, -1);
+    return write_irreg(ftdi, read, command, 0, use_second);
+}
+static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
+{
+    write_irreg(ftdi, 0, command, 1, flip);
+    idle_to_shift_dr(flip, 0);
 }
 
-static void write_bypass(struct ftdi_context *ftdi)
+static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    write_irreg(ftdi, DREAD, IRREG_BYPASS, 1, use_second, -1);
+    write_irreg(ftdi, read, IRREG_BYPASS, 1, use_second);
+    if (read) {
     uint32_t ret = read_data_int(ftdi) & 0xfff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
@@ -352,6 +356,7 @@ static void write_bypass(struct ftdi_context *ftdi)
         printf("fpgajtag: bypass already programmed %x\n", ret);
     else
         printf("fpgajtag: bypass unknown %x\n", ret);
+    }
 }
 
 static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
@@ -398,11 +403,11 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 {
     uint32_t ret = 0;
 
-    write_irreg(ftdi, 0, IRREG_CFG_IN, 1, flip, 0); /* Select CFG_IN so that we can send out our request */
+    write_dirreg(ftdi, IRREG_CFG_IN, flip); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
-        write_irreg(ftdi, 0, IRREG_CFG_OUT, 1, flip, 0);
+        write_dirreg(ftdi, IRREG_CFG_OUT, flip);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
     }
     return ret;
@@ -420,8 +425,8 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     while(j > 0) {
         while (j-- > 0) {
             for (testi = 0; testi < 4; testi++) {
-                write_irreg(ftdi, 0, IRREG_BYPASS, 1, use_second, -1);
-                write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0);
+                write_bypass(ftdi, 0);
+                write_dirreg(ftdi, IRREG_USER2, readitem);
                 if (testi) {
                     if (testi > 1) {
                         write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !readitem, IRREG_JSTART); /* DR data */
@@ -459,20 +464,20 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && !use_second);
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
-        write_bypass(ftdi);
+        write_bypass(ftdi, DREAD);
     for (j = 0; j < upperbound; j++) {
         if (btype)
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
         else {
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
-            write_irreg(ftdi, 0, IRREG_USERCODE, 1, !j && multiple_fpga, 0);
+            write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1,
                   ((!j && multiple_fpga) || idcode_count == 1) * DREAD);
             if (ret != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
-                write_bypass(ftdi);
+                write_bypass(ftdi, DREAD);
         }
         /*
          * Read Xilinx configuration status register

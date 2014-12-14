@@ -230,7 +230,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 #define SEND_SINGLE_FRAME     99999
 
-int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int shiftdr);
+int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
 void process_command_list(struct ftdi_context *ftdi);
 int write_bytes(struct ftdi_context *ftdi, uint8_t read_param,

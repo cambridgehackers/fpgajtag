@@ -394,21 +394,17 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
 }
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
-     int fd, int extend, int oneformat, int extra)
+     int fd, int extend, int oneformat, int flip)
 {
-    if (!use_first && !use_second)
-        extra = 0;
-    uint32_t ret = 0, flip = extra == 1 || extra == 4;
+    uint32_t ret = 0;
 
-    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1, flip, -1); /* Select CFG_IN so that we can send out our request */
-    idle_to_shift_dr(flip, 0); /* Shift in actual request into DR for CFG_IN */
+    write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1, flip, 0); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, flip, 0);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
     }
-    flush_write(ftdi, NULL);
     return ret;
 }
 
@@ -561,7 +557,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1, EXTEND_EXTRA,
                 (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
-                statparam);
+                (use_first | use_second) * (statparam == 4));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != checkval))

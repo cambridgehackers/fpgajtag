@@ -486,7 +486,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     while(j > 0) {
         while (j-- > 0) {
             for (testi = 0; testi < 4; testi++) {
-                write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, -1);
+                write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, use_second, -1);
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0);
                 if (testi) {
                     if (testi > 1) {

@@ -516,7 +516,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret;
-    int statparam = found_cortex ? 3 : ((btype && !use_second) ? 0 : 4);
+    int statparam = found_cortex ? 1 : -(btype && !use_second);
     uint32_t readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
@@ -552,8 +552,8 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                (use_first ? (statparam == 4) : statparam != 3),
-                (use_first | use_second) * (statparam == 4));
+                (use_first ? !statparam : statparam != 1),
+                (use_first | use_second) * (!statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
@@ -562,7 +562,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         }
         if (!btype)
-            statparam = 3;
+            statparam = 1;
         readitem = 0;
     }
 }

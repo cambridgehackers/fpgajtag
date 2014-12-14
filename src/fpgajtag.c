@@ -408,71 +408,6 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-/*
- * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
- * Table 6-4.
- */
-static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
-{
-    uint8_t req[] = {CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
-        CONFIG_TYPE1(CONFIG_OP_READ, data, 1),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
-        CONFIG_CMD_DESYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
-    uint8_t *preq = req;
-    uint8_t constant4[] = {INT32(4)};
-    uint8_t dummy[] = {CONFIG_DUMMY};
-
-    write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    idle_to_shift_dr(use_second, 0xff);
-    write_int32(ftdi, dummy);
-    if (idcode_count > 1)
-        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    while (preq < req + sizeof(req))
-        preq = write_int32(ftdi, preq);
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
-        sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
-    write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(use_second, 0xff);
-    write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
-                                      : DITEM(SHIFT_TO_EXIT1(0, 0)),
-        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
-    uint64_t ret = read_data_int(ftdi);
-    if (corfirst)
-        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
-    write_item(DITEM(EXIT1_TO_IDLE));
-    return ret;
-}
-
-static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
-{
-#if 0
-    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0);
-    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
-#endif
-    write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
-    tmsw_delay(6);
-    readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
-        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
-        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
-        CONFIG_TYPE2(size),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
-}
-
 static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
     int testi, j = argj;
@@ -569,6 +504,71 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         if (!btype)
             statparam = 1;
     }
+}
+
+/*
+ * Configuration Register Read Procedure (JTAG), ug470_7Series_Config.pdf,
+ * Table 6-4.
+ */
+static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
+{
+    uint8_t req[] = {CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_READ, data, 1),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
+        CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
+        CONFIG_CMD_DESYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
+    uint8_t *preq = req;
+    uint8_t constant4[] = {INT32(4)};
+    uint8_t dummy[] = {CONFIG_DUMMY};
+
+    write_cirreg(ftdi, 0, IRREG_CFG_IN);
+    idle_to_shift_dr(use_second, 0xff);
+    write_int32(ftdi, dummy);
+    if (idcode_count > 1)
+        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    while (preq < req + sizeof(req))
+        preq = write_int32(ftdi, preq);
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
+        sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
+    write_cirreg(ftdi, 0, IRREG_CFG_OUT);
+    idle_to_shift_dr(use_second, 0xff);
+    write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
+                                      : DITEM(SHIFT_TO_EXIT1(0, 0)),
+        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    uint64_t ret = read_data_int(ftdi);
+    if (corfirst)
+        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
+    write_item(DITEM(EXIT1_TO_IDLE));
+    return ret;
+}
+
+static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
+{
+#if 0
+    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0);
+    readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
+#endif
+    write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
+    tmsw_delay(6);
+    readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
+        CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_FAR,1), 0,
+        CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
+        CONFIG_TYPE2(size),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
 }
 
 int main(int argc, char **argv)

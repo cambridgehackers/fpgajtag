@@ -289,9 +289,11 @@ static struct ftdi_context *get_deviceid(int device_index)
 int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int shiftdr)
 {
     int ret = 0;
+    int extrabit, extralen = XILINX_IR_LENGTH - 1;
+    if (next_state == 1)
+        command |= EXTEND_EXTRA;
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
-    int extrabit;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
         write_one_byte(ftdi, read, 0xff);
@@ -301,30 +303,27 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
             extrabit = write_bit(read, 3, command);
     }
     else {
-        int extralen = XILINX_IR_LENGTH - 1;
-        if (idcode_count > 1) {
-            if (M(command) == 0xff || !read) {
-                extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
-                command = command >> 8;
-                if (found_cortex)     /* extra bits of IR are sent here */
-                    extralen = CORTEX_IR_LENGTH;
-            }
+        if (idcode_count > 1 && (M(command) == 0xff || !read)) {
+            extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
+            command = command >> 8;
+            if (found_cortex)     /* extra bits of IR are sent here */
+                extralen = CORTEX_IR_LENGTH;
         }
         extrabit = write_bit(read, extralen, command);
         if (read && idcode_count > 1) {
-        write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-        ret = read_data_int(ftdi);
-        if (found_cortex) {
+            write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+            ret = read_data_int(ftdi);
+            if (found_cortex) {
+                write_item(DITEM(PAUSE_TO_SHIFT));
+                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
+            }
+            if (!use_first) {
+                write_item(DITEM(EXIT1_TO_IDLE));
+                return ret;
+            }
+            read = 0;
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
-        }
-        if (!use_first) {
-            write_item(DITEM(EXIT1_TO_IDLE));
-            return ret;
-        }
-        read = 0;
-        write_item(DITEM(PAUSE_TO_SHIFT));
-        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
+            extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
         }
     }
     if (next_state == 2)
@@ -344,7 +343,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
 
 static void write_bypass(struct ftdi_context *ftdi)
 {
-    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, use_second, -1);
+    write_irreg(ftdi, DREAD, IRREG_BYPASS, 1, use_second, -1);
     uint32_t ret = read_data_int(ftdi) & 0xfff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
@@ -398,11 +397,11 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 {
     uint32_t ret = 0;
 
-    write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_CFG_IN, 1, flip, 0); /* Select CFG_IN so that we can send out our request */
+    write_irreg(ftdi, 0, IRREG_CFG_IN, 1, flip, 0); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     if (resp_len) {
-        write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_CFG_OUT, 1, flip, 0);
+        write_irreg(ftdi, 0, IRREG_CFG_OUT, 1, flip, 0);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
     }
     return ret;
@@ -483,7 +482,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     while(j > 0) {
         while (j-- > 0) {
             for (testi = 0; testi < 4; testi++) {
-                write_irreg(ftdi, 0, EXTEND_EXTRA | IRREG_BYPASS, 1, use_second, -1);
+                write_irreg(ftdi, 0, IRREG_BYPASS, 1, use_second, -1);
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0);
                 if (testi) {
                     if (testi > 1) {

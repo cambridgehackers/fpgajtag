@@ -52,7 +52,7 @@ int input_filesize;
 int found_cortex;
 
 static int verbose;
-static int use_first, use_second, corfirst, device_type;
+static int use_first, use_second, corfirst, device_type, multiple_fpga;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -497,7 +497,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                     printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
             }
         }
-        if (idcode_count > 1 && !found_cortex)
+        if (multiple_fpga)
             j = argj;
         readitem = DREAD;
         argj = 0;
@@ -516,23 +516,23 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && !use_second);
-    int readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi);
     for (j = 0; j < upperbound; j++) {
-        if (!btype) {
+        if (btype)
+            access_user2(ftdi, 3, 1, (j == 1), 0, 0);
+        else {
             if (j)
                 write_item(DITEM(RESET_TO_IDLE));
-            write_irreg(ftdi, 0, IRREG_USERCODE, 1, readitem, 0);
-            ret = fetch_result(ftdi, sizeof(uint32_t), -1, idcode_count == 1 ? DREAD: readitem);
+            write_irreg(ftdi, 0, IRREG_USERCODE, 1, !j && multiple_fpga, 0);
+            ret = fetch_result(ftdi, sizeof(uint32_t), -1,
+                  ((!j && multiple_fpga) || idcode_count == 1) * DREAD);
             if (ret != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi);
         }
-        else
-            access_user2(ftdi, 3, 1, (j == 1), 0, 0);
         /*
          * Read Xilinx configuration status register
          * See: ug470_7Series_Config.pdf, Chapter 6
@@ -551,8 +551,8 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                (use_first ? !statparam : statparam != 1),
-                (use_first | use_second) * (!statparam));
+                !statparam || (!use_first && statparam == -1),
+                multiple_fpga * (!statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
@@ -562,7 +562,6 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         }
         if (!btype)
             statparam = 1;
-        readitem = 0;
     }
 }
 
@@ -669,6 +668,7 @@ usage:
         found_cortex = 1;
         corfirst = 1;
     }
+    multiple_fpga = idcode_count > 1 && !found_cortex;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;
@@ -742,7 +742,7 @@ usage:
     }
     write_item(DITEM(FORCE_RETURN_TO_RESET));
 
-    readout_status(ftdi, 0, 1 + (idcode_count > 1 && !found_cortex), 0x301900);
+    readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++)
         access_user2(ftdi, 3, 1, (i == 0), 0, 0);
 

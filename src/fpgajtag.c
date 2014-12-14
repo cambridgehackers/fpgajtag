@@ -398,16 +398,15 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 {
     if (!use_first && !use_second)
         extra = 0;
-    uint32_t ret = 0, flip = use_first ? (extra == 4) : (use_second * (extra != 3));
+    uint32_t ret = 0, flip = extra == 1 || extra == 4;
 
     write_irreg(ftdi, 0, extend | IRREG_CFG_IN, 1, flip, -1); /* Select CFG_IN so that we can send out our request */
-    idle_to_shift_dr(extra == 1 || extra == 4, 0); /* Shift in actual request into DR for CFG_IN */
+    idle_to_shift_dr(flip, 0); /* Shift in actual request into DR for CFG_IN */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
     if (resp_len) {
-        uint32_t readitem = (extra == 1 || extra == 4) ? DREAD : 0;
-        write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, readitem, 0);
-        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 ? DREAD: readitem);
+        write_irreg(ftdi, 0, extend | IRREG_CFG_OUT, 1, flip, 0);
+        ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
     }
     flush_write(ftdi, NULL);
     return ret;
@@ -522,9 +521,10 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 }
 
 
-static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, int statparam, uint32_t checkval)
+static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret;
+    int statparam = (btype && !use_second) ? 0 : 4;
     uint32_t readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
@@ -752,7 +752,7 @@ usage:
     }
     write_item(DITEM(FORCE_RETURN_TO_RESET));
 
-    readout_status(ftdi, 0, 1 + (idcode_count > 1 && !found_cortex), 4, 0x301900);
+    readout_status(ftdi, 0, 1 + (idcode_count > 1 && !found_cortex), 0x301900);
     for (i = 0; i < bypass_tc; i++)
         access_user2(ftdi, 3, 1, (i == 0), 0, 0);
 
@@ -795,7 +795,7 @@ usage:
     write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, -1);
     flush_write(ftdi, DITEM(IDLE_TO_RESET));
 
-    readout_status(ftdi, 1, extra_bypass_count, use_second, 0xf07910);
+    readout_status(ftdi, 1, extra_bypass_count, 0xf07910);
     rescan = 1;
 
     /*

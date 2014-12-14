@@ -324,19 +324,40 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
     else {
         int extralen = XILINX_IR_LENGTH - 1;
         if (idcode_count > 1) {
-            extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
-            command = command >> 8;
-            if (found_cortex)     /* extra bits of IR are sent here */
-                extralen = CORTEX_IR_LENGTH;
+            if (M(command) == 0xff || !read) {
+                extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
+                command = command >> 8;
+                if (found_cortex)     /* extra bits of IR are sent here */
+                    extralen = CORTEX_IR_LENGTH;
+            }
         }
         extrabit = write_bit(read, extralen, command);
+        if (read && idcode_count > 1) {
+        write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+        ret = read_data_int(ftdi);
+        if (found_cortex) {
+            write_item(DITEM(PAUSE_TO_SHIFT));
+            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
+        }
+        if (!use_first) {
+            write_item(DITEM(EXIT1_TO_IDLE));
+            return ret;
+        }
+        read = 0;
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
+        }
     }
     if (next_state == 2)
         write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
     else if (next_state)
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
-    else
-        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit), EXIT1_TO_IDLE));
+    else {
+        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+    if (read)
+        ret = read_data_int(ftdi);
+        write_item(DITEM(EXIT1_TO_IDLE));
+    }
     if (shiftdr >= 0)
         idle_to_shift_dr(flip, shiftdr);
     return ret;
@@ -784,7 +805,7 @@ usage:
     write_item(DITEM(RESET_TO_IDLE));
     tmsw_delay(14);
     flush_write(ftdi, DITEM(TMSW, 0x01, 0x00));
-    rc = write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, use_second, 1, -1);
+    rc = write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, use_second, 0, -1);
     if (rc != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))

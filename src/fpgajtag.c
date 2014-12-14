@@ -483,7 +483,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_irreg(ftdi, 0, IRREG_USER2, 1, readitem, 0);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + (readitem == 0), IRREG_JSTART); /* DR data */
+                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !readitem, IRREG_JSTART); /* DR data */
                         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
                         idle_to_shift_dr(readitem, 0);
                     }
@@ -515,9 +515,8 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
-    int i, j, ret;
-    int statparam = found_cortex ? 1 : -(btype && !use_second);
-    uint32_t readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
+    int i, j, ret, statparam = found_cortex ? 1 : -(btype && !use_second);
+    int readitem = (idcode_count > 1 && !found_cortex) ? DREAD : 0;
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi);
@@ -669,7 +668,6 @@ usage:
     if (idcode_array[1] == CORTEX_IDCODE) {
         found_cortex = 1;
         corfirst = 1;
-    /*** Depending on the idcode read, change some default actions ***/
     }
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)

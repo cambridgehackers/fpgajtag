@@ -310,11 +310,11 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
         if (read && idcode_count > 1) {
             write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
             ret = read_data_int(ftdi);
-            if (found_cortex) {
-                write_item(DITEM(PAUSE_TO_SHIFT));
-                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
-            }
             if (!use_first) {
+                if (found_cortex) {
+                    write_item(DITEM(PAUSE_TO_SHIFT));
+                    write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
+                }
                 write_item(DITEM(EXIT1_TO_IDLE));
                 return ret;
             }
@@ -336,6 +336,10 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
     if (shiftdr >= 0)
         idle_to_shift_dr(flip, shiftdr);
     return ret;
+}
+int write_cirreg(struct ftdi_context *ftdi, int read, int command)
+{
+    return write_irreg(ftdi, read, command, 0, use_second, -1);
 }
 
 static void write_bypass(struct ftdi_context *ftdi)
@@ -422,7 +426,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t constant4[] = {INT32(4)};
     uint8_t dummy[] = {CONFIG_DUMMY};
 
-    write_irreg(ftdi, 0, IRREG_CFG_IN, 0, use_second, 0xff);
+    write_cirreg(ftdi, 0, IRREG_CFG_IN);
+    idle_to_shift_dr(use_second, 0xff);
     write_int32(ftdi, dummy);
     if (idcode_count > 1)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
@@ -430,7 +435,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         preq = write_int32(ftdi, preq);
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
         sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
-    write_irreg(ftdi, 0, IRREG_CFG_OUT, 0, use_second, 0xff);
+    write_cirreg(ftdi, 0, IRREG_CFG_OUT);
+    idle_to_shift_dr(use_second, 0xff);
     write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
                                       : DITEM(SHIFT_TO_EXIT1(0, 0)),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
@@ -455,7 +461,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
 #endif
-    write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, -1);
+    write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(6);
     readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
@@ -750,17 +756,17 @@ usage:
      * Step 2: Initialization
      */
     write_item(DITEM(IDLE_TO_RESET, IN_RESET_STATE, RESET_TO_IDLE));
-    write_irreg(ftdi, 0, IRREG_JPROGRAM, 0, use_second, -1);
-    write_irreg(ftdi, 0, IRREG_ISC_NOOP, 0, use_second, -1);
+    write_cirreg(ftdi, 0, IRREG_JPROGRAM);
+    write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
-    int rc = write_irreg(ftdi, DREAD, IRREG_ISC_NOOP, 0, use_second, -1);
+    int rc = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP);
     if (rc != INPROGRAMMING)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    rc = write_irreg(ftdi, DREAD, IRREG_CFG_IN, 0, use_second, -1);
+    rc = write_cirreg(ftdi, DREAD, IRREG_CFG_IN);
     if (rc != INPROGRAMMING)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
     send_data_file(ftdi);
@@ -771,18 +777,18 @@ usage:
     pulse_gpio(ftdi, 1250 /*msec*/);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (corfirst ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, -1);
-    write_irreg(ftdi, 0, IRREG_JSTART, 0, use_second, -1);
+    write_cirreg(ftdi, 0, IRREG_BYPASS);
+    write_cirreg(ftdi, 0, IRREG_JSTART);
     write_item(DITEM(RESET_TO_IDLE));
     tmsw_delay(14);
     flush_write(ftdi, DITEM(TMSW, 0x01, 0x00));
-    rc = write_irreg(ftdi, DREAD, IRREG_BYPASS, 0, use_second, -1);
+    rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS);
     if (rc != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_irreg(ftdi, 0, IRREG_BYPASS, 0, use_second, -1);
+    write_cirreg(ftdi, 0, IRREG_BYPASS);
     flush_write(ftdi, DITEM(IDLE_TO_RESET));
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);

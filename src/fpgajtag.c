@@ -344,6 +344,10 @@ static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
     write_irreg(ftdi, 0, command, 1, flip);
     idle_to_shift_dr(flip, 0);
 }
+void write_creg(struct ftdi_context *ftdi, int regname)
+{
+    write_irreg(ftdi, 0, regname, 2, 0);
+}
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {

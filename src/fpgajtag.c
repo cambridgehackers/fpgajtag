@@ -286,8 +286,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-int write_irreg(struct ftdi_context *ftdi, int read, int command,
-    int next_state, int flip, int shiftdr)
+int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip, int shiftdr)
 {
     int ret = 0;
     if (flip)
@@ -345,7 +344,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command,
 
 static void write_bypass(struct ftdi_context *ftdi)
 {
-    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, 0, -1);
+    write_irreg(ftdi, DREAD, EXTEND_EXTRA | IRREG_BYPASS, 1, use_second, -1);
     uint32_t ret = read_data_int(ftdi) & 0xfff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);

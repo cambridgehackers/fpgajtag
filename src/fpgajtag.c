@@ -297,10 +297,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
         write_one_byte(ftdi, read, 0xff);
-        if (read && found_cortex)
-            extrabit = write_bit(read, 1, command);
-        else
-            extrabit = write_bit(read, 3, command);
+        extrabit = write_bit(read, (read && found_cortex) ? 1 : 3, command);
     }
     else {
         if (idcode_count > 1 && (M(command) == 0xff || !read)) {
@@ -399,7 +396,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 
     write_irreg(ftdi, 0, IRREG_CFG_IN, 1, flip, 0); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
-        SEND_SINGLE_FRAME, !oneformat, 0, 0/*weird!*/);
+        SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_irreg(ftdi, 0, IRREG_CFG_OUT, 1, flip, 0);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
@@ -451,12 +448,12 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0);
     readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
 #endif
     write_irreg(ftdi, 0, IRREG_JSHUTDOWN, 0, 0, -1);
     tmsw_delay(6);
@@ -467,7 +464,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
 }
 
 static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
@@ -555,7 +552,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
+                (!found_cortex && (use_first ? (statparam == 4) : (statparam != 3))),
                 (use_first | use_second) * (statparam == 4));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;

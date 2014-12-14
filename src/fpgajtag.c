@@ -333,8 +333,8 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state
         write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     else {
         write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-    if (read)
-        ret = read_data_int(ftdi);
+        if (read)
+            ret = read_data_int(ftdi);
         write_item(DITEM(EXIT1_TO_IDLE));
     }
     if (shiftdr >= 0)
@@ -559,7 +559,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1, EXTEND_EXTRA,
                 (found_cortex || (use_first ? (statparam != 4) : (statparam == 3))),
-                (use_first && statparam == 4) ? 4 : (use_second * statparam));
+                (use_first || use_second) * statparam);
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != checkval))

@@ -299,18 +299,17 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
         }
         else {
             write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
-            command = command >> 8;
             if (found_cortex)     /* extra bits of IR are sent here */
                 extralen = CORTEX_IR_LENGTH;
         }
+        command = command >> 8;
     }
     return write_bit(read, extralen, command);
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0;
+    int ret = 0, extlen = 0;
     int extrabit = write_irreg(ftdi, read, command, use_second);
-    int extlen = 0;
     write_item((corfirst && read && idcode_count > 1) ?
         DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
     if (read) {
@@ -319,10 +318,10 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
             extlen = XILINX_IR_LENGTH - 1;
         else if (found_cortex)
             extlen = CORTEX_IR_LENGTH;
-    }
-    if (extlen) {
-        write_item(DITEM(PAUSE_TO_SHIFT));
-        write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen, 0xff))));
+        if (extlen) {
+            write_item(DITEM(PAUSE_TO_SHIFT));
+            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen, 0xff))));
+        }
     }
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
@@ -344,13 +343,13 @@ static void write_bypass(struct ftdi_context *ftdi, int read)
     int extrabit = write_irreg(ftdi, read, EXTEND_EXTRA | IRREG_BYPASS, use_second);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     if (read) {
-    uint32_t ret = read_data_int(ftdi) & 0xfff;
-    if (ret == FIRST_TIME)
-        printf("fpgajtag: bypass first time %x\n", ret);
-    else if (ret == PROGRAMMED)
-        printf("fpgajtag: bypass already programmed %x\n", ret);
-    else
-        printf("fpgajtag: bypass unknown %x\n", ret);
+        uint32_t ret = read_data_int(ftdi) & 0xfff;
+        if (ret == FIRST_TIME)
+            printf("fpgajtag: bypass first time %x\n", ret);
+        else if (ret == PROGRAMMED)
+            printf("fpgajtag: bypass already programmed %x\n", ret);
+        else
+            printf("fpgajtag: bypass unknown %x\n", ret);
     }
 }
 
@@ -648,10 +647,20 @@ usage:
     }
 
     /*
+     * Read input file
+     */
+    uint32_t file_idcode = read_inputfile(argv[optind]);
+
+    /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
+
+    if (file_idcode != thisid) {        /*** Check to see if file_idcode matches file ***/
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[use_second]);
+        exit(-1);
+    }
     device_type = DEVICE_OTHER;
     if (thisid == DEVICE_AC701 || thisid == DEVICE_ZC706
      || thisid == DEVICE_VC707 || thisid == DEVICE_KC705)
@@ -708,22 +717,11 @@ usage:
     }
 
     /*
-     * Read input file
-     */
-    uint32_t file_idcode = read_inputfile(argv[optind]);
-
-    /*
      * See if we are in 'command' mode with IR/DR info on command line
      */
     if (cflag) {
         process_command_list(ftdi);
         goto exit_label;
-    }
-
-    /*** Check to see if file_idcode matches file and detect Zynq ***/
-    if (file_idcode != (idcode_array[use_second] & IDCODE_MASK)) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[use_second]);
-        exit(-1);
     }
 
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);

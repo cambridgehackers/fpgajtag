@@ -291,22 +291,25 @@ static struct ftdi_context *get_deviceid(int device_index)
  */
 int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
 {
-    int extralen = XILINX_IR_LENGTH - 1;
-    if (flip)
-        command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
+    int extralen = (found_cortex) ? CORTEX_IR_LENGTH : XILINX_IR_LENGTH - 1;
+    //if (flip)
+        //command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (idcode_count > 1 && (M(command) == 0xff || !read)) {
-        if (read && (command & 0xffff) == 0xffff) {
-            write_one_byte(ftdi, read, 0xff);
-            extralen = (read && found_cortex) ? 1 : 3;
-        }
-        else {
-            write_bit(jtag_index ? 0 : read, XILINX_IR_LENGTH, command);
-            if (found_cortex)     /* extra bits of IR are sent here */
-                extralen = CORTEX_IR_LENGTH;
-        }
-        command = command >> 8;
+    if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
+        write_one_byte(ftdi, read, 0xff);
+        extralen -= 8 - XILINX_IR_LENGTH; /* 2 extra bits sent with write byte*/
     }
+    else
+    if (idcode_count > 1 && (flip || !read)) {
+        if (flip)
+            write_bit(0, XILINX_IR_LENGTH, 0xff);
+        else {
+            write_bit(0, XILINX_IR_LENGTH, command);
+            command >>= 8;
+        }
+    }
+    else
+        extralen = XILINX_IR_LENGTH - 1;
     return write_bit(read, extralen, command);
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)

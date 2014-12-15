@@ -293,18 +293,15 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
 {
     int extralen = (found_cortex) ? CORTEX_IR_LENGTH : XILINX_IR_LENGTH - 1;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
+    if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
         extralen -= 8 - XILINX_IR_LENGTH; /* 2 extra bits sent with write byte*/
     }
-    else
-    if (idcode_count > 1 && (flip || !read)) {
-        if (flip)
-            write_bit(0, XILINX_IR_LENGTH, 0xff);
-        else {
-            write_bit(0, XILINX_IR_LENGTH, command);
-            command = 0xff;
-        }
+    else if (idcode_count > 1 && flip)
+        write_bit(0, XILINX_IR_LENGTH, 0xff);
+    else if (idcode_count > 1 && !read) {
+        write_bit(0, XILINX_IR_LENGTH, command);
+        command = 0xff;
     }
     else
         extralen = XILINX_IR_LENGTH - 1;

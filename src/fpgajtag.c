@@ -201,7 +201,7 @@ static void send_data_file(struct ftdi_context *ftdi)
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
         write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
-            || !(idcode_count > 1 && jtag_index == 0 && !found_cortex), 1, 0x80);
+            || idcode_count == 1 || jtag_index || found_cortex, 1, 0x80);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
@@ -301,7 +301,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
             extralen = (read && found_cortex) ? 1 : 3;
         }
         else {
-            write_bit(jtag_index?0:read, XILINX_IR_LENGTH, command);
+            write_bit(jtag_index ? 0 : read, XILINX_IR_LENGTH, command);
             if (found_cortex)     /* extra bits of IR are sent here */
                 extralen = CORTEX_IR_LENGTH;
         }
@@ -317,7 +317,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
         DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
     if (read) {
         ret = read_data_int(ftdi);
-        if (idcode_count > 1 && jtag_index == 0 && !found_cortex)
+        if (multiple_fpga && jtag_index == 0)
             extlen = XILINX_IR_LENGTH - 1;
         else if (found_cortex)
             extlen = CORTEX_IR_LENGTH;
@@ -458,7 +458,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
-    int i, j, ret, statparam = found_cortex ? 1 : -(btype && !jtag_index);
+    int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi, DREAD);
@@ -494,7 +494,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                !statparam || (!(idcode_count > 1 && jtag_index == 0 && !found_cortex) && statparam == -1),
+                !statparam || ((idcode_count == 1 || jtag_index || found_cortex) && statparam == -1),
                 multiple_fpga * (!statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
@@ -534,7 +534,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
-        sizeof(constant4), SEND_SINGLE_FRAME, !(idcode_count > 1 && jtag_index == 0), 0, 0x80);
+        sizeof(constant4), SEND_SINGLE_FRAME, idcode_count == 1 || jtag_index, 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
     write_bytes(ftdi, DREAD, (idcode_count > 1 && jtag_index == 0) ? DITEM(SHIFT_TO_PAUSE(0, 0))
@@ -657,7 +657,7 @@ usage:
         if (idcode_array[i] == file_idcode)
             jtag_index = i;
     if (jtag_index == -1) {
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[jtag_index]);
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
         exit(-1);
     }
     uint32_t thisid = idcode_array[jtag_index];
@@ -689,9 +689,9 @@ usage:
         bypass_tc = 2;
     if (device_type == DEVICE_ZC702)
         bypass_tc = 1;
-    if (idcode_count > 1 && jtag_index == 0 && !found_cortex)
+    if (multiple_fpga && jtag_index == 0)
         bypass_tc += 8;
-    int firstflag = device_type == DEVICE_ZC702 || (idcode_count > 1 && jtag_index == 0 && !found_cortex);
+    int firstflag = device_type == DEVICE_ZC702 || (multiple_fpga && jtag_index == 0);
     int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1);
     int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (idcode_count > 1 && jtag_index == 0 && (device_type != DEVICE_ZEDBOARD)));
 

@@ -44,7 +44,6 @@
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
 #define IDCODE_ARRAY_SIZE        20
-#define IDCODE_MASK      0x0fffffff
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
@@ -232,6 +231,7 @@ static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
 static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
 static void read_idcode(struct ftdi_context *ftdi, int input_shift)
 {
+    int i;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
@@ -260,6 +260,8 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
         memdump(rdata, idcode_probe_result[0], "ACTUAL");
     }
+    for (i = 0; i < idcode_count; i++)
+        idcode_array[i] &= 0x0fffffff;  /* mask off 4 MSB */
 }
 
 static struct ftdi_context *get_deviceid(int device_index)
@@ -592,11 +594,11 @@ int main(int argc, char **argv)
             lflag = 1;
             break;
         case '1':
-            use_first = 1;
-            corfirst = 1;
+            //use_first = 1;
+            //corfirst = 1;
             break;
         case '2':
-            use_second = 1;
+            //use_second = 1;
             break;
         case 'c':
             cflag = 1;
@@ -655,8 +657,20 @@ usage:
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
-    uint32_t thisid = idcode_array[use_second] & IDCODE_MASK;
+    if (idcode_array[1] == CORTEX_IDCODE) {
+        found_cortex = 1;
+        corfirst = 1;
+    }
+    else if (idcode_count > 1) {
+        if (idcode_array[0] == file_idcode) {
+            use_first = 1;
+            corfirst = 1;
+        }
+        else if (idcode_array[1] == file_idcode)
+            use_second = 1;
+    }
 
+    uint32_t thisid = idcode_array[use_second];
     if (file_idcode != thisid) {        /*** Check to see if file_idcode matches file ***/
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[use_second]);
         exit(-1);
@@ -679,10 +693,6 @@ usage:
     //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
-    if (idcode_array[1] == CORTEX_IDCODE) {
-        found_cortex = 1;
-        corfirst = 1;
-    }
     multiple_fpga = idcode_count > 1 && !found_cortex;
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)

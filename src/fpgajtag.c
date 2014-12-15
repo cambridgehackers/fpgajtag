@@ -286,72 +286,67 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-int write_irreg(struct ftdi_context *ftdi, int read, int command, int next_state, int flip)
+int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
 {
-    int ret = 0;
-    int extrabit, extralen = XILINX_IR_LENGTH - 1;
-    if (next_state == 1)
-        command |= EXTEND_EXTRA;
+    int extralen = XILINX_IR_LENGTH - 1;
     if (flip)
         command = ((command >> 8) & 0xff) | ((command & 0xff) << 8);
     write_item(DITEM(IDLE_TO_SHIFT_IR));
-    if (idcode_count > 1 && read && (command & 0xffff) == 0xffff) {
-        write_one_byte(ftdi, read, 0xff);
-        extrabit = write_bit(read, (read && found_cortex) ? 1 : 3, command);
-    }
-    else {
-        if (idcode_count > 1 && (M(command) == 0xff || !read)) {
-            extrabit = write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
+    if (idcode_count > 1 && (M(command) == 0xff || !read)) {
+        if (read && (command & 0xffff) == 0xffff) {
+            write_one_byte(ftdi, read, 0xff);
+            extralen = (read && found_cortex) ? 1 : 3;
+        }
+        else {
+            write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
             command = command >> 8;
             if (found_cortex)     /* extra bits of IR are sent here */
                 extralen = CORTEX_IR_LENGTH;
         }
-        extrabit = write_bit(read, extralen, command);
-        if (read && idcode_count > 1) {
-            write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-            ret = read_data_int(ftdi);
-            if (!use_first) {
-                if (found_cortex) {
-                    write_item(DITEM(PAUSE_TO_SHIFT));
-                    write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
-                }
-                write_item(DITEM(EXIT1_TO_IDLE));
-                return ret;
-            }
-            read = 0;
-            write_item(DITEM(PAUSE_TO_SHIFT));
-            extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
-        }
     }
-    if (next_state == 2)
-        write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
-    else if (next_state)
-        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
-    else {
-        write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-        if (read)
-            ret = read_data_int(ftdi);
-        write_item(DITEM(EXIT1_TO_IDLE));
-    }
-    return ret;
+    return write_bit(read, extralen, command);
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    return write_irreg(ftdi, read, command, 0, use_second);
+    int ret = 0;
+    int extrabit = write_irreg(ftdi, read, command, use_second);
+    if (read && idcode_count > 1) {
+        write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+        ret = read_data_int(ftdi);
+        if (!use_first) {
+            if (found_cortex) {
+                write_item(DITEM(PAUSE_TO_SHIFT));
+                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
+            }
+            write_item(DITEM(EXIT1_TO_IDLE));
+            return ret;
+        }
+        read = 0;
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
+    }
+    write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+    if (read)
+        ret = read_data_int(ftdi);
+    write_item(DITEM(EXIT1_TO_IDLE));
+    return ret;
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 {
-    write_irreg(ftdi, 0, command, 1, flip);
+    int extrabit = write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip);
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extrabit)));
     idle_to_shift_dr(flip, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, 2, 0);
+    int extrabit = write_irreg(ftdi, 0, regname, 0);
+    write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    write_irreg(ftdi, read, IRREG_BYPASS, 1, use_second);
+    int extrabit = write_irreg(ftdi, read, EXTEND_EXTRA | IRREG_BYPASS, use_second);
+    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     if (read) {
     uint32_t ret = read_data_int(ftdi) & 0xfff;
     if (ret == FIRST_TIME)

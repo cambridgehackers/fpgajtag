@@ -51,7 +51,7 @@ int input_filesize;
 int found_cortex;
 
 static int verbose;
-static int use_first, use_second, corfirst, device_type, multiple_fpga;
+static int jtag_index = -1, device_type, multiple_fpga;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -187,7 +187,7 @@ static void send_data_file(struct ftdi_context *ftdi)
 {
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
 
-    idle_to_shift_dr(use_second, 0xff);
+    idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
     write_int32(ftdi, zerodata);
@@ -200,7 +200,8 @@ static void send_data_file(struct ftdi_context *ftdi)
             if (!found_cortex)
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
-        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE || !use_first, 1, 0x80);
+        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
+            || !(idcode_count > 1 && jtag_index == 0 && !found_cortex), 1, 0x80);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
@@ -300,7 +301,7 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
             extralen = (read && found_cortex) ? 1 : 3;
         }
         else {
-            write_bit(use_second?0:read, XILINX_IR_LENGTH, command);
+            write_bit(jtag_index?0:read, XILINX_IR_LENGTH, command);
             if (found_cortex)     /* extra bits of IR are sent here */
                 extralen = CORTEX_IR_LENGTH;
         }
@@ -311,12 +312,12 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, extlen = 0;
-    int extrabit = write_irreg(ftdi, read, command, use_second);
-    write_item((corfirst && read && idcode_count > 1) ?
+    int extrabit = write_irreg(ftdi, read, command, jtag_index);
+    write_item((idcode_count > 1 && jtag_index == 0 && read) ?
         DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
     if (read) {
         ret = read_data_int(ftdi);
-        if (use_first)
+        if (idcode_count > 1 && jtag_index == 0 && !found_cortex)
             extlen = XILINX_IR_LENGTH - 1;
         else if (found_cortex)
             extlen = CORTEX_IR_LENGTH;
@@ -342,7 +343,7 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    int extrabit = write_irreg(ftdi, read, EXTEND_EXTRA | IRREG_BYPASS, use_second);
+    int extrabit = write_irreg(ftdi, read, EXTEND_EXTRA | IRREG_BYPASS, jtag_index);
     write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
     if (read) {
         uint32_t ret = read_data_int(ftdi) & 0xfff;
@@ -457,7 +458,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
-    int i, j, ret, statparam = found_cortex ? 1 : -(btype && !use_second);
+    int i, j, ret, statparam = found_cortex ? 1 : -(btype && !jtag_index);
     write_item(DITEM(IN_RESET_STATE, RESET_TO_IDLE));
     if (found_cortex || btype)
         write_bypass(ftdi, DREAD);
@@ -493,7 +494,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                !statparam || (!use_first && statparam == -1),
+                !statparam || (!(idcode_count > 1 && jtag_index == 0 && !found_cortex) && statparam == -1),
                 multiple_fpga * (!statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
@@ -526,21 +527,21 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    idle_to_shift_dr(use_second, 0xff);
+    idle_to_shift_dr(jtag_index, 0xff);
     write_int32(ftdi, dummy);
     if (idcode_count > 1)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
-        sizeof(constant4), SEND_SINGLE_FRAME, !corfirst, 0, 0x80);
+        sizeof(constant4), SEND_SINGLE_FRAME, !(idcode_count > 1 && jtag_index == 0), 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(use_second, 0xff);
-    write_bytes(ftdi, DREAD, corfirst ? DITEM(SHIFT_TO_PAUSE(0, 0))
+    idle_to_shift_dr(jtag_index, 0xff);
+    write_bytes(ftdi, DREAD, (idcode_count > 1 && jtag_index == 0) ? DITEM(SHIFT_TO_PAUSE(0, 0))
                                       : DITEM(SHIFT_TO_EXIT1(0, 0)),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(ftdi);
-    if (corfirst)
+    if (idcode_count > 1 && jtag_index == 0)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
@@ -582,7 +583,7 @@ int main(int argc, char **argv)
     int rescan = 0;
 
     opterr = 0;
-    while ((i = getopt (argc, argv, "trls:c12")) != -1)
+    while ((i = getopt (argc, argv, "trls:c")) != -1)
         switch (i) {
         case 't':
             trace = 1;
@@ -592,13 +593,6 @@ int main(int argc, char **argv)
             break;
         case 'l':
             lflag = 1;
-            break;
-        case '1':
-            //use_first = 1;
-            //corfirst = 1;
-            break;
-        case '2':
-            //use_second = 1;
             break;
         case 'c':
             cflag = 1;
@@ -657,24 +651,16 @@ usage:
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
-    if (idcode_array[1] == CORTEX_IDCODE) {
+    if (idcode_array[1] == CORTEX_IDCODE)
         found_cortex = 1;
-        corfirst = 1;
-    }
-    else if (idcode_count > 1) {
-        if (idcode_array[0] == file_idcode) {
-            use_first = 1;
-            corfirst = 1;
-        }
-        else if (idcode_array[1] == file_idcode)
-            use_second = 1;
-    }
-
-    uint32_t thisid = idcode_array[use_second];
-    if (file_idcode != thisid) {        /*** Check to see if file_idcode matches file ***/
-        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[use_second]);
+    for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
+        if (idcode_array[i] == file_idcode)
+            jtag_index = i;
+    if (jtag_index == -1) {
+        printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[jtag_index]);
         exit(-1);
     }
+    uint32_t thisid = idcode_array[jtag_index];
     device_type = DEVICE_OTHER;
     if (thisid == DEVICE_AC701 || thisid == DEVICE_ZC706
      || thisid == DEVICE_VC707 || thisid == DEVICE_KC705)
@@ -703,11 +689,11 @@ usage:
         bypass_tc = 2;
     if (device_type == DEVICE_ZC702)
         bypass_tc = 1;
-    if (use_first)
+    if (idcode_count > 1 && jtag_index == 0 && !found_cortex)
         bypass_tc += 8;
-    int firstflag = device_type == DEVICE_ZC702 || use_first;
+    int firstflag = device_type == DEVICE_ZC702 || (idcode_count > 1 && jtag_index == 0 && !found_cortex);
     int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1);
-    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (corfirst && (device_type != DEVICE_ZEDBOARD)));
+    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (idcode_count > 1 && jtag_index == 0 && (device_type != DEVICE_ZEDBOARD)));
 
     /*
      * See if we are reading out data
@@ -783,7 +769,7 @@ usage:
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (corfirst ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != ((idcode_count > 1 && jtag_index == 0) ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);

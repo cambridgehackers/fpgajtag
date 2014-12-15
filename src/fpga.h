@@ -90,10 +90,10 @@
 #define IRREG_BYPASS         0xff3f // even on PCIE, this has an extra bit
 
 /* Status values */
-#define FIRST_TIME    ((found_cortex | use_second) ? 0x8a : 0x20)
-#define INPROGRAMMING ((found_cortex | use_first) ? 0x10 : 0x88)
+#define FIRST_TIME    ((found_cortex | jtag_index) ? 0x8a : 0x20)
+#define INPROGRAMMING ((idcode_count > 1 && jtag_index == 0) ? 0x10 : 0x88)
 #define PROGRAMMED    ((idcode_count > 1) ? 0xae : 0xbc)
-#define FINISHED      ((found_cortex | use_first) ? 0x5c : 0xac)
+#define FINISHED      ((idcode_count > 1 && jtag_index == 0) ? 0x5c : 0xac)
 
 /*
  * Xilinx Configuration Packets

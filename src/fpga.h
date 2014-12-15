@@ -78,16 +78,17 @@
 #define XILINX_IR_LENGTH         6 /* 6 bits in Xilinx IR register */
 #define CORTEX_IR_LENGTH         3 /* 3 bits in ARM Cortex IR register */
 /* FPGA JTAG registers */
-#define IRREG_USER2          0xffc3
-#define IRREG_CFG_OUT        0xff04
-#define IRREG_CFG_IN         0xff05
-#define IRREG_USERCODE       0xffc8
-#define IRREG_IDCODE         0xff09
-#define IRREG_JSHUTDOWN      0xff0d
-#define IRREG_JPROGRAM       0xff0b
-#define IRREG_JSTART         0xff0c
-#define IRREG_ISC_NOOP       0xff14
-#define IRREG_BYPASS         0xff3f // even on PCIE, this has an extra bit
+#define IRREG_USER2            0xc3
+#define IRREG_CFG_OUT          0x04
+#define IRREG_CFG_IN           0x05
+#define IRREG_USERCODE         0xc8
+#define IRREG_IDCODE           0x09
+#define IRREG_JSHUTDOWN        0x0d
+#define IRREG_JPROGRAM         0x0b
+#define IRREG_JSTART           0x0c
+#define IRREG_ISC_NOOP         0x14
+#define IRREG_BYPASS           0x3f // even on PCIE, this has an extra bit
+#define IRREG_BYPASS_EXTEND  0xffff // even on PCIE, this has an extra bit
 
 /* Status values */
 #define FIRST_TIME    ((found_cortex | jtag_index) ? 0x8a : 0x20)
@@ -173,14 +174,14 @@
 #define CORTEX_IDCODE 0x0ba00477
 
 /* ARM JTAG-DP registers */
-#define IRREGA_ABORT         0xf8ff   /* 35 bit register */
-#define IRREGA_DPACC         0xfaff   /* Debug Port access, 35 bit register */
-#define IRREGA_APACC         0xfbff   /* Access Port access, 35 bit register */
+#define IRREGA_ABORT         0xf8   /* 35 bit register */
+#define IRREGA_DPACC         0xfa   /* Debug Port access, 35 bit register */
+#define IRREGA_APACC         0xfb   /* Access Port access, 35 bit register */
     #define AP_CSW           0                           /* MEM-AP registers */
     #define AP_TAR           2
     #define AP_DRW           6
-#define IRREGA_IDCODE        0xfeff   /* 32 bit register */
-#define IRREGA_BYPASS        0xffff
+#define IRREGA_IDCODE        0xfe   /* 32 bit register */
+#define IRREGA_BYPASS        0xff
 
 /* Cortex request extra 3 bit field */
 /* 2 bits of register selector */

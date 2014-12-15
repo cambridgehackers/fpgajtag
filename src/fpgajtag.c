@@ -310,24 +310,20 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0;
     int extrabit = write_irreg(ftdi, read, command, use_second);
-    if (read && idcode_count > 1) {
-        write_item(corfirst?DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+    int extlen = 0;
+    write_item((corfirst && read && idcode_count > 1) ?
+        DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+    if (read) {
         ret = read_data_int(ftdi);
-        if (!use_first) {
-            if (found_cortex) {
-                write_item(DITEM(PAUSE_TO_SHIFT));
-                write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, CORTEX_IR_LENGTH, 0xff))));
-            }
-            write_item(DITEM(EXIT1_TO_IDLE));
-            return ret;
-        }
-        read = 0;
-        write_item(DITEM(PAUSE_TO_SHIFT));
-        extrabit = write_bit(0, XILINX_IR_LENGTH - 1, 0xff);
+        if (use_first)
+            extlen = XILINX_IR_LENGTH - 1;
+        else if (found_cortex)
+            extlen = CORTEX_IR_LENGTH;
     }
-    write_item(DITEM(SHIFT_TO_EXIT1(read, extrabit)));
-    if (read)
-        ret = read_data_int(ftdi);
+    if (extlen) {
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen, 0xff))));
+    }
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
 }

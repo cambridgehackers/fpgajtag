@@ -183,7 +183,7 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, 1, val);
 }
 
-static void send_data_file(struct ftdi_context *ftdi)
+static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
     uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
 
@@ -197,11 +197,11 @@ static void send_data_file(struct ftdi_context *ftdi)
         int size = FILE_READSIZE;
         if (input_filesize < FILE_READSIZE) {
             size = input_filesize;
-            if (!found_cortex)
+            if (!extra_shift)
                 tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
         }
         write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
-            || idcode_count == 1 || jtag_index || found_cortex, 1, 0x80);
+            || jtag_index || !multiple_fpga, 1, 0x80);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
@@ -210,7 +210,7 @@ static void send_data_file(struct ftdi_context *ftdi)
             break;
         write_item(DITEM(PAUSE_TO_SHIFT));
     };
-    if (found_cortex)
+    if (extra_shift)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
     printf("fpgajtag: Done sending file\n");
@@ -494,7 +494,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 CONFIG_SYNC, CONFIG_TYPE2(0),
                 CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
                 sizeof(uint32_t), -1,
-                !statparam || ((idcode_count == 1 || jtag_index || found_cortex) && statparam == -1),
+                !statparam || ((jtag_index || !multiple_fpga) && statparam == -1),
                 multiple_fpga * (!statparam));
             write_item(DITEM(IDLE_TO_RESET));
             uint32_t status = ret >> 8;
@@ -537,8 +537,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         sizeof(constant4), SEND_SINGLE_FRAME, idcode_count == 1 || jtag_index, 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_bytes(ftdi, DREAD, (idcode_count > 1 && jtag_index == 0) ? DITEM(SHIFT_TO_PAUSE(0, 0))
-                                      : DITEM(SHIFT_TO_EXIT1(0, 0)),
+    write_bytes(ftdi, DREAD, (idcode_count == 1 || jtag_index) ? DITEM(SHIFT_TO_EXIT1(0, 0)) :
+                                                                 DITEM(SHIFT_TO_PAUSE(0, 0)),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(ftdi);
     if (idcode_count > 1 && jtag_index == 0)
@@ -763,7 +763,7 @@ usage:
     rc = write_cirreg(ftdi, DREAD, IRREG_CFG_IN);
     if (rc != INPROGRAMMING)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
-    send_data_file(ftdi);
+    send_data_file(ftdi, found_cortex);
 
     /*
      * Step 8: Startup

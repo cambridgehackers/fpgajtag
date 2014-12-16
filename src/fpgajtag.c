@@ -104,18 +104,6 @@ void tmsw_delay(int delay_time)
         write_item(DITEM(TMSW, 0x06, 0x00));
 }
 
-static uint32_t swap32i(uint32_t value)
-{
-    int i;
-    union {
-        uint32_t i;
-        uint8_t c[sizeof(uint32_t)];
-    } temp, tempo;
-    temp.i = value;
-    for (i = 0; i < sizeof(uint32_t); i++)
-        tempo.c[i] = bitswap[temp.c[sizeof(uint32_t)-1-i]];
-    return tempo.i;
-}
 void write_bit(int read, int bits, int data, uint8_t *tail)
 {
     if (bits)
@@ -367,7 +355,8 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
         if (resp_len <= 0)
             write_bit(readitem, 0, 0, DITEM(SHIFT_TO_IDLE));
         uint8_t *rdata = read_data(ftdi);
-        ret = swap32i(*(uint32_t *)rdata);
+        uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
+        ret = *(uint32_t *)sdata;
         for (j = 0; j < size; j++)
             rdata[j] = bitswap[rdata[j]];
         if (fd != -1) {

@@ -143,21 +143,20 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
             tlen--;                   // last byte is actually loaded with DATAWBIT command
         write_item(DITEM(DATAW(read, tlen)));
         uint8_t *cptr = buffer_current_ptr();
-        write_data(ptrin, rlen);
+        write_data(ptrin, tlen);
         if (swapbits)
-            for (i = 0; i < rlen; i++)
+            for (i = 0; i < tlen; i++)
                 cptr[i] = bitswap[cptr[i]];
-        ptrin += rlen;
-        cptr = buffer_current_ptr();
+        ptrin += tlen;
         if (rlen < max_frame_size) {
-            ch = cptr[-1];
             if (opttail) {
-                cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
-                write_item(DITEM(6, ch)); // 7 bits of data here
+                ch = *ptrin++;
+                if (swapbits)
+                    ch = bitswap[ch];
+                write_bit(read, 7, ch, tail);
             }
             else
-                ch = default_ext; /* this is the 'bypass' bit value */
-            write_bit(read, 0, ch >> 7, tail);
+                write_bit(read, 0, default_ext, tail); /* this is the 'bypass' bit value */
         }
         if (size > 0)
             flush_write(ftdi, NULL);
@@ -167,12 +166,12 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
 
 static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
 {
-    write_bytes(ftdi, read, NULL, &data, 1, SEND_SINGLE_FRAME, 0, 0, 0x80);
+    write_bytes(ftdi, read, NULL, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
 }
 
 static uint8_t *write_int32(struct ftdi_context *ftdi, uint8_t *data)
 {
-    write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0x80);
+    write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
     return data + sizeof(uint32_t);
 }
 
@@ -189,7 +188,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
-        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
+        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, zerodata);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
@@ -201,7 +200,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
                 tailp = DITEM(SHIFT_TO_EXIT1);
         }
         write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
-            || jtag_index || !multiple_fpga, 1, 0x80);
+            || jtag_index || !multiple_fpga, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
@@ -244,8 +243,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE),
-        idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE), idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
@@ -395,8 +393,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     uint32_t ret = 0;
 
     write_dirreg(ftdi, IRREG_CFG_IN, flip); /* Select CFG_IN so that we can send out our request */
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_IDLE), req+1, req[0],
-        SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_IDLE), req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
@@ -518,15 +515,14 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     idle_to_shift_dr(jtag_index, 0xff);
     write_int32(ftdi, dummy);
     if (idcode_count > 1)
-        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
+        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1, EXIT1_TO_IDLE), constant4,
-        sizeof(constant4), SEND_SINGLE_FRAME, jtag_index == idcode_count - 1, 0, 0x80);
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1, EXIT1_TO_IDLE), constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
     write_bytes(ftdi, DREAD, extra ? DITEM(SHIFT_TO_PAUSE) : DITEM(SHIFT_TO_EXIT1),
-        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
+        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi);
     if (extra) {
         write_item(DITEM(PAUSE_TO_SHIFT));
@@ -720,8 +716,7 @@ usage:
      * on the first call
      */
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE),
-        idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE), idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_validate_result[0]
      || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {

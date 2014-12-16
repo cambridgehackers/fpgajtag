@@ -410,38 +410,31 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 
 static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
 {
-    int testi, j = argj;
-    uint32_t ret;
-    uint32_t readitem = 0;
+    int testi, flip;
 
-    if (trace)
-        printf("[%s:%d] start(%d, %d, %d)\n", __FUNCTION__, __LINE__, j, cortex_nowait, input_shift);
     read_idcode(ftdi, input_shift);
-    while(j > 0) {
+    for (flip = 0; flip < 1 + multiple_fpga; flip++) {
+        int j = argj;
         while (j-- > 0) {
             for (testi = 0; testi < 4; testi++) {
                 write_bypass(ftdi, 0);
-                write_dirreg(ftdi, IRREG_USER2, readitem);
+                write_dirreg(ftdi, IRREG_USER2, flip);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !readitem, IRREG_JSTART); /* DR data */
+                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !flip, IRREG_JSTART); /* DR data */
                         write_item(DITEM(SHIFT_TO_IDLE(0, 0)));
-                        idle_to_shift_dr(readitem, 0);
+                        idle_to_shift_dr(flip, 0);
                     }
                     write_one_byte(ftdi, 0, 0x69);
                     write_bit(0, 2, 0);
                     if (idcode_count > 1)
                         write_bit(0, 1, 0);
                 }
-                ret = fetch_result(ftdi, sizeof(uint32_t), -1, idcode_count == 1 ? DREAD: readitem);
+                uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
                 if (ret != 0)
-                    printf("[%s:%d] nonzero value %x\n", __FUNCTION__, __LINE__, ret);
+                    printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
             }
         }
-        if (multiple_fpga)
-            j = argj;
-        readitem = DREAD;
-        argj = 0;
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
@@ -532,14 +525,14 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
-        sizeof(constant4), SEND_SINGLE_FRAME, idcode_count == 1 || jtag_index, 0, 0x80);
+        sizeof(constant4), SEND_SINGLE_FRAME, jtag_index == idcode_count - 1, 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_bytes(ftdi, DREAD, (idcode_count == 1 || jtag_index) ? DITEM(SHIFT_TO_EXIT1(0, 0)) :
+    write_bytes(ftdi, DREAD, (jtag_index == idcode_count - 1) ? DITEM(SHIFT_TO_EXIT1(0, 0)) :
                                                                  DITEM(SHIFT_TO_PAUSE(0, 0)),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(ftdi);
-    if (idcode_count > 1 && jtag_index == 0)
+    if (jtag_index != idcode_count - 1)
         write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
@@ -691,7 +684,7 @@ usage:
         bypass_tc += 8;
     int firstflag = device_type == DEVICE_ZC702 || (multiple_fpga && jtag_index == 0);
     int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1);
-    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (idcode_count > 1 && jtag_index == 0 && (device_type != DEVICE_ZEDBOARD)));
+    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
 
     /*
      * See if we are reading out data
@@ -767,7 +760,7 @@ usage:
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != ((idcode_count > 1 && jtag_index == 0) ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);

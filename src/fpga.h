@@ -55,7 +55,7 @@
 #define FORCE_RETURN_TO_RESET TMSW, 0x04, 0x1f /* go back to TMS reset state */
 #define RESET_TO_SHIFT_DR     TMSW, 0x03, 0x02  /* Reset -> Shift-DR */
 
-#define SHIFT_TO_EXIT1(A) TMSW, 0x00, ((A) | 0x01)/* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_EXIT1    TMSW, 0x00, 0x01   /* Shift-IR -> Exit1-IR */
 #define SHIFT_TO_PAUSE    TMSW, 0x01, 0x01   /* Shift-IR -> Pause-IR */
 #define SHIFT_TO_UPDATE   TMSW, 0x01, 0x03   /* Shift-DR -> Update-DR */
 #define SHIFT_TO_IDLE(READA, A)TMSW | (READA), 0x02, ((A) | 0x03)/* Shift-DR -> Update-DR -> Idle */

@@ -118,7 +118,7 @@ void write_bit(int read, int bits, int data, uint8_t *tail)
     }
 }
 
-int write_bytes(struct ftdi_context *ftdi, uint8_t read,
+void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
@@ -150,7 +150,6 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
         if (size > 0)
             flush_write(ftdi, NULL);
     }
-    return 0x80 & ch;
 }
 
 static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
@@ -407,7 +406,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_dirreg(ftdi, IRREG_USER2, flip);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !flip,
+                        write_bit(0, idcode_len[0] - (idcode_count == 1) - flip,
                             IRREG_JSTART, DITEM(SHIFT_TO_IDLE)); /* DR data */
                         idle_to_shift_dr(flip, 0);
                     }

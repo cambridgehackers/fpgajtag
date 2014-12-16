@@ -195,22 +195,20 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
     write_int32(ftdi, zerodata, sizeof(uint32_t));
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
-    while(1) {
+    while(input_filesize) {
         int size = FILE_READSIZE;
-        if (input_filesize < FILE_READSIZE) {
+        if (input_filesize <= FILE_READSIZE) {
             size = input_filesize;
             if (!extra_shift)
                 tailp = DITEM(SHIFT_TO_EXIT1);
         }
-        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
-            || jtag_index || !multiple_fpga, 1, 1);
+        input_filesize -= size;
+        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, input_filesize != 0 || jtag_index || !multiple_fpga, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
-        input_filesize -= size;
-        if (size != FILE_READSIZE)
-            break;
-        write_item(DITEM(PAUSE_TO_SHIFT));
+        if (input_filesize)
+            write_item(DITEM(PAUSE_TO_SHIFT));
     };
     if (extra_shift) {
         write_item(DITEM(PAUSE_TO_SHIFT));

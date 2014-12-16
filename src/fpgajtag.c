@@ -169,10 +169,13 @@ static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
     write_bytes(ftdi, read, NULL, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
 }
 
-static uint8_t *write_int32(struct ftdi_context *ftdi, uint8_t *data)
+static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 {
-    write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
-    return data + sizeof(uint32_t);
+    while (size) {
+         write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
+         data += sizeof(uint32_t);
+         size -= sizeof(uint32_t);
+    }
 }
 
 void idle_to_shift_dr(int extra, int val)
@@ -189,7 +192,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
-    write_int32(ftdi, zerodata);
+    write_int32(ftdi, zerodata, sizeof(uint32_t));
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(1) {
@@ -498,26 +501,24 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
  */
 static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 {
-    uint8_t req[] = {CONFIG_SYNC,
+    uint8_t *req = DITEM(CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
         CONFIG_TYPE1(CONFIG_OP_READ, data, 1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0),
         CONFIG_TYPE1(CONFIG_OP_WRITE, CONFIG_REG_CMD, CONFIG_CMD_WCFG),
         CONFIG_CMD_DESYNC,
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0)};
-    uint8_t *preq = req;
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     uint8_t constant4[] = {INT32(4)};
     uint8_t dummy[] = {CONFIG_DUMMY};
     int extra = jtag_index != idcode_count - 1;
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_int32(ftdi, dummy);
+    write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
-    while (preq < req + sizeof(req))
-        preq = write_int32(ftdi, preq);
+    write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1, EXIT1_TO_IDLE), constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);

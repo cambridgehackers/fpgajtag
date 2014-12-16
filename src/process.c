@@ -90,7 +90,7 @@ void process_command_list(struct ftdi_context *ftdi)
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
             int extrabit = write_irreg(ftdi, 0, t, 0);
-            flush_write(ftdi, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extrabit)));
+            flush_write(ftdi, DITEM(SHIFT_TO_IDLE(0, extrabit)));
         }
         else {
             write_item(DITEM(IDLE_TO_SHIFT_DR));

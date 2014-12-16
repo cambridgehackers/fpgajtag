@@ -61,7 +61,7 @@
      TMSW | (READA), 0x01, ((A) | 0x01)             /* Shift-IR -> Pause-IR */
 #define SHIFT_TO_UPDATE(READA, A) \
      TMSW | (READA), 0x01, ((A) | 0x03)             /* Shift-DR -> Update-DR */
-#define SHIFT_TO_UPDATE_TO_IDLE(READA, A) \
+#define SHIFT_TO_IDLE(READA, A) \
      TMSW | (READA), 0x02, ((A) | 0x03)    /* Shift-DR -> Update-DR -> Idle */
 
 #define EXTEND_EXTRA            0xc0
@@ -76,7 +76,7 @@
 #endif
 
 #define XILINX_IR_LENGTH         6 /* 6 bits in Xilinx IR register */
-#define CORTEX_IR_LENGTH         3 /* 3 bits in ARM Cortex IR register */
+#define CORTEX_IR_LENGTH         4 /* 4 bits in ARM Cortex IR register: IHI0031C, 3.3.1 */
 /* FPGA JTAG registers */
 #define IRREG_USER2            0xc3
 #define IRREG_CFG_OUT          0x04

@@ -242,7 +242,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_UPDATE_TO_IDLE(DREAD, 0)),
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE(DREAD, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -291,7 +291,7 @@ static struct ftdi_context *get_deviceid(int device_index)
  */
 int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
 {
-    int extralen = (found_cortex) ? CORTEX_IR_LENGTH : XILINX_IR_LENGTH - 1;
+    int extralen = (found_cortex) ? CORTEX_IR_LENGTH : XILINX_IR_LENGTH;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
@@ -304,8 +304,8 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
         command = 0xff;
     }
     else
-        extralen = XILINX_IR_LENGTH - 1;
-    return write_bit(read, extralen, command);
+        extralen = XILINX_IR_LENGTH;
+    return write_bit(read, extralen - 1, command);
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
@@ -315,13 +315,13 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
         DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
     if (read) {
         ret = read_data_int(ftdi);
-        if (multiple_fpga && jtag_index == 0)
-            extlen = XILINX_IR_LENGTH - 1;
-        else if (found_cortex)
-            extlen = CORTEX_IR_LENGTH;
-        if (extlen) {
+        if (jtag_index != idcode_count - 1) {
+            if (found_cortex)
+                extlen = CORTEX_IR_LENGTH;
+            else
+                extlen = XILINX_IR_LENGTH;
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen, 0xff))));
+            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen - 1, 0xff))));
         }
     }
     write_item(DITEM(EXIT1_TO_IDLE));
@@ -330,7 +330,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 {
     int extrabit = write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip);
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, extrabit)));
+    write_item(DITEM(SHIFT_TO_IDLE(0, extrabit)));
     idle_to_shift_dr(flip, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
@@ -342,7 +342,7 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
     int extrabit = write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index);
-    write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(read, extrabit)));
+    write_item(DITEM(SHIFT_TO_IDLE(read, extrabit)));
     if (read) {
         uint32_t ret = read_data_int(ftdi) & 0xfff;
         if (ret == FIRST_TIME)
@@ -370,7 +370,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
         else
             write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(readitem, 0)));
+            write_item(DITEM(SHIFT_TO_IDLE(readitem, 0)));
         uint8_t *rdata = read_data(ftdi);
         ret = swap32i(*(uint32_t *)rdata);
         for (j = 0; j < size; j++)
@@ -399,7 +399,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     uint32_t ret = 0;
 
     write_dirreg(ftdi, IRREG_CFG_IN, flip); /* Select CFG_IN so that we can send out our request */
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)), req+1, req[0],
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_IDLE(0, 0)), req+1, req[0],
         SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip);
@@ -425,7 +425,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 if (testi) {
                     if (testi > 1) {
                         write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !readitem, IRREG_JSTART); /* DR data */
-                        write_item(DITEM(SHIFT_TO_UPDATE_TO_IDLE(0, 0)));
+                        write_item(DITEM(SHIFT_TO_IDLE(0, 0)));
                         idle_to_shift_dr(readitem, 0);
                     }
                     write_one_byte(ftdi, 0, 0x69);

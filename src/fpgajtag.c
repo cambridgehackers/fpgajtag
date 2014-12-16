@@ -116,10 +116,18 @@ static uint32_t swap32i(uint32_t value)
         tempo.c[i] = bitswap[temp.c[sizeof(uint32_t)-1-i]];
     return tempo.i;
 }
-int write_bit(int read, int bits, int data)
+int write_bit(int read, int bits, int data, uint8_t *tail)
 {
-    write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
-    return (data << (7 - bits)) & 0x80;
+    if (bits)
+        write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
+    int extrabit = (data << (7 - bits)) & 0x80;
+    if (tail) {
+        uint8_t *cptr = buffer_current_ptr();
+        write_item(tail);
+        cptr[0] |= read; // this is a TMS instruction to shift state
+        cptr[2] |= extrabit; // insert 1 bit of data here
+    }
+    return extrabit;
 }
 
 int write_bytes(struct ftdi_context *ftdi, uint8_t read,
@@ -180,7 +188,7 @@ void idle_to_shift_dr(int extra, int val)
 {
     write_item(DITEM(IDLE_TO_SHIFT_DR));
     if (extra)
-        write_bit(0, 1, val);
+        write_bit(0, 1, val, NULL);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
@@ -298,20 +306,14 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, uin
         extralen -= 8 - XILINX_IR_LENGTH; /* 2 extra bits sent with write byte*/
     }
     else if (idcode_count > 1 && flip)
-        write_bit(0, XILINX_IR_LENGTH, 0xff);
+        write_bit(0, XILINX_IR_LENGTH, 0xff, NULL);
     else if (idcode_count > 1 && !read) {
-        write_bit(0, XILINX_IR_LENGTH, command);
+        write_bit(0, XILINX_IR_LENGTH, command, NULL);
         command = 0xff;
     }
     else
         extralen = XILINX_IR_LENGTH;
-    int extrabit = write_bit(read, extralen - 1, command);
-    if (tail) {
-        uint8_t *cptr = buffer_current_ptr();
-        write_item(tail);
-        cptr[0] |= read; // this is a TMS instruction to shift state
-        cptr[2] |= extrabit; // insert 1 bit of data here
-    }
+    write_bit(read, extralen - 1, command, tail);
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
@@ -327,7 +329,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
             else
                 extlen = XILINX_IR_LENGTH;
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_item(DITEM(SHIFT_TO_EXIT1(write_bit(0, extlen - 1, 0xff))));
+            write_bit(0, extlen - 1, 0xff, DITEM(SHIFT_TO_EXIT1(0)));
         }
     }
     write_item(DITEM(EXIT1_TO_IDLE));
@@ -424,14 +426,14 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_dirreg(ftdi, IRREG_USER2, flip);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !flip, IRREG_JSTART); /* DR data */
-                        write_item(DITEM(SHIFT_TO_IDLE(0, 0)));
+                        write_bit(0, XILINX_IR_LENGTH-1 - (idcode_count == 1) + !flip,
+                            IRREG_JSTART, DITEM(SHIFT_TO_IDLE(0, 0))); /* DR data */
                         idle_to_shift_dr(flip, 0);
                     }
                     write_one_byte(ftdi, 0, 0x69);
-                    write_bit(0, 2, 0);
+                    write_bit(0, 2, 0, NULL);
                     if (idcode_count > 1)
-                        write_bit(0, 1, 0);
+                        write_bit(0, 1, 0, NULL);
                 }
                 uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
                 if (ret != 0)

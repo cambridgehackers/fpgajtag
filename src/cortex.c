@@ -32,7 +32,7 @@ static void loaddr(int aread, uint32_t v, int extra3bits)
     uint64_t temp = (((uint64_t)v) << 3) | extra3bits;
     idle_to_shift_dr(1, 0);
     write_item(DITEM(DATAW(aread, 4), INT32(temp)));
-    write_item(DITEM(SHIFT_TO_IDLE(aread, write_bit(aread, 2, (v>>29) & 0x3f))));
+    write_bit(aread, 2, (v>>29) & 0x3f, DITEM(SHIFT_TO_IDLE(0, 0)));
 }
 
 static void read_rdbuff(void)

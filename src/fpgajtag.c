@@ -154,17 +154,10 @@ int write_bytes(struct ftdi_context *ftdi, uint8_t read,
             if (opttail) {
                 cptr[-1] = DATAWBIT | read; /* replace last byte of data with DATAWBIT op */
                 write_item(DITEM(6, ch)); // 7 bits of data here
-                cptr += 2;
             }
             else
                 ch = default_ext; /* this is the 'bypass' bit value */
-            if (tail) {
-                write_item(tail);
-                if (tail[1] & MPSSE_WRITE_TMS) {
-                    cptr[0] |= read; // this is a TMS instruction to shift state
-                    cptr[2] |= 0x80 & ch; // insert 1 bit of data here
-                }
-            }
+            write_bit(read, 0, ch >> 7, tail);
         }
         if (size > 0)
             flush_write(ftdi, NULL);

@@ -104,23 +104,21 @@ void tmsw_delay(int delay_time)
     for (i = 0; i < delay_time; i++)
         write_item(DITEM(TMSW, 0x06, 0x00));
 }
-void write_tail(uint8_t *tail)
+void write_tail(char *tail)
 {
-#if 0
-     uint8_t *temp = {TMSW, 0, 0};
+     uint8_t *temp = DITEM(TMSW, 0, 0);
      int len = 0;
 
      while (*tail) {
          len++;
-         temp[2] = (temp[2] >> 1) | ((*tail++ << 7) & 0x80);
+         temp[1+2] = (temp[1+2] >> 1) | ((*tail++ << 7) & 0x80);
      }
-     temp[1] = len-1;
-     temp[2] >>= 8 - len;
-#endif
-     write_item(tail);
+     temp[1+1] = len-1;
+     temp[1+2] >>= 8 - len;
+     write_item(temp);
 }
 
-void write_bit(int read, int bits, int data, uint8_t *tail)
+void write_bit(int read, int bits, int data, char *tail)
 {
     if (bits)
         write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
@@ -134,7 +132,7 @@ void write_bit(int read, int bits, int data, uint8_t *tail)
 }
 
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
-    uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
+    char *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
     while (size > 0) {
@@ -190,7 +188,7 @@ void idle_to_shift_dr(int extra, int val)
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    uint8_t *tailp = SHIFT_TO_PAUSE;
+    char *tailp = SHIFT_TO_PAUSE;
 
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
@@ -301,7 +299,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, uint8_t *tail)
+void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char *tail)
 {
     int extralen = idcode_len[idcode_count - 1];
     write_tail(IDLE_TO_SHIFT_IR);
@@ -442,7 +440,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
         cortex_bypass(ftdi, cortex_nowait);
     if (reset) {
         write_tail(IDLE_TO_RESET);
-        write_tail(IN_RESET_STATE);
+        write_item(IN_RESET_STATE);
         flush_write(ftdi, NULL);
     }
     if (clock)
@@ -455,7 +453,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
-    write_tail(IN_RESET_STATE);
+    write_item(IN_RESET_STATE);
     write_tail(RESET_TO_IDLE);
     if (found_cortex || btype)
         write_bypass(ftdi, DREAD);
@@ -480,7 +478,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         if (!btype || j == 0) {
             write_tail(IDLE_TO_RESET);
             if (btype) {
-                write_tail(IN_RESET_STATE);
+                write_item(IN_RESET_STATE);
                 write_tail(SHIFT_TO_EXIT1);
             }
             write_tail(RESET_TO_IDLE);
@@ -721,7 +719,7 @@ usage:
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++) {
         write_tail(SHIFT_TO_EXIT1);
-        write_tail(IN_RESET_STATE);
+        write_item(IN_RESET_STATE);
     }
 
     /*
@@ -749,7 +747,7 @@ usage:
      * Step 2: Initialization
      */
     write_tail(IDLE_TO_RESET);
-    write_tail(IN_RESET_STATE);
+    write_item(IN_RESET_STATE);
     write_tail(RESET_TO_IDLE);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);

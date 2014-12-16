@@ -318,20 +318,17 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, uin
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0, extlen = 0;
-    write_irreg(ftdi, read, command, jtag_index,
-        (jtag_index != idcode_count - 1 && read) ?
-            DITEM(SHIFT_TO_PAUSE): DITEM(SHIFT_TO_EXIT1));
-    if (read) {
+    int ret = 0, extlen = 0, extra = jtag_index != idcode_count - 1 && read;
+    write_irreg(ftdi, read, command, jtag_index, extra ? DITEM(SHIFT_TO_PAUSE): DITEM(SHIFT_TO_EXIT1));
+    if (read)
         ret = read_data_int(ftdi);
-        if (jtag_index != idcode_count - 1) {
-            if (found_cortex)
-                extlen = CORTEX_IR_LENGTH;
-            else
-                extlen = XILINX_IR_LENGTH;
-            write_item(DITEM(PAUSE_TO_SHIFT));
-            write_bit(0, extlen - 1, 0xff, DITEM(SHIFT_TO_EXIT1));
-        }
+    if (extra) {
+        if (found_cortex)
+            extlen = CORTEX_IR_LENGTH;
+        else
+            extlen = XILINX_IR_LENGTH;
+        write_item(DITEM(PAUSE_TO_SHIFT));
+        write_bit(0, extlen - 1, 0xff, DITEM(SHIFT_TO_EXIT1));
     }
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
@@ -522,6 +519,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t *preq = req;
     uint8_t constant4[] = {INT32(4)};
     uint8_t dummy[] = {CONFIG_DUMMY};
+    int extra = jtag_index != idcode_count - 1;
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
     idle_to_shift_dr(jtag_index, 0xff);
@@ -534,11 +532,10 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         sizeof(constant4), SEND_SINGLE_FRAME, jtag_index == idcode_count - 1, 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_bytes(ftdi, DREAD, (jtag_index == idcode_count - 1) ? DITEM(SHIFT_TO_EXIT1) :
-                                                                 DITEM(SHIFT_TO_PAUSE),
+    write_bytes(ftdi, DREAD, extra ? DITEM(SHIFT_TO_PAUSE) : DITEM(SHIFT_TO_EXIT1),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(ftdi);
-    if (jtag_index != idcode_count - 1) {
+    if (extra) {
         write_item(DITEM(PAUSE_TO_SHIFT));
         write_bit(0, 0, 0xff, DITEM(SHIFT_TO_EXIT1));
     }

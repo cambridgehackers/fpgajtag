@@ -117,10 +117,12 @@ void tmsw_delay(int delay_time)
     for (i = 0; i < delay_time; i++)
         write_tail("0000000");
 }
-void reset_state(void)
+void reset_state(struct ftdi_context *ftdi, int goto_reset)
 {
-#define IN_RESET_STATE    DITEM(TMSW, 0x00, 0x7f) /* Marker for Reset */
-    write_item(IN_RESET_STATE);
+    uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
+    if (goto_reset)
+        temp[1+1] = 4; // goto RESET instead of IDLE
+    flush_write(ftdi, temp);
 }
 
 void write_bit(int read, int bits, int data, char *tail)
@@ -246,7 +248,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
     write_tail(input_shift ? SHIFT_TO_EXIT1 : IDLE_TO_RESET);
-    write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/));
+    reset_state(ftdi, 1); /* goto RESET */
     write_tail(RESET_TO_SHIFT_DR);
     write_bytes(ftdi, DREAD, SHIFT_TO_IDLE, idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -291,7 +293,6 @@ static struct ftdi_context *get_deviceid(int device_index)
         if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         write_tail(FORCE_RETURN_TO_RESET); /*** Force TAP controller to Reset state ***/
-        flush_write(ftdi, NULL);
         first_time_idcode_read = 1;
         read_idcode(ftdi, 1);
     }
@@ -442,8 +443,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
         cortex_bypass(ftdi, cortex_nowait);
     if (reset) {
         write_tail(IDLE_TO_RESET);
-        reset_state();
-        flush_write(ftdi, NULL);
+        reset_state(ftdi, 0);
     }
     if (clock)
         set_clock_divisor(ftdi);
@@ -455,7 +455,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
-    reset_state();
+    reset_state(ftdi, 0);
     write_tail(RESET_TO_IDLE);
     if (found_cortex || btype)
         write_bypass(ftdi, DREAD);
@@ -480,7 +480,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         if (!btype || j == 0) {
             write_tail(IDLE_TO_RESET);
             if (btype) {
-                reset_state();
+                reset_state(ftdi, 0);
                 write_tail(SHIFT_TO_EXIT1);
             }
             write_tail(RESET_TO_IDLE);
@@ -721,7 +721,7 @@ usage:
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++) {
         write_tail(SHIFT_TO_EXIT1);
-        reset_state();
+        reset_state(ftdi, 0);
     }
 
     /*
@@ -749,7 +749,7 @@ usage:
      * Step 2: Initialization
      */
     write_tail(IDLE_TO_RESET);
-    reset_state();
+    reset_state(ftdi, 0);
     write_tail(RESET_TO_IDLE);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);

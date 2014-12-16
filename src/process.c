@@ -89,17 +89,17 @@ void process_command_list(struct ftdi_context *ftdi)
         else if (mode == 0) {
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(ftdi, 0, t, 0, DITEM(SHIFT_TO_IDLE));
+            write_irreg(ftdi, 0, t, 0, SHIFT_TO_IDLE);
             flush_write(ftdi, NULL);
         }
         else {
-            write_item(DITEM(IDLE_TO_SHIFT_DR));
+            write_tail(IDLE_TO_SHIFT_DR);
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
-            write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_EXIT1), tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
+            write_bytes(ftdi, DREAD, SHIFT_TO_EXIT1, tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
             if (found_cortex)
                  write_item(DITEM(TMSW, 0x03, 0x0a));
-            write_item(DITEM(EXIT1_TO_IDLE));
+            write_tail(EXIT1_TO_IDLE);
             uint8_t *rdata = read_data(ftdi);
             int i = 0;
             while(i < len) {
@@ -113,5 +113,6 @@ void process_command_list(struct ftdi_context *ftdi)
         }
         str = NULL;
     }
-    flush_write(ftdi, DITEM(FORCE_RETURN_TO_RESET));
+    write_tail(FORCE_RETURN_TO_RESET);
+    flush_write(ftdi, NULL);
 }

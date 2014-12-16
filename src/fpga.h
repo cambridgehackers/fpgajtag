@@ -45,19 +45,19 @@
 #define DATAW(READA, A) (DWRITE|(READA)), INT16((A)-1) //(0)->19 (DREAD)->3d
 #define DATAR(A)        DREAD, INT16((A)-1) //2c
 
-#define IDLE_TO_SHIFT_IR  TMSW, 0x03, 0x03 /* Idle -> Shift-IR */
-#define IDLE_TO_SHIFT_DR  TMSW, 0x02, 0x01 /* Idle -> Shift-DR */
-#define EXIT1_TO_IDLE     TMSW, 0x01, 0x01 /* Exit1/Exit2 -> Update -> Idle */
-#define IDLE_TO_RESET     TMSW, 0x02, 0x07 /* Idle -> Reset */
-#define RESET_TO_IDLE     TMSW, 0x00, 0x00 /* Reset -> Idle */
-#define IN_RESET_STATE    TMSW, 0x00, 0x7f /* Marker for Reset */
-#define PAUSE_TO_SHIFT    TMSW, 0x01, 0x01 /* Pause-DR -> Shift-DR */
-#define FORCE_RETURN_TO_RESET TMSW, 0x04, 0x1f /* go back to TMS reset state */
-#define RESET_TO_SHIFT_DR TMSW, 0x03, 0x02 /* Reset -> Shift-DR */
-#define SHIFT_TO_EXIT1    TMSW, 0x00, 0x01 /* Shift-IR -> Exit1-IR */
-#define SHIFT_TO_PAUSE    TMSW, 0x01, 0x01 /* Shift-IR -> Pause-IR */
-#define SHIFT_TO_UPDATE   TMSW, 0x01, 0x03 /* Shift-DR -> Update-DR */
-#define SHIFT_TO_IDLE     TMSW, 0x02, 0x03 /* Shift-DR -> Update-DR -> Idle */
+#define IDLE_TO_SHIFT_IR  DITEM(TMSW, 0x03, 0x03) /* Idle -> Shift-IR */
+#define IDLE_TO_SHIFT_DR  DITEM(TMSW, 0x02, 0x01) /* Idle -> Shift-DR */
+#define EXIT1_TO_IDLE     DITEM(TMSW, 0x01, 0x01) /* Exit1/Exit2 -> Update -> Idle */
+#define IDLE_TO_RESET     DITEM(TMSW, 0x02, 0x07) /* Idle -> Reset */
+#define RESET_TO_IDLE     DITEM(TMSW, 0x00, 0x00) /* Reset -> Idle */
+#define IN_RESET_STATE    DITEM(TMSW, 0x00, 0x7f) /* Marker for Reset */
+#define PAUSE_TO_SHIFT    DITEM(TMSW, 0x01, 0x01) /* Pause-DR -> Shift-DR */
+#define FORCE_RETURN_TO_RESET DITEM(TMSW, 0x04, 0x1f) /* go back to TMS reset state */
+#define RESET_TO_SHIFT_DR DITEM(TMSW, 0x03, 0x02) /* Reset -> Shift-DR */
+#define SHIFT_TO_EXIT1    DITEM(TMSW, 0x00, 0x01) /* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_PAUSE    DITEM(TMSW, 0x01, 0x01) /* Shift-IR -> Pause-IR */
+#define SHIFT_TO_UPDATE   DITEM(TMSW, 0x01, 0x03) /* Shift-DR -> Update-DR */
+#define SHIFT_TO_IDLE     DITEM(TMSW, 0x02, 0x03) /* Shift-DR -> Update-DR -> Idle */
 
 #define EXTEND_EXTRA            0xc0
 
@@ -233,3 +233,4 @@ void process_command_list(struct ftdi_context *ftdi);
 void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
     uint8_t *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
 int found_cortex;
+void write_tail(uint8_t *tail);

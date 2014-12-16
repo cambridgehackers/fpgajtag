@@ -289,7 +289,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
+void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, uint8_t *tail)
 {
     int extralen = (found_cortex) ? CORTEX_IR_LENGTH : XILINX_IR_LENGTH;
     write_item(DITEM(IDLE_TO_SHIFT_IR));
@@ -305,14 +305,20 @@ int write_irreg(struct ftdi_context *ftdi, int read, int command, int flip)
     }
     else
         extralen = XILINX_IR_LENGTH;
-    return write_bit(read, extralen - 1, command);
+    int extrabit = write_bit(read, extralen - 1, command);
+    if (tail) {
+        uint8_t *cptr = buffer_current_ptr();
+        write_item(tail);
+        cptr[0] |= read; // this is a TMS instruction to shift state
+        cptr[2] |= extrabit; // insert 1 bit of data here
+    }
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, extlen = 0;
-    int extrabit = write_irreg(ftdi, read, command, jtag_index);
-    write_item((jtag_index != idcode_count - 1 && read) ?
-        DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
+    write_irreg(ftdi, read, command, jtag_index,
+    (jtag_index != idcode_count - 1 && read) ?
+        DITEM(SHIFT_TO_PAUSE(0, 0)): DITEM(SHIFT_TO_EXIT1(0, 0)));
     if (read) {
         ret = read_data_int(ftdi);
         if (jtag_index != idcode_count - 1) {
@@ -329,20 +335,17 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 {
-    int extrabit = write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip);
-    write_item(DITEM(SHIFT_TO_IDLE(0, extrabit)));
+    write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip, DITEM(SHIFT_TO_IDLE(0, 0)));
     idle_to_shift_dr(flip, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    int extrabit = write_irreg(ftdi, 0, regname, 1);
-    write_item(DITEM(SHIFT_TO_UPDATE(0, extrabit)));
+    write_irreg(ftdi, 0, regname, 1, DITEM(SHIFT_TO_UPDATE(0, 0)));
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    int extrabit = write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index);
-    write_item(DITEM(SHIFT_TO_IDLE(read, extrabit)));
+    write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index, DITEM(SHIFT_TO_IDLE(0, 0)));
     if (read) {
         uint32_t ret = read_data_int(ftdi) & 0xfff;
         if (ret == FIRST_TIME)

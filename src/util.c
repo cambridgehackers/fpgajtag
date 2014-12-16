@@ -439,7 +439,7 @@ void fpgausb_release(void)
 /*
  * FTDI generic initialization
  */
-struct ftdi_context *init_ftdi(void)
+struct ftdi_context *init_ftdi(int device_index)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
     static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
@@ -449,6 +449,7 @@ struct ftdi_context *init_ftdi(void)
     int i;
     uint8_t retcode[2];
 
+    fpgausb_open(device_index);            /*** Open selected USB interface ***/
 #ifdef USE_LIBFTDI
     ftdi = ftdi_new();
     ftdi_set_usbdev(ftdi, usbhandle);

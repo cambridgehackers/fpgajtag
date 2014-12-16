@@ -165,8 +165,7 @@
  * ARM Cortex constants
  * IHI0031C_debug_interface_as.pdf, Figure 7-1
  */
-//#define CORTEX_IDCODE 0x4ba00477
-#define CORTEX_IDCODE 0x0ba00477
+#define CORTEX_IDCODE 0x4ba00477
 
 /* ARM JTAG-DP registers */
 #define IRREGA_ABORT         0xf8   /* 35 bit register */

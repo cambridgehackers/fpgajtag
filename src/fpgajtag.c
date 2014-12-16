@@ -57,6 +57,7 @@ static USB_INFO *uinfo;
 
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
+static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 static int idcode_count;
 
 /*
@@ -234,15 +235,14 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
     write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE), idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
+    int offset = 0;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
-        memcpy(&idcode_array[idcode_count++], rdata, sizeof(idcode_array[0]));
-        memcpy(idcode_validate_result+1, rdata, sizeof(idcode_array[1])); // copy returned idcode
-        memcpy(idcode_probe_result+1, rdata, sizeof(idcode_array[1]));       // copy returned idcode
-        if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
-            memcpy(&idcode_array[idcode_count++], rdata+4, sizeof(idcode_array[0]));
-            memcpy(idcode_probe_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
-            memcpy(idcode_validate_result+4+1, rdata+4, sizeof(idcode_array[0]));   // copy 2nd idcode
+        while (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0]) && offset < sizeof(uint32_t) * (IDCODE_ARRAY_SIZE-1)) {
+            memcpy(&idcode_array[idcode_count++], rdata+offset, sizeof(uint32_t));
+            memcpy(idcode_probe_result+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
+            memcpy(idcode_validate_result+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
+            offset += sizeof(uint32_t);
         }
     }
     if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
@@ -250,14 +250,21 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
         memdump(rdata, idcode_probe_result[0], "ACTUAL");
     }
-    for (i = 0; i < idcode_count; i++)
-        idcode_array[i] &= 0x0fffffff;  /* mask off 4 MSB */
+    for (i = 0; i < idcode_count; i++) {
+        if (idcode_array[i] == CORTEX_IDCODE) {
+            found_cortex = i;
+            idcode_len[i] = CORTEX_IR_LENGTH;
+        }
+        else {
+            idcode_array[i] &= 0x0fffffff;  /* Xilinx 7 Series: 4 MSB are 'version': UG470, Fig 5-8 */
+            idcode_len[i] = XILINX_IR_LENGTH;
+        }
+    }
 }
 
 static struct ftdi_context *get_deviceid(int device_index)
 {
-    fpgausb_open(device_index);            /*** Open selected USB interface ***/
-    struct ftdi_context *ftdi = init_ftdi();
+    struct ftdi_context *ftdi = init_ftdi(device_index);
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
@@ -624,8 +631,6 @@ usage:
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
-    if (idcode_array[1] == CORTEX_IDCODE)
-        found_cortex = 1;
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
         if (idcode_array[i] == file_idcode)
             jtag_index = i;

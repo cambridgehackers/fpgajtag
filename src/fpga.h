@@ -57,7 +57,6 @@
 #define SHIFT_TO_PAUSE    "10"        /* Shift-IR -> Pause-IR */
 #define SHIFT_TO_UPDATE   "11"        /* Shift-DR -> Update-DR */
 #define SHIFT_TO_IDLE     "110"       /* Shift-DR -> Update-DR -> Idle */
-#define IN_RESET_STATE    DITEM(TMSW, 0x00, 0x7f) /* Marker for Reset */
 
 #define EXTEND_EXTRA            0xc0
 

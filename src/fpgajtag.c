@@ -185,7 +185,7 @@ void idle_to_shift_dr(int extra, int val)
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE(0,0));
+    uint8_t *tailp = DITEM(SHIFT_TO_PAUSE);
 
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
@@ -198,7 +198,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         if (input_filesize < FILE_READSIZE) {
             size = input_filesize;
             if (!extra_shift)
-                tailp = DITEM(SHIFT_TO_EXIT1(0, 0));
+                tailp = DITEM(SHIFT_TO_EXIT1(0));
         }
         write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, size == FILE_READSIZE
             || jtag_index || !multiple_fpga, 1, 0x80);
@@ -211,7 +211,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         write_item(DITEM(PAUSE_TO_SHIFT));
     };
     if (extra_shift)
-        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
+        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
     printf("fpgajtag: Done sending file\n");
 }
@@ -238,7 +238,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
     if (input_shift)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0)));
+        write_item(DITEM(SHIFT_TO_EXIT1(0)));
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
@@ -317,8 +317,8 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, extlen = 0;
     write_irreg(ftdi, read, command, jtag_index,
-    (jtag_index != idcode_count - 1 && read) ?
-        DITEM(SHIFT_TO_PAUSE(0, 0)): DITEM(SHIFT_TO_EXIT1(0, 0)));
+        (jtag_index != idcode_count - 1 && read) ?
+            DITEM(SHIFT_TO_PAUSE): DITEM(SHIFT_TO_EXIT1(0)));
     if (read) {
         ret = read_data_int(ftdi);
         if (jtag_index != idcode_count - 1) {
@@ -327,7 +327,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
             else
                 extlen = XILINX_IR_LENGTH;
             write_item(DITEM(PAUSE_TO_SHIFT));
-            write_item(DITEM(SHIFT_TO_EXIT1(0, write_bit(0, extlen - 1, 0xff))));
+            write_item(DITEM(SHIFT_TO_EXIT1(write_bit(0, extlen - 1, 0xff))));
         }
     }
     write_item(DITEM(EXIT1_TO_IDLE));
@@ -340,7 +340,7 @@ static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, 1, DITEM(SHIFT_TO_UPDATE(0, 0)));
+    write_irreg(ftdi, 0, regname, 1, DITEM(SHIFT_TO_UPDATE));
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
@@ -477,7 +477,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         if (!btype || j == 0) {
             write_item(DITEM(IDLE_TO_RESET));
             if (btype)
-                write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0, 0)));
+                write_item(DITEM(IN_RESET_STATE, SHIFT_TO_EXIT1(0)));
             write_item(DITEM(RESET_TO_IDLE));
             /*
              * Read status register.
@@ -527,16 +527,16 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 0x80);
     while (preq < req + sizeof(req))
         preq = write_int32(ftdi, preq);
-    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0, 0), EXIT1_TO_IDLE), constant4,
+    write_bytes(ftdi, 0, DITEM(SHIFT_TO_EXIT1(0), EXIT1_TO_IDLE), constant4,
         sizeof(constant4), SEND_SINGLE_FRAME, jtag_index == idcode_count - 1, 0, 0x80);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_bytes(ftdi, DREAD, (jtag_index == idcode_count - 1) ? DITEM(SHIFT_TO_EXIT1(0, 0)) :
-                                                                 DITEM(SHIFT_TO_PAUSE(0, 0)),
+    write_bytes(ftdi, DREAD, (jtag_index == idcode_count - 1) ? DITEM(SHIFT_TO_EXIT1(0)) :
+                                                                 DITEM(SHIFT_TO_PAUSE),
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint64_t ret = read_data_int(ftdi);
     if (jtag_index != idcode_count - 1)
-        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0, 0x80)));
+        write_item(DITEM(PAUSE_TO_SHIFT, SHIFT_TO_EXIT1(0x80)));
     write_item(DITEM(EXIT1_TO_IDLE));
     return ret;
 }
@@ -717,7 +717,7 @@ usage:
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
-        write_item(DITEM(SHIFT_TO_EXIT1(0, 0), IN_RESET_STATE));
+        write_item(DITEM(SHIFT_TO_EXIT1(0), IN_RESET_STATE));
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -725,7 +725,7 @@ usage:
      * on the first call
      */
     write_item(DITEM(RESET_TO_IDLE, IDLE_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE(0, 0)),
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_PAUSE),
         idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_validate_result[0]

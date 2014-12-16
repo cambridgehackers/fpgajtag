@@ -242,7 +242,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     else
         write_item(DITEM(IDLE_TO_RESET));
     write_item(DITEM(TMSW, 4, 0x7f/*Reset?????*/, RESET_TO_SHIFT_DR));
-    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE(DREAD, 0)),
+    write_bytes(ftdi, DREAD, DITEM(SHIFT_TO_IDLE(0, 0)),
         idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 0x80);
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -311,7 +311,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, extlen = 0;
     int extrabit = write_irreg(ftdi, read, command, jtag_index);
-    write_item((idcode_count > 1 && jtag_index == 0 && read) ?
+    write_item((jtag_index != idcode_count - 1 && read) ?
         DITEM(SHIFT_TO_PAUSE(read, extrabit)): DITEM(SHIFT_TO_EXIT1(read, extrabit)));
     if (read) {
         ret = read_data_int(ftdi);

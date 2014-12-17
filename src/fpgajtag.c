@@ -46,25 +46,16 @@
 #define IDCODE_ARRAY_SIZE        20
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
-#define IDLE_TO_SHIFT_IR  "IS1100"      /* Idle -> Shift-IR */
-#define IDLE_TO_SHIFT_DR  "ID100"       /* Idle -> Shift-DR */
-#define IDLE_TO_RESET     "IR111"       /* Idle -> Reset */
-#define FORCE_RETURN_TO_RESET "XR11111" /* go back to TMS reset state */
-#define RESET_TO_SHIFT_DR "RD0100"      /* Reset -> Shift-DR */
-
 uint8_t *input_fileptr;
-int input_filesize;
-int found_cortex;
+int input_filesize, found_cortex;
 
-static int verbose;
-static int jtag_index = -1, device_type, multiple_fpga;
+static int verbose, jtag_index = -1, device_type, multiple_fpga;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
-static int first_time_idcode_read = 1;
+static int idcode_count, first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
-static int idcode_count;
 
 /*
  * Support for GPIOs from Digilent JTAG module to h/w design.
@@ -131,11 +122,11 @@ void write_tail(char *tail)
 }
 void send_reset(int input_shift)
 {
-    char *prefix = IDLE_TO_RESET;
+    char *prefix = "IR111";            /* Idle -> Reset */
     if (input_shift == 1)
         prefix = "XR1";
     else if (input_shift == 2)
-        prefix = FORCE_RETURN_TO_RESET;
+        prefix = "XR11111";       /*** Force TAP controller to Reset state ***/
     write_tail(prefix);
 }
 void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
@@ -168,29 +159,22 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 
 void check_state(char required)
 {
-#define EXIT1_TO_IDLE     "EI10"        /* Exit1/Exit2 -> Update -> Idle */
-#define RESET_TO_IDLE     "RI0"         /* Reset -> Idle */
-#define PAUSE_TO_SHIFT    "PS10"        /* Pause-DR -> Shift-DR */
-#define SHIFT_TO_EXIT1    "SE1"         /* Shift-IR -> Exit1-IR */
-#define SHIFT_TO_PAUSE    "SP10"        /* Shift-IR -> Pause-IR */
-#define SHIFT_TO_UPDATE   "SU11"        /* Shift-DR -> Update-DR */
-#define SHIFT_TO_IDLE     "SI110"       /* Shift-DR -> Update-DR -> Idle */
     if (current_state == 'P' && required == 'S')
-        write_tail(PAUSE_TO_SHIFT);
+        write_tail("PS10");             /* Pause-DR -> Shift-DR */
     else if (current_state == 'E' && required == 'I')
-        write_tail(EXIT1_TO_IDLE);
+        write_tail("EI10");             /* Exit1/Exit2 -> Update -> Idle */
     else if (current_state == 'R' && required == 'I')
-        write_tail(RESET_TO_IDLE);
+        write_tail("RI0");              /* Reset -> Idle */
     else if (current_state == 'S' && required == 'I')
-        write_tail(SHIFT_TO_IDLE);
+        write_tail("SI110");            /* Shift-DR -> Update-DR -> Idle */
     else if (current_state == 'S' && required == 'P')
-        write_tail(SHIFT_TO_PAUSE);
+        write_tail("SP10");             /* Shift-IR -> Pause-IR */
     else if (current_state == 'S' && required == 'E')
-        write_tail(SHIFT_TO_EXIT1);
+        write_tail("SE1");              /* Shift-IR -> Exit1-IR */
     else if (current_state == 'S' && required == 'U')
-        write_tail(SHIFT_TO_UPDATE);
+        write_tail("SU11");             /* Shift-DR -> Update-DR */
     if (current_state != required) {
-            printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
+        printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
 }
 void write_bit(int read, int bits, int data, char tail)
@@ -259,7 +243,7 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 
 void idle_to_shift_dr(int extra, int val)
 {
-    write_tail(IDLE_TO_SHIFT_DR);
+    write_tail("ID100");            /* Idle -> Shift-DR */
     if (extra)
         write_bit(0, 1, val, 0);
 }
@@ -315,7 +299,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
     reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
-    write_tail(RESET_TO_SHIFT_DR);
+    write_tail("RD0100");           /* Reset -> Shift-DR */
     write_bytes(ftdi, DREAD, 'I', idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     int offset = 0;
@@ -358,7 +342,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
         if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-        write_tail(FORCE_RETURN_TO_RESET); /*** Force TAP controller to Reset state ***/
+        send_reset(2);
         first_time_idcode_read = 1;
         read_idcode(ftdi, 1);
     }
@@ -372,7 +356,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
 {
     int extralen = idcode_len[idcode_count - 1];
     check_state('I');
-    write_tail(IDLE_TO_SHIFT_IR);
+    write_tail("IS1100");           /* Idle -> Shift-IR */
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
         extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
@@ -533,7 +517,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
-            write_tail(IDLE_TO_RESET);
+            send_reset(0);
         }
         /*
          * Read Xilinx configuration status register
@@ -546,7 +530,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             sizeof(uint32_t), -1,
             !statparam || ((jtag_index || !multiple_fpga) && statparam == -1),
             multiple_fpga * (!statparam));
-        write_tail(IDLE_TO_RESET);
+        send_reset(0);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);

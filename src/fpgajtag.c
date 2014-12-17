@@ -109,7 +109,7 @@ void write_tail(char *tail)
      if (current_state != tail[0] && tail[0] != 'X'
           && !(current_state == 'U' && tail[0] == 'I')
           && !(current_state == 'I' && tail[0] == 'U')) {
-printf("%s: current %c target %s last %s\n", __FUNCTION__, current_state, tail, lasttail);
+         printf("%s: current %c target %s last %s\n", __FUNCTION__, current_state, tail, lasttail);
      }
      lasttail = tail;
      current_state = tail[1];
@@ -481,12 +481,14 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
-    write_tail("II0");
-    if (found_cortex || btype)
-        write_bypass(ftdi, DREAD);
     for (j = 0; j < upperbound; j++) {
-        if (btype)
+        if (btype) {
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
+            if (j)
+                continue;
+            reset_state(ftdi, 0, 0);
+            write_tail("IR1");
+        }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1,
@@ -495,38 +497,26 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
+            write_tail(IDLE_TO_RESET);
         }
         /*
          * Read Xilinx configuration status register
-         * See: ug470_7Series_Config.pdf, Chapter 6
+         * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
+         * through the JTAG Interface" and Table 6-3.
          */
-        if (!btype || j == 0) {
-            if (btype) {
-                reset_state(ftdi, 0, 0);
-                write_tail("IR1");
-            }
-            else
-                write_tail(IDLE_TO_RESET);
-            /*
-             * Read status register.
-             * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
-             * through the JTAG Interface" and Table 6-3.
-             */
-            uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
-                CONFIG_SYNC, CONFIG_TYPE2(0),
-                CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
-                sizeof(uint32_t), -1,
-                !statparam || ((jtag_index || !multiple_fpga) && statparam == -1),
-                multiple_fpga * (!statparam));
-            write_tail(IDLE_TO_RESET);
-            uint32_t status = ret >> 8;
-            if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
-                printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
-            printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
-                status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-        }
-        if (!btype)
-            statparam = 1;
+        uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
+            CONFIG_SYNC, CONFIG_TYPE2(0),
+            CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
+            sizeof(uint32_t), -1,
+            !statparam || ((jtag_index || !multiple_fpga) && statparam == -1),
+            multiple_fpga * (!statparam));
+        write_tail(IDLE_TO_RESET);
+        uint32_t status = ret >> 8;
+        if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
+            printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
+        printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
+            status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+        statparam = 1;
     }
 }
 
@@ -758,6 +748,9 @@ usage:
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
     reset_state(ftdi, 0, 2);
+    write_tail("II0");
+    if (found_cortex)
+        write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++)
@@ -803,6 +796,8 @@ usage:
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     reset_state(ftdi, 0, 0);
+    write_tail("II0");
+    write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);
     rescan = 1;

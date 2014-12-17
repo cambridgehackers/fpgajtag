@@ -152,6 +152,8 @@ void check_state(char required)
         write_tail(PAUSE_TO_SHIFT);
     else if (current_state == 'E' && required == 'I')
         write_tail(EXIT1_TO_IDLE);
+    else if (current_state == 'R' && required == 'I')
+        write_tail(RESET_TO_IDLE);
     if (current_state != required) {
             printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
@@ -486,8 +488,6 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         if (btype)
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
         else {
-            if (j)
-                write_tail(RESET_TO_IDLE);
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1,
                   ((!j && multiple_fpga) || idcode_count == 1) * DREAD);
@@ -507,7 +507,6 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             }
             else
                 write_tail(IDLE_TO_RESET);
-            write_tail(RESET_TO_IDLE);
             /*
              * Read status register.
              * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -742,13 +741,13 @@ usage:
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
         reset_state(ftdi, 0, 1);
+    write_tail("II0");
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    write_tail("II0");
     idle_to_shift_dr(0, 0);
     write_bytes(ftdi, DREAD, SHIFT_TO_PAUSE, idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);

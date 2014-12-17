@@ -148,12 +148,11 @@ void tmsw_delay(int delay_time)
 
 void check_state(char required)
 {
+    if (current_state == 'P' && required == 'S')
+        write_tail(PAUSE_TO_SHIFT);
+    else if (current_state == 'E' && required == 'I')
+        write_tail(EXIT1_TO_IDLE);
     if (current_state != required) {
-        if (current_state == 'P' && required == 'S')
-            write_tail(PAUSE_TO_SHIFT);
-        else if (current_state == 'E' && required == 'I')
-            write_tail(EXIT1_TO_IDLE);
-        else
             printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
 }

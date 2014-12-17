@@ -97,19 +97,23 @@ static void set_clock_divisor(struct ftdi_context *ftdi)
 
 static char current_state;
 static char *lasttail;
+static int match_state(char req)
+{
+    return req == 'X' || !current_state || current_state == req
+       || (current_state == 'S' && req == 'D')
+       || (current_state == 'D' && req == 'S');
+}
 void write_tail(char *tail)
 {
      char *p = tail+2;
      uint8_t *temp = DITEM(TMSW, 0, 0);
      int len = 0;
 
-     if (current_state != tail[0] && tail[0] != 'X') {
+     if (!match_state(tail[0])) {
          printf("%s: current %c target %s last %s\n", __FUNCTION__, current_state, tail, lasttail);
      }
      lasttail = tail;
      current_state = tail[1];
-     if (current_state == 'D')
-         current_state = 'S';
      while (*p) {
          len++;
          temp[1+2] = (temp[1+2] >> 1) | ((*p++ << 7) & 0x80);
@@ -157,27 +161,34 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 
 void check_state(char required)
 {
-    if (current_state == 'P' && required == 'S')
+    char temp = current_state;
+    if (temp == 'D')
+        temp = 'S';
+    if (temp == 'P' && required == 'S')
         write_tail("PS10");             /* Pause-DR -> Shift-DR */
-    else if (current_state == 'E' && required == 'I')
+    else if (temp == 'E' && required == 'I')
         write_tail("EI10");             /* Exit1/Exit2 -> Update -> Idle */
-    else if (current_state == 'R' && required == 'I')
+    else if (temp == 'R' && required == 'I')
         write_tail("RI0");              /* Reset -> Idle */
-    else if (current_state == 'S' && required == 'I')
+    else if (temp == 'S' && required == 'I')
         write_tail("SI110");            /* Shift-DR -> Update-DR -> Idle */
-    else if (current_state == 'S' && required == 'P')
+    else if (temp == 'S' && required == 'P')
         write_tail("SP10");             /* Shift-IR -> Pause-IR */
-    else if (current_state == 'S' && required == 'E')
+    else if (temp == 'S' && required == 'E')
         write_tail("SE1");              /* Shift-IR -> Exit1-IR */
-    else if (current_state == 'S' && required == 'U')
+    else if (temp == 'S' && required == 'U')
         write_tail("SU11");             /* Shift-DR -> Update-DR */
-    else if (current_state == 'U' && required == 'D')
+    else if (temp == 'U' && required == 'D')
         write_tail("UD100");            /* Update -> Shift-DR */
-    else if (current_state == 'I' && required == 'D')
+    else if (temp == 'I' && required == 'D')
         write_tail("ID100");            /* Idle -> Shift-DR */
-    if (required == 'D')
-        required = 'S';
-    if (current_state != required) {
+    else if (temp == 'R' && required == 'D')
+        write_tail("RD0100");           /* Reset -> Shift-DR */
+    else if (temp == 'I' && required == 'R')
+        write_tail("IR1");
+    else if (temp == 'I' && required == 'S')
+        write_tail("IS1100");           /* Idle -> Shift-IR */
+    if (!match_state(required)) {
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
 }
@@ -246,7 +257,7 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 
 void idle_to_shift_dr(int extra, int val)
 {
-    write_tail("ID100");            /* Idle -> Shift-DR */
+    check_state('D');
     if (extra)
         write_bit(0, 1, val, 0);
 }
@@ -298,7 +309,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
 {
     int i, offset = 0;
     reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
-    write_tail("RD0100");           /* Reset -> Shift-DR */
+    check_state('D');
     write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -356,7 +367,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
 {
     int extralen = idcode_len[idcode_count - 1];
     check_state('I');
-    write_tail("IS1100");           /* Idle -> Shift-IR */
+    check_state('S');
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
         extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
@@ -506,7 +517,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             if (j)
                 continue;
             reset_state(ftdi, 0, 0, 0);
-            write_tail("IR1");
+            check_state('R');
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);

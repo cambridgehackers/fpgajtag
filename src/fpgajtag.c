@@ -123,8 +123,14 @@ printf("%s: current %c target %s last %s\n", __FUNCTION__, current_state, tail, 
      temp[1+2] >>= 8 - len;
      write_item(temp);
 }
-void reset_state(struct ftdi_context *ftdi, int goto_reset)
+void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift)
 {
+    char *prefix = IDLE_TO_RESET;
+    if (input_shift == 1)
+        prefix = "XR1";
+    else if (input_shift == 2)
+        prefix = FORCE_RETURN_TO_RESET;
+    write_tail(prefix);
     uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
     current_state = 'I';
     if (goto_reset) {
@@ -140,7 +146,7 @@ void tmsw_delay(int delay_time)
         write_tail("II0000000");
 }
 
-static void check_state(char required)
+void check_state(char required)
 {
     if (current_state != required) {
         if (current_state == 'P' && required == 'S')
@@ -271,8 +277,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
-    write_tail(input_shift ? "XR1" : IDLE_TO_RESET);
-    reset_state(ftdi, 1); /* goto RESET */
+    reset_state(ftdi, 1, input_shift); /* goto RESET */
     write_tail(RESET_TO_SHIFT_DR);
     write_bytes(ftdi, DREAD, SHIFT_TO_IDLE, idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -463,10 +468,8 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
-    if (reset) {
-        write_tail(IDLE_TO_RESET);
-        reset_state(ftdi, 0);
-    }
+    if (reset)
+        reset_state(ftdi, 0, 0);
     if (clock)
         set_clock_divisor(ftdi);
     if (trace)
@@ -477,7 +480,6 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
-    reset_state(ftdi, 0);
     write_tail("II0");
     if (found_cortex || btype)
         write_bypass(ftdi, DREAD);
@@ -486,7 +488,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
         else {
             if (j)
-                write_tail("RI0");
+                write_tail(RESET_TO_IDLE);
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1,
                   ((!j && multiple_fpga) || idcode_count == 1) * DREAD);
@@ -500,11 +502,12 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
          * See: ug470_7Series_Config.pdf, Chapter 6
          */
         if (!btype || j == 0) {
-            write_tail(IDLE_TO_RESET);
             if (btype) {
-                reset_state(ftdi, 0);
+                reset_state(ftdi, 0, 0);
                 write_tail("IR1");
             }
+            else
+                write_tail(IDLE_TO_RESET);
             write_tail(RESET_TO_IDLE);
             /*
              * Read status register.
@@ -561,7 +564,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint64_t ret = read_data_int(ftdi);
     if (extra)
         write_bit(0, 0, 0xff, SHIFT_TO_EXIT1);
-    check_state('I');
+    //check_state('I');
     return ret;
 }
 
@@ -738,10 +741,8 @@ usage:
 
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
-    for (i = 0; i < 1 + (firstflag == 0); i++) {
-        write_tail("XI1");    // ??????????
-        reset_state(ftdi, 0);
-    }
+    for (i = 0; i < 1 + (firstflag == 0); i++)
+        reset_state(ftdi, 0, 1);
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -749,7 +750,7 @@ usage:
      * on the first call
      */
     write_tail("II0");
-    write_tail(IDLE_TO_SHIFT_DR);
+    idle_to_shift_dr(0, 0);
     write_bytes(ftdi, DREAD, SHIFT_TO_PAUSE, idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_validate_result[0]
@@ -758,7 +759,7 @@ usage:
         memdump(idcode_validate_result+1, idcode_validate_result[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
-    write_tail(FORCE_RETURN_TO_RESET);
+    reset_state(ftdi, 0, 2);
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++)
@@ -767,8 +768,7 @@ usage:
     /*
      * Step 2: Initialization
      */
-    write_tail(IDLE_TO_RESET);
-    reset_state(ftdi, 0);
+    reset_state(ftdi, 0, 0);
     write_tail("II0");
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
@@ -804,8 +804,7 @@ usage:
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
-    write_tail(IDLE_TO_RESET);
-    flush_write(ftdi, NULL);
+    reset_state(ftdi, 0, 0);
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);
     rescan = 1;

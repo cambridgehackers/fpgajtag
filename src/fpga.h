@@ -233,3 +233,4 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
     char *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
 int found_cortex;
 void write_tail(char *tail);
+void check_state(char required);

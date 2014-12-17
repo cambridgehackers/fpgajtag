@@ -45,12 +45,6 @@
 #define DATAW(READA, A) (DWRITE|(READA)), INT16((A)-1) //(0)->19 (DREAD)->3d
 #define DATAR(A)        DREAD, INT16((A)-1) //2c
 
-#define IDLE_TO_SHIFT_IR  "IS1100"      /* Idle -> Shift-IR */
-#define IDLE_TO_SHIFT_DR  "ID100"       /* Idle -> Shift-DR */
-#define IDLE_TO_RESET     "IR111"       /* Idle -> Reset */
-#define FORCE_RETURN_TO_RESET "XR11111" /* go back to TMS reset state */
-#define RESET_TO_SHIFT_DR "RD0100"      /* Reset -> Shift-DR */
-
 #define EXTEND_EXTRA            0xc0
 
 /*
@@ -228,3 +222,4 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
 int found_cortex;
 void write_tail(char *tail);
 void check_state(char required);
+void send_reset(int input_shift);

@@ -46,6 +46,12 @@
 #define IDCODE_ARRAY_SIZE        20
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
+#define IDLE_TO_SHIFT_IR  "IS1100"      /* Idle -> Shift-IR */
+#define IDLE_TO_SHIFT_DR  "ID100"       /* Idle -> Shift-DR */
+#define IDLE_TO_RESET     "IR111"       /* Idle -> Reset */
+#define FORCE_RETURN_TO_RESET "XR11111" /* go back to TMS reset state */
+#define RESET_TO_SHIFT_DR "RD0100"      /* Reset -> Shift-DR */
+
 uint8_t *input_fileptr;
 int input_filesize;
 int found_cortex;
@@ -123,7 +129,7 @@ void write_tail(char *tail)
      temp[1+2] >>= 8 - len;
      write_item(temp);
 }
-void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
+void send_reset(int input_shift)
 {
     char *prefix = IDLE_TO_RESET;
     if (input_shift == 1)
@@ -131,6 +137,10 @@ void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int
     else if (input_shift == 2)
         prefix = FORCE_RETURN_TO_RESET;
     write_tail(prefix);
+}
+void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
+{
+    send_reset(input_shift);
     uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
     current_state = 'I';
     if (goto_reset) {

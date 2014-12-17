@@ -286,35 +286,32 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 #define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
             REPEAT10(0xffffffff), INT32(0xffffffff)
 
-static uint8_t idcode_probe_pattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
-static uint8_t idcode_probe_result[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
-static uint8_t idcode_validate_pattern[] =     {INT32(0xffffffff),  PATTERN2};
-static uint8_t idcode_validate_result[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
+static uint8_t idcode_ppattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
+static uint8_t idcode_presult[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
+static uint8_t idcode_vpattern[] =     {INT32(0xffffffff),  PATTERN2};
+static uint8_t idcode_vresult[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
 static void read_idcode(struct ftdi_context *ftdi, int input_shift)
 {
-    int i;
-    if (first_time_idcode_read) {    // only setup idcode patterns on first call!
-        memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
-        memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
-    }
+    int i, offset = 0;
     reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
     write_tail("RD0100");           /* Reset -> Shift-DR */
-    write_bytes(ftdi, DREAD, 'I', idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
-    int offset = 0;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
-        while (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0]) && offset < sizeof(uint32_t) * (IDCODE_ARRAY_SIZE-1)) {
+        memcpy(&idcode_presult[1], idcode_ppattern, sizeof(idcode_ppattern));
+        memcpy(&idcode_vresult[1], idcode_vpattern, sizeof(idcode_vpattern));
+        while (memcmp(idcode_presult+1, rdata, idcode_presult[0]) && offset < sizeof(uint32_t) * (IDCODE_ARRAY_SIZE-1)) {
             memcpy(&idcode_array[idcode_count++], rdata+offset, sizeof(uint32_t));
-            memcpy(idcode_probe_result+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
-            memcpy(idcode_validate_result+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
+            memcpy(idcode_presult+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
+            memcpy(idcode_vresult+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
             offset += sizeof(uint32_t);
         }
     }
-    if (memcmp(idcode_probe_result+1, rdata, idcode_probe_result[0])) {
+    if (memcmp(idcode_presult+1, rdata, idcode_presult[0])) {
         printf("[%s]\n", __FUNCTION__);
-        memdump(idcode_probe_result+1, idcode_probe_result[0], "EXPECT");
-        memdump(rdata, idcode_probe_result[0], "ACTUAL");
+        memdump(idcode_presult+1, idcode_presult[0], "EXPECT");
+        memdump(rdata, idcode_presult[0], "ACTUAL");
     }
     for (i = 0; i < idcode_count; i++) {
         if (idcode_array[i] == CORTEX_IDCODE) {
@@ -604,7 +601,7 @@ int main(int argc, char **argv)
     logfile = stdout;
     struct ftdi_context *ftdi;
     uint32_t ret;
-    int i, j, rflag = 0, lflag = 0, cflag = 0;
+    int i, j, rc, rflag = 0, lflag = 0, cflag = 0;
     const char *serialno = NULL;
     int rescan = 0;
 
@@ -755,12 +752,12 @@ usage:
      * on the first call
      */
     idle_to_shift_dr(0, 0);
-    write_bytes(ftdi, DREAD, 'P', idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, 'P', idcode_vpattern, sizeof(idcode_vpattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
-    if (last_read_data_length != idcode_validate_result[0]
-     || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {
+    if (last_read_data_length != idcode_vresult[0]
+     || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
         printf("fpgajtag: mismatch validate data\n");
-        memdump(idcode_validate_result+1, idcode_validate_result[0], "EXPECT");
+        memdump(idcode_vresult+1, idcode_vresult[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
     reset_state(ftdi, 0, 2, 1);
@@ -778,16 +775,14 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
-    int rc = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP);
-    if (rc != INPROGRAMMING)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
+    if ((rc = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
+        printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, rc);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    rc = write_cirreg(ftdi, DREAD, IRREG_CFG_IN);
-    if (rc != INPROGRAMMING)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
+    if ((rc = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
+        printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, rc);
     send_data_file(ftdi, found_cortex);
 
     /*
@@ -800,8 +795,7 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
-    rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS);
-    if (rc != FINISHED)
+    if ((rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)

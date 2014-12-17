@@ -185,7 +185,6 @@ void write_bit(int read, int bits, int data, char tail)
     int extrabit = (data << (7 - bits)) & 0x80;
     if (tail) {
         uint8_t *cptr = buffer_current_ptr();
-        //write_tail(tail);
         check_state(tail);
         cptr[0] |= read; // this is a TMS instruction to shift state
         cptr[2] |= extrabit; // insert 1 bit of data here
@@ -472,8 +471,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 write_dirreg(ftdi, IRREG_USER2, flip);
                 if (testi) {
                     if (testi > 1) {
-                        write_bit(0, idcode_len[0] - (idcode_count == 1) - flip,
-                            IRREG_JSTART, 'I'); /* DR data */
+                        write_bit(0, idcode_len[0] - (idcode_count == 1) - flip, IRREG_JSTART, 'I'); /* DR data */
                         idle_to_shift_dr(flip, 0);
                     }
                     write_one_byte(ftdi, 0, 0x69);

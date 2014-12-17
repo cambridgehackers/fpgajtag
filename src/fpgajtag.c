@@ -103,9 +103,7 @@ void write_tail(char *tail)
      uint8_t *temp = DITEM(TMSW, 0, 0);
      int len = 0;
 
-     if (current_state != tail[0] && tail[0] != 'X'
-          && !(current_state == 'U' && tail[0] == 'I')
-          && !(current_state == 'I' && tail[0] == 'U')) {
+     if (current_state != tail[0] && tail[0] != 'X') {
          printf("%s: current %c target %s last %s\n", __FUNCTION__, current_state, tail, lasttail);
      }
      lasttail = tail;
@@ -173,6 +171,12 @@ void check_state(char required)
         write_tail("SE1");              /* Shift-IR -> Exit1-IR */
     else if (current_state == 'S' && required == 'U')
         write_tail("SU11");             /* Shift-DR -> Update-DR */
+    else if (current_state == 'U' && required == 'D')
+        write_tail("UD100");            /* Update -> Shift-DR */
+    else if (current_state == 'I' && required == 'D')
+        write_tail("ID100");            /* Idle -> Shift-DR */
+    if (required == 'D')
+        required = 'S';
     if (current_state != required) {
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
@@ -789,7 +793,8 @@ usage:
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) !=
+            ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);
@@ -797,7 +802,8 @@ usage:
     flush_write(ftdi, NULL);
     if ((rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) != (found_cortex ? 0xf87f1046 : 0xfc791040))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
+            (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);

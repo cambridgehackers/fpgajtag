@@ -123,7 +123,7 @@ void write_tail(char *tail)
      temp[1+2] >>= 8 - len;
      write_item(temp);
 }
-void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift)
+void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
 {
     char *prefix = IDLE_TO_RESET;
     if (input_shift == 1)
@@ -138,6 +138,8 @@ void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift)
         current_state = 'R';
     }
     flush_write(ftdi, temp);
+    if (tail)
+        write_tail("II0");
 }
 void tmsw_delay(int delay_time)
 {
@@ -278,7 +280,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
         memcpy(&idcode_probe_result[1], idcode_probe_pattern, sizeof(idcode_probe_pattern));
         memcpy(&idcode_validate_result[1], idcode_validate_pattern, sizeof(idcode_validate_pattern));
     }
-    reset_state(ftdi, 1, input_shift); /* goto RESET */
+    reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
     write_tail(RESET_TO_SHIFT_DR);
     write_bytes(ftdi, DREAD, SHIFT_TO_IDLE, idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -470,7 +472,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
     if (reset)
-        reset_state(ftdi, 0, 0);
+        reset_state(ftdi, 0, 0, 0);
     if (clock)
         set_clock_divisor(ftdi);
     if (trace)
@@ -486,7 +488,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             access_user2(ftdi, 3, 1, (j == 1), 0, 0);
             if (j)
                 continue;
-            reset_state(ftdi, 0, 0);
+            reset_state(ftdi, 0, 0, 0);
             write_tail("IR1");
         }
         else {
@@ -730,8 +732,7 @@ usage:
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
     access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
-        reset_state(ftdi, 0, 1);
-    write_tail("II0");
+        reset_state(ftdi, 0, 1, i == (firstflag == 0));
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -747,8 +748,7 @@ usage:
         memdump(idcode_validate_result+1, idcode_validate_result[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
-    reset_state(ftdi, 0, 2);
-    write_tail("II0");
+    reset_state(ftdi, 0, 2, 1);
     if (found_cortex)
         write_bypass(ftdi, DREAD);
 
@@ -759,8 +759,7 @@ usage:
     /*
      * Step 2: Initialization
      */
-    reset_state(ftdi, 0, 0);
-    write_tail("II0");
+    reset_state(ftdi, 0, 0, 1);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
@@ -795,8 +794,7 @@ usage:
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
-    reset_state(ftdi, 0, 0);
-    write_tail("II0");
+    reset_state(ftdi, 0, 0, 1);
     write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);

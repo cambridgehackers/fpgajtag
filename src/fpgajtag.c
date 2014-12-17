@@ -158,6 +158,13 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 
 void check_state(char required)
 {
+#define EXIT1_TO_IDLE     "EI10"        /* Exit1/Exit2 -> Update -> Idle */
+#define RESET_TO_IDLE     "RI0"         /* Reset -> Idle */
+#define PAUSE_TO_SHIFT    "PS10"        /* Pause-DR -> Shift-DR */
+#define SHIFT_TO_EXIT1    "SE1"         /* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_PAUSE    "SP10"        /* Shift-IR -> Pause-IR */
+#define SHIFT_TO_UPDATE   "SU11"        /* Shift-DR -> Update-DR */
+#define SHIFT_TO_IDLE     "SI110"       /* Shift-DR -> Update-DR -> Idle */
     if (current_state == 'P' && required == 'S')
         write_tail(PAUSE_TO_SHIFT);
     else if (current_state == 'E' && required == 'I')

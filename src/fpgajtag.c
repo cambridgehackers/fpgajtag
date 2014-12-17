@@ -140,10 +140,20 @@ void tmsw_delay(int delay_time)
         write_tail("II0000000");
 }
 
+static void check_state(char required)
+{
+    if (current_state != required) {
+        if (current_state == 'P' && required == 'S')
+            write_tail(PAUSE_TO_SHIFT);
+        else if (current_state == 'E' && required == 'I')
+            write_tail(EXIT1_TO_IDLE);
+        else
+            printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
+    }
+}
 void write_bit(int read, int bits, int data, char *tail)
 {
-    if (current_state != 'S')
-        printf("[%s:%d] should be shift %c\n", __FUNCTION__, __LINE__, current_state);
+    check_state('S');
     if (bits)
         write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
     int extrabit = (data << (7 - bits)) & 0x80;
@@ -159,8 +169,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     char *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
-    if (current_state != 'S')
-        printf("[%s:%d] should be shift %c\n", __FUNCTION__, __LINE__, current_state);
+    check_state('S');
     while (size > 0) {
         int i, rlen = size;
         size -= max_frame_size;
@@ -234,14 +243,10 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
-        if (input_filesize)
-            write_tail(PAUSE_TO_SHIFT);
     };
-    if (extra_shift) {
-        write_tail(PAUSE_TO_SHIFT);
+    if (extra_shift)
         write_bit(0, 0, 0xff, SHIFT_TO_EXIT1);
-    }
-    write_tail(EXIT1_TO_IDLE);
+    check_state('I');
     printf("fpgajtag: Done sending file\n");
 }
 
@@ -324,6 +329,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char *tail)
 {
     int extralen = idcode_len[idcode_count - 1];
+    check_state('I');
     write_tail(IDLE_TO_SHIFT_IR);
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
@@ -345,11 +351,9 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
     write_irreg(ftdi, read, command, jtag_index, extra ? SHIFT_TO_PAUSE : SHIFT_TO_EXIT1);
     if (read)
         ret = read_data_int(ftdi);
-    if (extra) {
-        write_tail(PAUSE_TO_SHIFT);
+    if (extra)
         write_bit(0, idcode_len[idcode_count - 1] - 1, 0xff, SHIFT_TO_EXIT1);
-    }
-    write_tail(EXIT1_TO_IDLE);
+    check_state('I');
     return ret;
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
@@ -376,8 +380,7 @@ static void write_bypass(struct ftdi_context *ftdi, int read)
     }
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
-    int readitem)
+static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem)
 {
     int j;
     uint32_t ret = 0;
@@ -551,17 +554,14 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, SHIFT_TO_EXIT1, constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
-    write_tail(EXIT1_TO_IDLE);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
     write_bytes(ftdi, DREAD, extra ? SHIFT_TO_PAUSE : SHIFT_TO_EXIT1,
         zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi);
-    if (extra) {
-        write_tail(PAUSE_TO_SHIFT);
+    if (extra)
         write_bit(0, 0, 0xff, SHIFT_TO_EXIT1);
-    }
-    write_tail(EXIT1_TO_IDLE);
+    check_state('I');
     return ret;
 }
 

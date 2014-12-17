@@ -163,16 +163,12 @@ void check_state(char required)
 {
     char temp = current_state;
     static char *tail[] = {"PS10", /* Pause-DR -> Shift-DR */
-        "EI10",             /* Exit1/Exit2 -> Update -> Idle */
-        "RI0",              /* Reset -> Idle */
-        "SI110",            /* Shift-DR -> Update-DR -> Idle */
-        "SP10",             /* Shift-IR -> Pause-IR */
-        "SE1",              /* Shift-IR -> Exit1-IR */
-        "SU11",             /* Shift-DR -> Update-DR */
-        "UD100",            /* Update -> Shift-DR */
-        "ID100",            /* Idle -> Shift-DR */
-        "RD0100",           /* Reset -> Shift-DR */
-        "IR1",
+        "EI10",  /* Exit1/Exit2 -> Update -> Idle */ "RI0",   /* Reset -> Idle */
+        "SI110", /* Shift-DR -> Update-DR -> Idle */ "SP10",  /* Shift-IR -> Pause-IR */
+        "SE1",   /* Shift-IR -> Exit1-IR */ "SU11",  /* Shift-DR -> Update-DR */
+        "UD100", /* Update -> Shift-DR */   "ID100", /* Idle -> Shift-DR */
+        "RD0100",/* Reset -> Shift-DR */    "IR111", /* Idle -> Reset */
+//        "XR11111",       /*** Force TAP controller to Reset state ***/
         "IS1100", NULL};    /* Idle -> Shift-IR */
     char **p = tail; 
     if (temp == 'D')
@@ -511,7 +507,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             if (j)
                 continue;
             reset_state(ftdi, 0, 0, 0);
-            check_state('R');
+            write_tail("IR1");
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);

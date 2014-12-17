@@ -98,7 +98,7 @@ void process_command_list(struct ftdi_context *ftdi)
                 tempbuf2[i] = tempbuf[len-1-i];
             write_bytes(ftdi, DREAD, SHIFT_TO_EXIT1, tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
             if (found_cortex)
-                 write_tail("0101");
+                 write_tail("EE0101");
             write_tail(EXIT1_TO_IDLE);
             uint8_t *rdata = read_data(ftdi);
             int i = 0;

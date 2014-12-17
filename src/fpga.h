@@ -45,18 +45,18 @@
 #define DATAW(READA, A) (DWRITE|(READA)), INT16((A)-1) //(0)->19 (DREAD)->3d
 #define DATAR(A)        DREAD, INT16((A)-1) //2c
 
-#define IDLE_TO_SHIFT_IR  "1100"      /* Idle -> Shift-IR */
-#define IDLE_TO_SHIFT_DR  "100"       /* Idle -> Shift-DR */
-#define EXIT1_TO_IDLE     "10"        /* Exit1/Exit2 -> Update -> Idle */
-#define IDLE_TO_RESET     "111"       /* Idle -> Reset */
-#define RESET_TO_IDLE     "0"         /* Reset -> Idle */
-#define PAUSE_TO_SHIFT    "10"        /* Pause-DR -> Shift-DR */
-#define FORCE_RETURN_TO_RESET "11111" /* go back to TMS reset state */
-#define RESET_TO_SHIFT_DR "0100"      /* Reset -> Shift-DR */
-#define SHIFT_TO_EXIT1    "1"         /* Shift-IR -> Exit1-IR */
-#define SHIFT_TO_PAUSE    "10"        /* Shift-IR -> Pause-IR */
-#define SHIFT_TO_UPDATE   "11"        /* Shift-DR -> Update-DR */
-#define SHIFT_TO_IDLE     "110"       /* Shift-DR -> Update-DR -> Idle */
+#define IDLE_TO_SHIFT_IR  "IS1100"      /* Idle -> Shift-IR */
+#define IDLE_TO_SHIFT_DR  "ID100"       /* Idle -> Shift-DR */
+#define EXIT1_TO_IDLE     "EI10"        /* Exit1/Exit2 -> Update -> Idle */
+#define IDLE_TO_RESET     "IR111"       /* Idle -> Reset */
+#define RESET_TO_IDLE     "RI0"         /* Reset -> Idle */
+#define PAUSE_TO_SHIFT    "PS10"        /* Pause-DR -> Shift-DR */
+#define FORCE_RETURN_TO_RESET "XR11111" /* go back to TMS reset state */
+#define RESET_TO_SHIFT_DR "RD0100"      /* Reset -> Shift-DR */
+#define SHIFT_TO_EXIT1    "SE1"         /* Shift-IR -> Exit1-IR */
+#define SHIFT_TO_PAUSE    "SP10"        /* Shift-IR -> Pause-IR */
+#define SHIFT_TO_UPDATE   "SU11"        /* Shift-DR -> Update-DR */
+#define SHIFT_TO_IDLE     "SI110"       /* Shift-DR -> Update-DR -> Idle */
 
 #define EXTEND_EXTRA            0xc0
 

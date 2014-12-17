@@ -164,11 +164,19 @@ void check_state(char required)
         write_tail(EXIT1_TO_IDLE);
     else if (current_state == 'R' && required == 'I')
         write_tail(RESET_TO_IDLE);
+    else if (current_state == 'S' && required == 'I')
+        write_tail(SHIFT_TO_IDLE);
+    else if (current_state == 'S' && required == 'P')
+        write_tail(SHIFT_TO_PAUSE);
+    else if (current_state == 'S' && required == 'E')
+        write_tail(SHIFT_TO_EXIT1);
+    else if (current_state == 'S' && required == 'U')
+        write_tail(SHIFT_TO_UPDATE);
     if (current_state != required) {
             printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
 }
-void write_bit(int read, int bits, int data, char *tail)
+void write_bit(int read, int bits, int data, char tail)
 {
     check_state('S');
     if (bits)
@@ -176,14 +184,15 @@ void write_bit(int read, int bits, int data, char *tail)
     int extrabit = (data << (7 - bits)) & 0x80;
     if (tail) {
         uint8_t *cptr = buffer_current_ptr();
-        write_tail(tail);
+        //write_tail(tail);
+        check_state(tail);
         cptr[0] |= read; // this is a TMS instruction to shift state
         cptr[2] |= extrabit; // insert 1 bit of data here
     }
 }
 
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
-    char *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
+    char tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
     check_state('S');
@@ -219,13 +228,13 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
 
 static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
 {
-    write_bytes(ftdi, read, NULL, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
+    write_bytes(ftdi, read, 0, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
 }
 
 static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 {
     while (size) {
-         write_bytes(ftdi, 0, NULL, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
+         write_bytes(ftdi, 0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
          data += sizeof(uint32_t);
          size -= sizeof(uint32_t);
     }
@@ -235,16 +244,16 @@ void idle_to_shift_dr(int extra, int val)
 {
     write_tail(IDLE_TO_SHIFT_DR);
     if (extra)
-        write_bit(0, 1, val, NULL);
+        write_bit(0, 1, val, 0);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    char *tailp = SHIFT_TO_PAUSE;
+    char tailp = 'P';
 
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
-        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, zerodata, sizeof(uint32_t));
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
@@ -253,7 +262,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         if (input_filesize <= FILE_READSIZE) {
             size = input_filesize;
             if (!extra_shift)
-                tailp = SHIFT_TO_EXIT1;
+                tailp = 'E';
         }
         input_filesize -= size;
         write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, input_filesize != 0 || jtag_index || !multiple_fpga, 1, 1);
@@ -262,7 +271,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         input_fileptr += size;
     };
     if (extra_shift)
-        write_bit(0, 0, 0xff, SHIFT_TO_EXIT1);
+        write_bit(0, 0, 0xff, 'E');
     check_state('I');
     printf("fpgajtag: Done sending file\n");
 }
@@ -290,7 +299,7 @@ static void read_idcode(struct ftdi_context *ftdi, int input_shift)
     }
     reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
     write_tail(RESET_TO_SHIFT_DR);
-    write_bytes(ftdi, DREAD, SHIFT_TO_IDLE, idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, 'I', idcode_probe_pattern, sizeof(idcode_probe_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     int offset = 0;
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -342,7 +351,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char *tail)
+void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail)
 {
     int extralen = idcode_len[idcode_count - 1];
     check_state('I');
@@ -352,9 +361,9 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
         extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
     }
     else if (idcode_count > 1 && flip)
-        write_bit(0, idcode_len[0], 0xff, NULL);
+        write_bit(0, idcode_len[0], 0xff, 0);
     else if (idcode_count > 1 && !read) {
-        write_bit(0, idcode_len[0], command, NULL);
+        write_bit(0, idcode_len[0], command, 0);
         command = 0xff;
     }
     else
@@ -364,27 +373,27 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, extra = jtag_index != idcode_count - 1 && read;
-    write_irreg(ftdi, read, command, jtag_index, extra ? SHIFT_TO_PAUSE : SHIFT_TO_EXIT1);
+    write_irreg(ftdi, read, command, jtag_index, extra ? 'P' : 'E');
     if (read)
         ret = read_data_int(ftdi);
     if (extra)
-        write_bit(0, idcode_len[idcode_count - 1] - 1, 0xff, SHIFT_TO_EXIT1);
+        write_bit(0, idcode_len[idcode_count - 1] - 1, 0xff, 'E');
     check_state('I');
     return ret;
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 {
-    write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip, SHIFT_TO_IDLE);
+    write_irreg(ftdi, 0, EXTEND_EXTRA | command, flip, 'I');
     idle_to_shift_dr(flip, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, 1, SHIFT_TO_UPDATE);
+    write_irreg(ftdi, 0, regname, 1, 'U');
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index, SHIFT_TO_IDLE);
+    write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index, 'I');
     if (read) {
         uint32_t ret = read_data_int(ftdi) & 0xfff;
         if (ret == FIRST_TIME)
@@ -411,7 +420,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
         else
             write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_bit(readitem, 0, 0, SHIFT_TO_IDLE);
+            write_bit(readitem, 0, 0, 'I');
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
@@ -441,7 +450,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     uint32_t ret = 0;
 
     write_dirreg(ftdi, IRREG_CFG_IN, flip); /* Select CFG_IN so that we can send out our request */
-    write_bytes(ftdi, 0, SHIFT_TO_IDLE, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
+    write_bytes(ftdi, 0, 'I', req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip);
         ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
@@ -463,13 +472,13 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
                 if (testi) {
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - (idcode_count == 1) - flip,
-                            IRREG_JSTART, SHIFT_TO_IDLE); /* DR data */
+                            IRREG_JSTART, 'I'); /* DR data */
                         idle_to_shift_dr(flip, 0);
                     }
                     write_one_byte(ftdi, 0, 0x69);
-                    write_bit(0, 2, 0, NULL);
+                    write_bit(0, 2, 0, 0);
                     if (idcode_count > 1)
-                        write_bit(0, 1, 0, NULL);
+                        write_bit(0, 1, 0, 0);
                 }
                 uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
                 if (ret != 0)
@@ -552,16 +561,15 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     idle_to_shift_dr(jtag_index, 0xff);
     write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1)
-        write_bytes(ftdi, 0, NULL, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, req+1, req[0]);
-    write_bytes(ftdi, 0, SHIFT_TO_EXIT1, constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
+    write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
-    write_bytes(ftdi, DREAD, extra ? SHIFT_TO_PAUSE : SHIFT_TO_EXIT1,
-        zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, extra ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi);
     if (extra)
-        write_bit(0, 0, 0xff, SHIFT_TO_EXIT1);
+        write_bit(0, 0, 0xff, 'E');
     //check_state('I');
     return ret;
 }
@@ -748,7 +756,7 @@ usage:
      * on the first call
      */
     idle_to_shift_dr(0, 0);
-    write_bytes(ftdi, DREAD, SHIFT_TO_PAUSE, idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, 'P', idcode_validate_pattern, sizeof(idcode_validate_pattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_validate_result[0]
      || memcmp(idcode_validate_result+1, rdata, idcode_validate_result[0])) {

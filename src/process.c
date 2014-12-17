@@ -89,14 +89,14 @@ void process_command_list(struct ftdi_context *ftdi)
         else if (mode == 0) {
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(ftdi, 0, t, 0, SHIFT_TO_IDLE);
+            write_irreg(ftdi, 0, t, 0, 'I');
             flush_write(ftdi, NULL);
         }
         else {
             idle_to_shift_dr(0, 0);
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
-            write_bytes(ftdi, DREAD, SHIFT_TO_EXIT1, tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
+            write_bytes(ftdi, DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
             if (found_cortex)
                  write_tail("EE0101");
             check_state('I');

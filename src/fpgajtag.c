@@ -141,11 +141,19 @@ void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int
     if (tail)
         write_tail("II0");
 }
-void tmsw_delay(int delay_time)
+void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
     int i;
+    if (extra)
+        write_tail("II0");
     for (i = 0; i < delay_time; i++)
         write_tail("II0000000");
+    if (extra == 1)
+        write_tail("II00");
+    else if (extra == 2)
+        write_tail("II0000");
+    else if (extra == 3)
+        write_tail("II000");
 }
 
 void check_state(char required)
@@ -573,7 +581,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
 #endif
     write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
-    tmsw_delay(6);
+    tmsw_delay(ftdi, 6, 0);
     readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCFG,
@@ -783,9 +791,7 @@ usage:
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);
-    write_tail("II0");
-    tmsw_delay(14);
-    write_tail("II00");
+    tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
     rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS);
     if (rc != FINISHED)

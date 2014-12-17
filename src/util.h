@@ -74,7 +74,7 @@ uint8_t *buffer_current_ptr(void);
 
 uint8_t *read_data(struct ftdi_context *ftdi);
 uint64_t read_data_int(struct ftdi_context *ftdi);
-void tmsw_delay(int delay_time);
+void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra);
 void write_bit(int read, int bits, int data, char *tail);
 void idle_to_shift_dr(int extra, int val);
 uint32_t read_inputfile(char *filename);

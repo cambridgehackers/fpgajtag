@@ -87,16 +87,6 @@ static void write_select(struct ftdi_context *ftdi, int bus)
     write_creg(ftdi, IRREGA_APACC);
 }
 
-static void sendwait(int ind)
-{
-    write_tail("II0");
-    if (ind == 2)
-        write_tail("II00");  // cortex_reset
-    else {
-        tmsw_delay(3);
-        write_tail(ind ? "II000" : "II0000");
-    }
-}
 static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
 {
     uint32_t *cresp[2];
@@ -125,7 +115,7 @@ static void cortex_csw(struct ftdi_context *ftdi, int wait, int clear_wait)
         write_select(ftdi, i);
         loaddr(DREAD, 0, AP_CSW | DPACC_WRITE);
         if (wait)
-           sendwait(i);
+           tmsw_delay(ftdi, 3, i + 2);
     }
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, SELECT_DEBUG, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,}, 1);
 }
@@ -159,7 +149,7 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
         write_select(ftdi, i);
         loaddr(DREAD, cread[i], AP_CSW);
         if (wait)
-            sendwait(i);
+            tmsw_delay(ftdi, 3, i + 2);
         check_read_cortex(__LINE__, ftdi, cresp[i], 1);
     }
     write_select(ftdi, 0);
@@ -168,18 +158,18 @@ uint32_t *cresp[] = {(uint32_t[]){3, 0, DEFAULT_CSW, CORTEX_DEFAULT_STATUS,},
     for (i = 0; i < 2; i++) {
         loaddr(DREAD, address_table[i], AP_TAR);
         if (wait)
-            sendwait(0);
+            tmsw_delay(ftdi, 3, 2);
         read_rdbuff();
         if (wait)
-            sendwait(0);
+            tmsw_delay(ftdi, 3, 2);
         else
-            sendwait(2);
+            tmsw_delay(ftdi, 0, 1);
     }
     check_read_cortex(__LINE__, ftdi, (uint32_t[]){6, 0, DEFAULT_CSW,
           VAL5, VAL5, VAL3, CORTEX_DEFAULT_STATUS,}, 1);
     if (wait) {
         tar_write(ftdi, ADDRESS_DEVCFG_MCTRL);
-        sendwait(2);
+        tmsw_delay(ftdi, 0, 1);
         check_read_cortex(__LINE__, ftdi, (uint32_t[]){3, VAL3, 0, CORTEX_DEFAULT_STATUS,}, 1);
     }
     write_select(ftdi, 1);

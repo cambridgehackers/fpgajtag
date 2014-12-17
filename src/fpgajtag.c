@@ -142,6 +142,8 @@ void tmsw_delay(int delay_time)
 
 void write_bit(int read, int bits, int data, char *tail)
 {
+    if (current_state != 'S')
+        printf("[%s:%d] should be shift %c\n", __FUNCTION__, __LINE__, current_state);
     if (bits)
         write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
     int extrabit = (data << (7 - bits)) & 0x80;
@@ -157,6 +159,8 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     char *tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
+    if (current_state != 'S')
+        printf("[%s:%d] should be shift %c\n", __FUNCTION__, __LINE__, current_state);
     while (size > 0) {
         int i, rlen = size;
         size -= max_frame_size;

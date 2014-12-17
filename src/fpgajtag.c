@@ -162,32 +162,26 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 void check_state(char required)
 {
     char temp = current_state;
+    static char *tail[] = {"PS10", /* Pause-DR -> Shift-DR */
+        "EI10",             /* Exit1/Exit2 -> Update -> Idle */
+        "RI0",              /* Reset -> Idle */
+        "SI110",            /* Shift-DR -> Update-DR -> Idle */
+        "SP10",             /* Shift-IR -> Pause-IR */
+        "SE1",              /* Shift-IR -> Exit1-IR */
+        "SU11",             /* Shift-DR -> Update-DR */
+        "UD100",            /* Update -> Shift-DR */
+        "ID100",            /* Idle -> Shift-DR */
+        "RD0100",           /* Reset -> Shift-DR */
+        "IR1",
+        "IS1100", NULL};    /* Idle -> Shift-IR */
+    char **p = tail; 
     if (temp == 'D')
         temp = 'S';
-    if (temp == 'P' && required == 'S')
-        write_tail("PS10");             /* Pause-DR -> Shift-DR */
-    else if (temp == 'E' && required == 'I')
-        write_tail("EI10");             /* Exit1/Exit2 -> Update -> Idle */
-    else if (temp == 'R' && required == 'I')
-        write_tail("RI0");              /* Reset -> Idle */
-    else if (temp == 'S' && required == 'I')
-        write_tail("SI110");            /* Shift-DR -> Update-DR -> Idle */
-    else if (temp == 'S' && required == 'P')
-        write_tail("SP10");             /* Shift-IR -> Pause-IR */
-    else if (temp == 'S' && required == 'E')
-        write_tail("SE1");              /* Shift-IR -> Exit1-IR */
-    else if (temp == 'S' && required == 'U')
-        write_tail("SU11");             /* Shift-DR -> Update-DR */
-    else if (temp == 'U' && required == 'D')
-        write_tail("UD100");            /* Update -> Shift-DR */
-    else if (temp == 'I' && required == 'D')
-        write_tail("ID100");            /* Idle -> Shift-DR */
-    else if (temp == 'R' && required == 'D')
-        write_tail("RD0100");           /* Reset -> Shift-DR */
-    else if (temp == 'I' && required == 'R')
-        write_tail("IR1");
-    else if (temp == 'I' && required == 'S')
-        write_tail("IS1100");           /* Idle -> Shift-IR */
+    while(*p) {
+        if (temp == (*p)[0] && required == (*p)[1])
+            write_tail(*p);
+        p++;
+    }
     if (!match_state(required)) {
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }

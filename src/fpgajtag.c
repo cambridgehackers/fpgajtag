@@ -103,7 +103,7 @@ static int match_state(char req)
        || (current_state == 'S' && req == 'D')
        || (current_state == 'D' && req == 'S');
 }
-void write_tail(char *tail)
+void write_tms_transition(char *tail)
 {
      char *p = tail+2;
      uint8_t *temp = DITEM(TMSW, 0, 0);
@@ -136,7 +136,7 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
     if (extra)
         send_idle(extra);
 }
-void check_state(char required)
+void ENTER_TMS_STATE(char required)
 {
     char temp = current_state;
     static char *tail[] = {"PS10", /* Pause-DR -> Shift-DR */
@@ -152,7 +152,7 @@ void check_state(char required)
         temp = 'S';
     while(*p) {
         if (temp == (*p)[0] && required == (*p)[1])
-            write_tail(*p);
+            write_tms_transition(*p);
         p++;
     }
     if (!match_state(required)) {
@@ -162,7 +162,7 @@ void check_state(char required)
 static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
 {
     uint8_t *temp = DITEM(TMSW, stay_reset, 0x7f);
-    check_state('R');
+    ENTER_TMS_STATE('R');
     flush_write(ftdi, temp);
 }
 static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
@@ -170,27 +170,27 @@ static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
     marker_for_reset(ftdi, 0);
     if (clock)
         set_clock_divisor(ftdi);
-    write_tail("RR1");
+    write_tms_transition("RR1");
 }
-void write_bit(int read, int bits, int data, char tail)
+void write_bit(int read, int bits, int data, char target_state)
 {
-    check_state('S');
+    ENTER_TMS_STATE('S');
     if (bits)
         write_item(DITEM(DATAWBIT | read, bits-1, M(data)));
     int extrabit = (data << (7 - bits)) & 0x80;
-    if (tail) {
+    if (target_state) {
         uint8_t *cptr = buffer_current_ptr();
-        check_state(tail);
+        ENTER_TMS_STATE(target_state);
         cptr[0] |= read; // this is a TMS instruction to shift state
         cptr[2] |= extrabit; // insert 1 bit of data here
     }
 }
 
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
-    char tail, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
+    char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
     uint8_t ch = 0;
-    check_state('S');
+    ENTER_TMS_STATE('S');
     while (size > 0) {
         int i, rlen = size;
         size -= max_frame_size;
@@ -211,10 +211,10 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
                 ch = *ptrin++;
                 if (swapbits)
                     ch = bitswap[ch];
-                write_bit(read, 7, ch, tail);
+                write_bit(read, 7, ch, target_state);
             }
             else
-                write_bit(read, 0, default_ext, tail); /* this is the 'bypass' bit value */
+                write_bit(read, 0, default_ext, target_state); /* this is the 'bypass' bit value */
         }
         if (size > 0)
             flush_write(ftdi, NULL);
@@ -237,15 +237,15 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 
 void idle_to_shift_dr(int extra, int val)
 {
-    check_state('I');
-    check_state('D');
+    ENTER_TMS_STATE('I');
+    ENTER_TMS_STATE('D');
     if (extra)
         write_bit(0, 1, val, 0);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    char tailp = 'P';
+    char target_state = 'P';
 
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
@@ -258,17 +258,17 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         if (input_filesize <= FILE_READSIZE) {
             size = input_filesize;
             if (!extra_shift)
-                tailp = 'E';
+                target_state = 'E';
         }
         input_filesize -= size;
-        write_bytes(ftdi, 0, tailp, input_fileptr, size, limit_len, input_filesize != 0 || jtag_index || !multiple_fpga, 1, 1);
+        write_bytes(ftdi, 0, target_state, input_fileptr, size, limit_len, input_filesize != 0 || jtag_index || !multiple_fpga, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_fileptr += size;
     };
     if (extra_shift)
         write_bit(0, 0, 0xff, 'E');
-    check_state('I');
+    ENTER_TMS_STATE('I');
     printf("fpgajtag: Done sending file\n");
 }
 
@@ -291,9 +291,9 @@ static void read_idcode(struct ftdi_context *ftdi, int prereset)
     int i, offset = 0;
 
     if (prereset)
-        write_tail("RR1");
+        write_tms_transition("RR1");
     marker_for_reset(ftdi, 4);
-    check_state('D');
+    ENTER_TMS_STATE('D');
     write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
@@ -337,7 +337,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
         if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-        write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
+        write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
         read_idcode(ftdi, 1);
     }
@@ -350,8 +350,8 @@ static struct ftdi_context *get_deviceid(int device_index)
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail)
 {
     int extralen = idcode_len[idcode_count - 1];
-    check_state('I');
-    check_state('S');
+    ENTER_TMS_STATE('I');
+    ENTER_TMS_STATE('S');
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
         extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
@@ -374,7 +374,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
         ret = read_data_int(ftdi);
     if (extra)
         write_bit(0, idcode_len[idcode_count - 1] - 1, 0xff, 'E');
-    check_state('I');
+    ENTER_TMS_STATE('I');
     return ret;
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
@@ -495,7 +495,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     marker_for_reset(ftdi, 0);
     if (bypass)
         write_bypass(ftdi, DREAD);
-    check_state('I');
+    ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
             access_user2(ftdi, 3, 1, j, (!j) ? 0: -1);
@@ -510,7 +510,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
-            write_tail("IR111");
+            write_tms_transition("IR111");
         }
         /*
          * Read Xilinx configuration status register
@@ -529,7 +529,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
-        write_tail("IR111");
+        write_tms_transition("IR111");
     }
 }
 
@@ -564,7 +564,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint64_t ret = read_data_int(ftdi);
     if (extra)
         write_bit(0, 0, 0xff, 'E');
-    //check_state('I');
+    //ENTER_TMS_STATE('I');
     return ret;
 }
 

@@ -169,7 +169,7 @@ static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
     check_state('R');
     flush_write(ftdi, temp);
 }
-static void bozoreset(struct ftdi_context *ftdi, int clock)
+static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
 {
     marker_for_reset(ftdi, 0);
     if (clock)
@@ -489,7 +489,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
     if (postreset >= 0)
-        bozoreset(ftdi, postreset);
+        reset_mark_clock(ftdi, postreset);
 }
 
 
@@ -742,7 +742,7 @@ usage:
 
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag ? 1 : -1);
     access_user2(ftdi, 3, 1, 0, (!firstflag) ? 1 : -1);
-    bozoreset(ftdi, 0);
+    reset_mark_clock(ftdi, 0);
     marker_for_reset(ftdi, 0);
 
     /*

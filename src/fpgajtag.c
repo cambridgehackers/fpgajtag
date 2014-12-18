@@ -126,10 +126,6 @@ static void send_idle(int count)
 {
      write_item(DITEM(TMSW, count, 0));
 }
-static void send_reset(int already_in_reset)
-{
-    write_tail(already_in_reset ? "RR1" : "IR111");
-}
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
     int i;
@@ -290,9 +286,13 @@ static uint8_t idcode_ppattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
 static uint8_t idcode_presult[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
 static uint8_t idcode_vpattern[] =     {INT32(0xffffffff),  PATTERN2};
 static uint8_t idcode_vresult[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
-static void read_idcode(struct ftdi_context *ftdi)
+static void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
     int i, offset = 0;
+
+    if (prereset)
+        write_tail("RR1");
+    marker_for_reset(ftdi, 4);
     check_state('D');
     write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -339,9 +339,7 @@ static struct ftdi_context *get_deviceid(int device_index)
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
         write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
-        send_reset(1);
-        marker_for_reset(ftdi, 4);
-        read_idcode(ftdi);
+        read_idcode(ftdi, 1);
     }
     return ftdi;
 }
@@ -460,10 +458,7 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 {
     int testi, flip;
 
-    if (prereset)
-        send_reset(1);
-    marker_for_reset(ftdi, 4);
-    read_idcode(ftdi);
+    read_idcode(ftdi, prereset);
     for (flip = 0; flip < 1 + multiple_fpga; flip++) {
         int j = argj;
         while (j-- > 0) {
@@ -493,9 +488,13 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
 }
 
 
-static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval)
+static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval, int bypass)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
+
+    marker_for_reset(ftdi, 0);
+    if (bypass)
+        write_bypass(ftdi, DREAD);
     check_state('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
@@ -511,7 +510,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
-            send_reset(0);
+            write_tail("IR111");
         }
         /*
          * Read Xilinx configuration status register
@@ -524,13 +523,13 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             sizeof(uint32_t), -1,
             !statparam || ((jtag_index || !multiple_fpga) && statparam == -1),
             multiple_fpga * (!statparam));
-        send_reset(0);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
+        write_tail("IR111");
     }
 }
 
@@ -712,7 +711,6 @@ usage:
     if (multiple_fpga && jtag_index == 0)
         bypass_tc += 8;
     int firstflag = device_type != DEVICE_ZC702 && !(multiple_fpga && jtag_index == 0);
-    int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1);
     int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
 
     /*
@@ -740,10 +738,10 @@ usage:
         goto exit_label;
     }
 
-    for (i = 0; i < 2; i++) {
-        access_user2(ftdi, first_bypass_count, i, 0, (firstflag == i) ? 1 : -1);
-        first_bypass_count = 3;
-    }
+    for (i = 0; i < 2; i++)
+        access_user2(ftdi, 3 + (1 - i) *
+            (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1),
+            i, 0, (firstflag == i) ? 1 : -1);
     reset_mark_clock(ftdi, 0);
     marker_for_reset(ftdi, 0);
 
@@ -761,11 +759,8 @@ usage:
         memdump(idcode_vresult+1, idcode_vresult[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
-    marker_for_reset(ftdi, 0);
-    if (found_cortex)
-        write_bypass(ftdi, DREAD);
 
-    readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
+    readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
     for (i = 0; i < bypass_tc; i++)
         access_user2(ftdi, 3, 1, i == 0, -1);
 
@@ -804,10 +799,8 @@ usage:
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
-    marker_for_reset(ftdi, 0);
-    write_bypass(ftdi, DREAD);
 
-    readout_status(ftdi, 1, extra_bypass_count, 0xf07910);
+    readout_status(ftdi, 1, extra_bypass_count, 0xf07910, 1);
     rescan = 1;
 
     /*

@@ -456,7 +456,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int prereset)
+static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int prereset, int postreset)
 {
     int testi, flip;
 
@@ -488,6 +488,8 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
+    if (postreset >= 0)
+        bozoreset(ftdi, postreset);
 }
 
 
@@ -497,10 +499,9 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     check_state('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            access_user2(ftdi, 3, 1, j);
+            access_user2(ftdi, 3, 1, j, (!j) ? 0: -1);
             if (j)
                 continue;
-            bozoreset(ftdi, 0);
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
@@ -739,12 +740,8 @@ usage:
         goto exit_label;
     }
 
-    access_user2(ftdi, first_bypass_count, 0, 0);
-    if (firstflag)
-        bozoreset(ftdi, 1);
-    access_user2(ftdi, 3, 1, 0);
-    if (!firstflag)
-        bozoreset(ftdi, 1);
+    access_user2(ftdi, first_bypass_count, 0, 0, firstflag ? 1 : -1);
+    access_user2(ftdi, 3, 1, 0, (!firstflag) ? 1 : -1);
     bozoreset(ftdi, 0);
     marker_for_reset(ftdi, 0);
 
@@ -768,7 +765,7 @@ usage:
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++)
-        access_user2(ftdi, 3, 1, i == 0);
+        access_user2(ftdi, 3, 1, i == 0, -1);
 
     /*
      * Step 2: Initialization

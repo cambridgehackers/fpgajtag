@@ -126,20 +126,17 @@ static void send_idle(int count)
 {
      write_item(DITEM(TMSW, count, 0));
 }
-void send_reset(int input_shift)
+static void send_reset(int input_shift)
 {
     char *prefix = "IR111";            /* Idle -> Reset */
     if (input_shift == 1)
         prefix = "RR1";
-    else if (input_shift == 2)
-        prefix = "XR11111";       /*** Force TAP controller to Reset state ***/
     else if (input_shift == 3)
         prefix = "IR1";
     write_tail(prefix);
 }
-static void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
+static void reset_state(struct ftdi_context *ftdi, int goto_reset, int tail)
 {
-    send_reset(input_shift);
     uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
     current_state = 'I';
     if (goto_reset) {
@@ -170,6 +167,7 @@ void check_state(char required)
         "SE1",   /* Shift-IR -> Exit1-IR */ "SU11",  /* Shift-DR -> Update-DR */
         "UD100", /* Update -> Shift-DR */   "ID100", /* Idle -> Shift-DR */
         "RD0100",/* Reset -> Shift-DR */    "IR111", /* Idle -> Reset */
+        "PR11111",/* Pause -> Reset */
         "IS1100", NULL};    /* Idle -> Shift-IR */
     char **p = tail; 
     if (temp == 'D')
@@ -296,10 +294,10 @@ static uint8_t idcode_ppattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
 static uint8_t idcode_presult[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
 static uint8_t idcode_vpattern[] =     {INT32(0xffffffff),  PATTERN2};
 static uint8_t idcode_vresult[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
-static void read_idcode(struct ftdi_context *ftdi, int input_shift)
+static void read_idcode(struct ftdi_context *ftdi)
 {
     int i, offset = 0;
-    reset_state(ftdi, 1, input_shift, 0); /* goto RESET */
+    reset_state(ftdi, 1, 0); /* goto RESET */
     check_state('D');
     write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -344,9 +342,10 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
         if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
             write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-        send_reset(2);
+        write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
-        read_idcode(ftdi, 1);
+        send_reset(1);
+        read_idcode(ftdi);
     }
     return ftdi;
 }
@@ -461,11 +460,11 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int input_shift, int reset, int clock)
+static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait)
 {
     int testi, flip;
 
-    read_idcode(ftdi, input_shift);
+    read_idcode(ftdi);
     for (flip = 0; flip < 1 + multiple_fpga; flip++) {
         int j = argj;
         while (j-- > 0) {
@@ -490,10 +489,6 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     }
     if (found_cortex)
         cortex_bypass(ftdi, cortex_nowait);
-    if (reset)
-        reset_state(ftdi, 0, 0, 0);
-    if (clock)
-        set_clock_divisor(ftdi);
     if (trace)
         printf("[%s:%d] end\n", __FUNCTION__, __LINE__);
 }
@@ -504,10 +499,12 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            access_user2(ftdi, 3, 1, (j == 1), 0, 0);
+            send_reset(j == 1);
+            access_user2(ftdi, 3, 1);
             if (j)
                 continue;
-            reset_state(ftdi, 0, 0, 0);
+            send_reset(0);
+            reset_state(ftdi, 0, 0);
             send_reset(3);
         }
         else {
@@ -747,10 +744,25 @@ usage:
         goto exit_label;
     }
 
-    access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
-    access_user2(ftdi, 3, 1, firstflag * 3, 1, !firstflag);
-    for (i = 0; i < 1 + (firstflag == 0); i++)
-        reset_state(ftdi, 0, 3, i == (firstflag == 0));
+    send_reset(0);
+    access_user2(ftdi, first_bypass_count, 0);
+    send_reset(0);
+    if (firstflag) {
+        reset_state(ftdi, 0, 0);
+        set_clock_divisor(ftdi);
+        send_reset(3);
+    }
+    access_user2(ftdi, 3, 1);
+    send_reset(0);
+    reset_state(ftdi, 0, 0);
+    if (!firstflag)
+        set_clock_divisor(ftdi);
+    if (!firstflag) {
+        send_reset(3);
+        reset_state(ftdi, 0, 0);
+    }
+    send_reset(3);
+    reset_state(ftdi, 0, 1);
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -766,18 +778,22 @@ usage:
         memdump(idcode_vresult+1, idcode_vresult[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
-    reset_state(ftdi, 0, 2, 1);
+    check_state('R');
+    reset_state(ftdi, 0, 1);
     if (found_cortex)
         write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
-    for (i = 0; i < bypass_tc; i++)
-        access_user2(ftdi, 3, 1, (i == 0), 0, 0);
+    for (i = 0; i < bypass_tc; i++) {
+        send_reset(i == 0);
+        access_user2(ftdi, 3, 1);
+    }
 
     /*
      * Step 2: Initialization
      */
-    reset_state(ftdi, 0, 0, 1);
+    send_reset(0);
+    reset_state(ftdi, 0, 1);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
@@ -809,7 +825,8 @@ usage:
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
-    reset_state(ftdi, 0, 0, 1);
+    send_reset(0);
+    reset_state(ftdi, 0, 1);
     write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);

@@ -113,6 +113,5 @@ void process_command_list(struct ftdi_context *ftdi)
         }
         str = NULL;
     }
-    send_reset(2);
     flush_write(ftdi, NULL);
 }

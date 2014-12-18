@@ -222,4 +222,3 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
 int found_cortex;
 void write_tail(char *tail);
 void check_state(char required);
-void send_reset(int input_shift);

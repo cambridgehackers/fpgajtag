@@ -126,12 +126,14 @@ void send_reset(int input_shift)
 {
     char *prefix = "IR111";            /* Idle -> Reset */
     if (input_shift == 1)
-        prefix = "XR1";
+        prefix = "RR1";
     else if (input_shift == 2)
         prefix = "XR11111";       /*** Force TAP controller to Reset state ***/
+    else if (input_shift == 3)
+        prefix = "IR1";
     write_tail(prefix);
 }
-void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
+static void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shift, int tail)
 {
     send_reset(input_shift);
     uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
@@ -151,12 +153,14 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
         write_tail("II0");
     for (i = 0; i < delay_time; i++)
         write_tail("II0000000");
-    if (extra == 1)
-        write_tail("II00");
-    else if (extra == 2)
-        write_tail("II0000");
-    else if (extra == 3)
-        write_tail("II000");
+    if (extra) {
+        char *prefix = "II00";
+        if (extra == 2)
+            prefix = "II0000";
+        else if (extra == 3)
+            prefix = "II000";
+        write_tail(prefix);
+    }
 }
 
 void check_state(char required)
@@ -507,7 +511,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             if (j)
                 continue;
             reset_state(ftdi, 0, 0, 0);
-            write_tail("IR1");
+            send_reset(3);
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
@@ -747,9 +751,9 @@ usage:
     }
 
     access_user2(ftdi, first_bypass_count, 0, 0, firstflag, firstflag);
-    access_user2(ftdi, 3, 1, firstflag, 1, !firstflag);
+    access_user2(ftdi, 3, 1, firstflag * 3, 1, !firstflag);
     for (i = 0; i < 1 + (firstflag == 0); i++)
-        reset_state(ftdi, 0, 1, i == (firstflag == 0));
+        reset_state(ftdi, 0, 3, i == (firstflag == 0));
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the

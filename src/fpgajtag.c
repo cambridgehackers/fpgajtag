@@ -130,26 +130,6 @@ static void send_reset(int already_in_reset)
 {
     write_tail(already_in_reset ? "RR1" : "IR111");
 }
-static void reset_state(struct ftdi_context *ftdi, int stay_reset, int tail)
-{
-    uint8_t *temp = DITEM(TMSW, 0x04, 0x7f);
-    if (!match_state('R'))
-         printf("%s: current %c target R last %s\n", __FUNCTION__, current_state, lasttail);
-    if (!stay_reset) {
-        temp[1+1] = 0; // goto IDLE
-        current_state = 'I';
-    }
-    flush_write(ftdi, temp);
-    if (tail)
-        send_idle(0);
-}
-static void bozoreset(struct ftdi_context *ftdi, int clock)
-{
-    reset_state(ftdi, 0, 0);
-    if (clock)
-        set_clock_divisor(ftdi);
-    write_tail("IR1");
-}
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
     int i;
@@ -160,7 +140,6 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
     if (extra)
         send_idle(extra);
 }
-
 void check_state(char required)
 {
     char temp = current_state;
@@ -183,6 +162,22 @@ void check_state(char required)
     if (!match_state(required)) {
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
+}
+static void reset_state(struct ftdi_context *ftdi, int stay_reset, int tail)
+{
+    uint8_t *temp = DITEM(TMSW, stay_reset, 0x7f);
+    if (!match_state('R'))
+         printf("%s: current %c target R last %s\n", __FUNCTION__, current_state, lasttail);
+    flush_write(ftdi, temp);
+    if (tail)
+        check_state('I');
+}
+static void bozoreset(struct ftdi_context *ftdi, int clock)
+{
+    reset_state(ftdi, 0, 0);
+    if (clock)
+        set_clock_divisor(ftdi);
+    write_tail("RR1");
 }
 void write_bit(int read, int bits, int data, char tail)
 {
@@ -347,7 +342,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
         send_reset(1);
-        reset_state(ftdi, 1, 0); /* goto RESET */
+        reset_state(ftdi, 4, 0);
         read_idcode(ftdi);
     }
     return ftdi;
@@ -503,7 +498,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     for (j = 0; j < upperbound; j++) {
         if (btype) {
             send_reset(j == 1);
-            reset_state(ftdi, 1, 0); /* goto RESET */
+            reset_state(ftdi, 4, 0);
             access_user2(ftdi, 3, 1);
             if (j)
                 continue;
@@ -748,12 +743,12 @@ usage:
     }
 
     send_reset(0);
-    reset_state(ftdi, 1, 0); /* goto RESET */
+    reset_state(ftdi, 4, 0);
     access_user2(ftdi, first_bypass_count, 0);
     send_reset(0);
     if (firstflag)
         bozoreset(ftdi, 1);
-    reset_state(ftdi, 1, 0); /* goto RESET */
+    reset_state(ftdi, 4, 0);
     access_user2(ftdi, 3, 1);
     send_reset(0);
     if (!firstflag)
@@ -783,7 +778,7 @@ usage:
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++) {
         send_reset(i == 0);
-        reset_state(ftdi, 1, 0); /* goto RESET */
+        reset_state(ftdi, 4, 0);
         access_user2(ftdi, 3, 1);
     }
 

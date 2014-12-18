@@ -163,18 +163,17 @@ void check_state(char required)
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
 }
-static void reset_state(struct ftdi_context *ftdi, int stay_reset, int tail)
+static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset, int tail)
 {
     uint8_t *temp = DITEM(TMSW, stay_reset, 0x7f);
-    if (!match_state('R'))
-         printf("%s: current %c target R last %s\n", __FUNCTION__, current_state, lasttail);
+    check_state('R');
     flush_write(ftdi, temp);
     if (tail)
         check_state('I');
 }
 static void bozoreset(struct ftdi_context *ftdi, int clock)
 {
-    reset_state(ftdi, 0, 0);
+    marker_for_reset(ftdi, 0, 0);
     if (clock)
         set_clock_divisor(ftdi);
     write_tail("RR1");
@@ -244,6 +243,7 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 
 void idle_to_shift_dr(int extra, int val)
 {
+    check_state('I');
     check_state('D');
     if (extra)
         write_bit(0, 1, val, 0);
@@ -342,7 +342,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
         send_reset(1);
-        reset_state(ftdi, 4, 0);
+        marker_for_reset(ftdi, 4, 0);
         read_idcode(ftdi);
     }
     return ftdi;
@@ -497,12 +497,12 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            send_reset(j == 1);
-            reset_state(ftdi, 4, 0);
+            if (j == 1)
+                send_reset(1);
+            marker_for_reset(ftdi, 4, 0);
             access_user2(ftdi, 3, 1);
             if (j)
                 continue;
-            send_reset(0);
             bozoreset(ftdi, 0);
         }
         else {
@@ -742,19 +742,16 @@ usage:
         goto exit_label;
     }
 
-    send_reset(0);
-    reset_state(ftdi, 4, 0);
+    marker_for_reset(ftdi, 4, 0);
     access_user2(ftdi, first_bypass_count, 0);
-    send_reset(0);
     if (firstflag)
         bozoreset(ftdi, 1);
-    reset_state(ftdi, 4, 0);
+    marker_for_reset(ftdi, 4, 0);
     access_user2(ftdi, 3, 1);
-    send_reset(0);
     if (!firstflag)
         bozoreset(ftdi, 1);
     bozoreset(ftdi, 0);
-    reset_state(ftdi, 0, 1);
+    marker_for_reset(ftdi, 0, 1);
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
@@ -770,23 +767,22 @@ usage:
         memdump(idcode_vresult+1, idcode_vresult[0], "EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
-    check_state('R');
-    reset_state(ftdi, 0, 1);
+    marker_for_reset(ftdi, 0, 1);
     if (found_cortex)
         write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++) {
-        send_reset(i == 0);
-        reset_state(ftdi, 4, 0);
+        if (i == 0)
+            send_reset(1);
+        marker_for_reset(ftdi, 4, 0);
         access_user2(ftdi, 3, 1);
     }
 
     /*
      * Step 2: Initialization
      */
-    send_reset(0);
-    reset_state(ftdi, 0, 1);
+    marker_for_reset(ftdi, 0, 1);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
@@ -818,8 +814,7 @@ usage:
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
-    send_reset(0);
-    reset_state(ftdi, 0, 1);
+    marker_for_reset(ftdi, 0, 1);
     write_bypass(ftdi, DREAD);
 
     readout_status(ftdi, 1, extra_bypass_count, 0xf07910);

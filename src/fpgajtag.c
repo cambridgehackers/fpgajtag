@@ -193,7 +193,6 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     ENTER_TMS_STATE('S');
     while (size > 0) {
         int i, rlen = size;
-        size -= max_frame_size;
         if (rlen > max_frame_size)
             rlen = max_frame_size;
         int tlen = rlen;
@@ -216,6 +215,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
             else
                 write_bit(read, 0, default_ext, target_state); /* this is the 'bypass' bit value */
         }
+        size -= max_frame_size;
         if (size > 0)
             flush_write(ftdi, NULL);
     }
@@ -229,9 +229,9 @@ static void write_one_byte(struct ftdi_context *ftdi, int read, uint8_t data)
 static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 {
     while (size) {
-         write_bytes(ftdi, 0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
-         data += sizeof(uint32_t);
-         size -= sizeof(uint32_t);
+        write_bytes(ftdi, 0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
+        data += sizeof(uint32_t);
+        size -= sizeof(uint32_t);
     }
 }
 
@@ -278,14 +278,14 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 #define REPEAT5(A) INT32(A), INT32(A), INT32(A), INT32(A), INT32(A)
 #define REPEAT10(A) REPEAT5(A), REPEAT5(A)
 
-#define IDCODE_PROBE_PATTERN REPEAT10(0xff), REPEAT5(0xff)
-#define PATTERN2 REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
+#define IDCODE_PPAT INT32(0xff), REPEAT10(0xff), REPEAT5(0xff)
+#define IDCODE_VPAT INT32(0xffffffff), REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
             REPEAT10(0xffffffff), INT32(0xffffffff)
 
-static uint8_t idcode_ppattern[] =     {INT32(0xff), IDCODE_PROBE_PATTERN};
-static uint8_t idcode_presult[] = DITEM(INT32(0xff), IDCODE_PROBE_PATTERN); // filled in with idcode
-static uint8_t idcode_vpattern[] =     {INT32(0xffffffff),  PATTERN2};
-static uint8_t idcode_vresult[] = DITEM(INT32(0xffffffff), PATTERN2); // filled in with idcode
+static uint8_t idcode_ppattern[] =     {IDCODE_PPAT};
+static uint8_t idcode_presult[] = DITEM(IDCODE_PPAT); // filled in with idcode
+static uint8_t idcode_vpattern[] =     {IDCODE_VPAT};
+static uint8_t idcode_vresult[] = DITEM(IDCODE_VPAT); // filled in with idcode
 static void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
     int i, offset = 0;
@@ -308,8 +308,7 @@ static void read_idcode(struct ftdi_context *ftdi, int prereset)
         }
     }
     if (memcmp(idcode_presult+1, rdata, idcode_presult[0])) {
-        printf("[%s]\n", __FUNCTION__);
-        memdump(idcode_presult+1, idcode_presult[0], "EXPECT");
+        memdump(idcode_presult+1, idcode_presult[0], "READ_IDCODE: EXPECT");
         memdump(rdata, idcode_presult[0], "ACTUAL");
     }
     for (i = 0; i < idcode_count; i++) {
@@ -755,8 +754,7 @@ usage:
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
-        printf("fpgajtag: mismatch validate data\n");
-        memdump(idcode_vresult+1, idcode_vresult[0], "EXPECT");
+        memdump(idcode_vresult+1, idcode_vresult[0], "IDCODE_VALIDATE: EXPECT");
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
 

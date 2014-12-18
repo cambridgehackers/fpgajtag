@@ -126,12 +126,12 @@ static void send_idle(int count)
 {
      write_item(DITEM(TMSW, count, 0));
 }
-static void send_reset(int input_shift)
+static void send_reset(int already_in_reset)
 {
     char *prefix = "IR111";            /* Idle -> Reset */
-    if (input_shift == 1)
+    if (already_in_reset == 1)
         prefix = "RR1";
-    else if (input_shift == 3)
+    else if (already_in_reset == 3)
         prefix = "IR1";
     write_tail(prefix);
 }
@@ -146,6 +146,13 @@ static void reset_state(struct ftdi_context *ftdi, int goto_reset, int tail)
     flush_write(ftdi, temp);
     if (tail)
         send_idle(0);
+}
+static void bozoreset(struct ftdi_context *ftdi, int clock)
+{
+    reset_state(ftdi, 0, 0);
+    if (clock)
+        set_clock_divisor(ftdi);
+    write_tail("IR1");
 }
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
@@ -297,7 +304,6 @@ static uint8_t idcode_vresult[] = DITEM(INT32(0xffffffff), PATTERN2); // filled 
 static void read_idcode(struct ftdi_context *ftdi)
 {
     int i, offset = 0;
-    reset_state(ftdi, 1, 0); /* goto RESET */
     check_state('D');
     write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
@@ -345,6 +351,7 @@ static struct ftdi_context *get_deviceid(int device_index)
         write_tail("XR11111");       /*** Force TAP controller to Reset state ***/
         first_time_idcode_read = 1;
         send_reset(1);
+        reset_state(ftdi, 1, 0); /* goto RESET */
         read_idcode(ftdi);
     }
     return ftdi;
@@ -500,6 +507,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     for (j = 0; j < upperbound; j++) {
         if (btype) {
             send_reset(j == 1);
+            reset_state(ftdi, 1, 0); /* goto RESET */
             access_user2(ftdi, 3, 1);
             if (j)
                 continue;
@@ -745,6 +753,7 @@ usage:
     }
 
     send_reset(0);
+    reset_state(ftdi, 1, 0); /* goto RESET */
     access_user2(ftdi, first_bypass_count, 0);
     send_reset(0);
     if (firstflag) {
@@ -752,6 +761,7 @@ usage:
         set_clock_divisor(ftdi);
         send_reset(3);
     }
+    reset_state(ftdi, 1, 0); /* goto RESET */
     access_user2(ftdi, 3, 1);
     send_reset(0);
     reset_state(ftdi, 0, 0);
@@ -786,6 +796,7 @@ usage:
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900);
     for (i = 0; i < bypass_tc; i++) {
         send_reset(i == 0);
+        reset_state(ftdi, 1, 0); /* goto RESET */
         access_user2(ftdi, 3, 1);
     }
 

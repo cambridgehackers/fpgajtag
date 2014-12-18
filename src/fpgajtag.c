@@ -599,7 +599,7 @@ int main(int argc, char **argv)
     logfile = stdout;
     struct ftdi_context *ftdi;
     uint32_t ret;
-    int i, j, rc, rflag = 0, lflag = 0, cflag = 0;
+    int i, j, rflag = 0, lflag = 0, cflag = 0;
     const char *serialno = NULL;
     int rescan = 0;
 
@@ -771,14 +771,14 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
-    if ((rc = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
-        printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, rc);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
+        printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    if ((rc = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
-        printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, rc);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
+        printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
     send_data_file(ftdi, found_cortex);
 
     /*
@@ -792,8 +792,8 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
-    if ((rc = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
-        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, rc);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
+        printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)

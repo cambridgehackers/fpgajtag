@@ -128,12 +128,7 @@ static void send_idle(int count)
 }
 static void send_reset(int already_in_reset)
 {
-    char *prefix = "IR111";            /* Idle -> Reset */
-    if (already_in_reset == 1)
-        prefix = "RR1";
-    else if (already_in_reset == 3)
-        prefix = "IR1";
-    write_tail(prefix);
+    write_tail(already_in_reset ? "RR1" : "IR111");
 }
 static void reset_state(struct ftdi_context *ftdi, int goto_reset, int tail)
 {
@@ -760,13 +755,9 @@ usage:
     reset_state(ftdi, 1, 0); /* goto RESET */
     access_user2(ftdi, 3, 1);
     send_reset(0);
-    if (!firstflag) {
-        reset_state(ftdi, 0, 0);
-        set_clock_divisor(ftdi);
-        send_reset(3);
-    }
-    reset_state(ftdi, 0, 0);
-    send_reset(3);
+    if (!firstflag)
+        bozoreset(ftdi, 1);
+    bozoreset(ftdi, 0);
     reset_state(ftdi, 0, 1);
 
     /*

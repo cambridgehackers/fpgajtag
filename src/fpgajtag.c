@@ -512,8 +512,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
             if (j)
                 continue;
             send_reset(0);
-            reset_state(ftdi, 0, 0);
-            send_reset(3);
+            bozoreset(ftdi, 0);
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
@@ -756,21 +755,17 @@ usage:
     reset_state(ftdi, 1, 0); /* goto RESET */
     access_user2(ftdi, first_bypass_count, 0);
     send_reset(0);
-    if (firstflag) {
-        reset_state(ftdi, 0, 0);
-        set_clock_divisor(ftdi);
-        send_reset(3);
-    }
+    if (firstflag)
+        bozoreset(ftdi, 1);
     reset_state(ftdi, 1, 0); /* goto RESET */
     access_user2(ftdi, 3, 1);
     send_reset(0);
-    reset_state(ftdi, 0, 0);
-    if (!firstflag)
-        set_clock_divisor(ftdi);
     if (!firstflag) {
-        send_reset(3);
         reset_state(ftdi, 0, 0);
+        set_clock_divisor(ftdi);
+        send_reset(3);
     }
+    reset_state(ftdi, 0, 0);
     send_reset(3);
     reset_state(ftdi, 0, 1);
 

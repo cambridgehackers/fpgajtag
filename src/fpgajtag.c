@@ -130,13 +130,14 @@ static void send_reset(int already_in_reset)
 {
     write_tail(already_in_reset ? "RR1" : "IR111");
 }
-static void reset_state(struct ftdi_context *ftdi, int goto_reset, int tail)
+static void reset_state(struct ftdi_context *ftdi, int stay_reset, int tail)
 {
-    uint8_t *temp = DITEM(TMSW, 0x00, 0x7f);
-    current_state = 'I';
-    if (goto_reset) {
-        temp[1+1] = 4; // goto RESET instead of IDLE
-        current_state = 'R';
+    uint8_t *temp = DITEM(TMSW, 0x04, 0x7f);
+    if (!match_state('R'))
+         printf("%s: current %c target R last %s\n", __FUNCTION__, current_state, lasttail);
+    if (!stay_reset) {
+        temp[1+1] = 0; // goto IDLE
+        current_state = 'I';
     }
     flush_write(ftdi, temp);
     if (tail)

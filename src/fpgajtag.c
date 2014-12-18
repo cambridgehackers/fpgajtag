@@ -711,7 +711,7 @@ usage:
         bypass_tc = 1;
     if (multiple_fpga && jtag_index == 0)
         bypass_tc += 8;
-    int firstflag = device_type == DEVICE_ZC702 || (multiple_fpga && jtag_index == 0);
+    int firstflag = device_type != DEVICE_ZC702 && !(multiple_fpga && jtag_index == 0);
     int first_bypass_count = 3 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1);
     int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
 
@@ -740,8 +740,10 @@ usage:
         goto exit_label;
     }
 
-    access_user2(ftdi, first_bypass_count, 0, 0, firstflag ? 1 : -1);
-    access_user2(ftdi, 3, 1, 0, (!firstflag) ? 1 : -1);
+    for (i = 0; i < 2; i++) {
+        access_user2(ftdi, first_bypass_count, i, 0, (firstflag == i) ? 1 : -1);
+        first_bypass_count = 3;
+    }
     reset_mark_clock(ftdi, 0);
     marker_for_reset(ftdi, 0);
 

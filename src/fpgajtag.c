@@ -122,6 +122,10 @@ void write_tail(char *tail)
      temp[1+2] >>= 8 - len;
      write_item(temp);
 }
+static void send_idle(int count)
+{
+     write_item(DITEM(TMSW, count, 0));
+}
 void send_reset(int input_shift)
 {
     char *prefix = "IR111";            /* Idle -> Reset */
@@ -144,23 +148,17 @@ static void reset_state(struct ftdi_context *ftdi, int goto_reset, int input_shi
     }
     flush_write(ftdi, temp);
     if (tail)
-        write_tail("II0");
+        send_idle(0);
 }
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
     int i;
     if (extra)
-        write_tail("II0");
+        send_idle(0);
     for (i = 0; i < delay_time; i++)
-        write_tail("II0000000");
-    if (extra) {
-        char *prefix = "II00";
-        if (extra == 2)
-            prefix = "II0000";
-        else if (extra == 3)
-            prefix = "II000";
-        write_tail(prefix);
-    }
+        send_idle(6);
+    if (extra)
+        send_idle(extra);
 }
 
 void check_state(char required)
@@ -172,7 +170,6 @@ void check_state(char required)
         "SE1",   /* Shift-IR -> Exit1-IR */ "SU11",  /* Shift-DR -> Update-DR */
         "UD100", /* Update -> Shift-DR */   "ID100", /* Idle -> Shift-DR */
         "RD0100",/* Reset -> Shift-DR */    "IR111", /* Idle -> Reset */
-//        "XR11111",       /*** Force TAP controller to Reset state ***/
         "IS1100", NULL};    /* Idle -> Shift-IR */
     char **p = tail; 
     if (temp == 'D')

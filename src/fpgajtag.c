@@ -494,6 +494,13 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
     if (postreset >= 0)
         reset_mark_clock(ftdi, postreset);
 }
+static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int match)
+{
+    int i;
+    for (i = 0; i < loop_count; i++)
+        access_user2(ftdi, 3 + (1 - i) * extra, i || cortex_nowait, cortex_nowait * (i == 0), (i == match) ? 1 : -1);
+    marker_for_reset(ftdi, 0);
+}
 
 
 static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval, int bypass)
@@ -744,11 +751,8 @@ usage:
         goto exit_label;
     }
 
-    for (i = 0; i < 2; i++)
-        access_user2(ftdi, 3 + (1 - i) *
-            (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1),
-            i, 0, (firstflag == i) ? 1 : -1);
-    reset_mark_clock(ftdi, 0);
+    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, firstflag);
+    write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
 
     /*
@@ -766,13 +770,11 @@ usage:
     }
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
-    for (i = 0; i < bypass_tc; i++)
-        access_user2(ftdi, 3, 1, i == 0, -1);
+    access_user2_loop(ftdi, bypass_tc, 0, 1, 99999);
 
     /*
      * Step 2: Initialization
      */
-    marker_for_reset(ftdi, 0);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);

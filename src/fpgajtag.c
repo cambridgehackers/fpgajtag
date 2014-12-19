@@ -73,6 +73,7 @@ static void pulse_gpio(struct ftdi_context *ftdi, int adelay)
 #define GPIO_01              0x01
 #define SET_LSB_DIRECTION(A) SET_BITS_LOW, 0xe0, (0xea | (A))
 
+    ENTER_TMS_STATE('I');
     switch (adelay) {
     case 1250:  delay = CLOCK_FREQUENCY/800; break;
     case 12500: delay = CLOCK_FREQUENCY/80; break;
@@ -122,20 +123,6 @@ void write_tms_transition(char *tail)
      temp[1+2] >>= 8 - len;
      write_item(temp);
 }
-static void send_idle(int count)
-{
-     write_item(DITEM(TMSW, count, 0));
-}
-void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
-{
-    int i;
-    if (extra)
-        send_idle(0);
-    for (i = 0; i < delay_time; i++)
-        send_idle(6);
-    if (extra)
-        send_idle(extra);
-}
 void ENTER_TMS_STATE(char required)
 {
     char temp = current_state;
@@ -158,6 +145,18 @@ void ENTER_TMS_STATE(char required)
     if (!match_state(required)) {
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
     }
+}
+void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
+{
+#define send_idle(A) write_item(DITEM(TMSW, (A), 0))
+    int i;
+    ENTER_TMS_STATE('I');
+    if (extra)
+        send_idle(0);
+    for (i = 0; i < delay_time; i++)
+        send_idle(6);
+    if (extra)
+        send_idle(extra);
 }
 static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
 {
@@ -519,7 +518,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
-            write_tms_transition("IR111");
+            ENTER_TMS_STATE('R');
         }
         /*
          * Read Xilinx configuration status register
@@ -538,7 +537,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
-        write_tms_transition("IR111");
+        ENTER_TMS_STATE('R');
     }
 }
 

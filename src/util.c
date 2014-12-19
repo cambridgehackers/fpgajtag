@@ -466,7 +466,7 @@ struct ftdi_context *init_ftdi(int device_index)
 /*
  * File support
  */
-uint32_t read_inputfile(char *filename)
+uint32_t read_inputfile(const char *filename)
 {
     static uint8_t bitfile_header[] = {
         0, 9, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0xf, 0xf0, 0, 0, 1, 'a'};

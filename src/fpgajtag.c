@@ -597,35 +597,10 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
 }
 
-static int rflag, lflag, cflag, rescan;
-struct ftdi_context *init_fpgajtag(int argc, char **argv)
+struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
 {
-    logfile = stdout;
     struct ftdi_context *ftdi;
-    const char *serialno = NULL;
     int i, j;
-
-    opterr = 0;
-    while ((i = getopt (argc, argv, "trls:c")) != -1)
-        switch (i) {
-        case 't':
-            trace = 1;
-            break;
-        case 'r':
-            rflag = 1;
-            break;
-        case 'l':
-            lflag = 1;
-            break;
-        case 'c':
-            cflag = 1;
-            break;
-        case 's':
-            serialno = optarg;
-            break;
-        default:
-            goto usage;
-        }
 
     /*
      * Initialize USB, FTDI
@@ -637,7 +612,7 @@ struct ftdi_context *init_fpgajtag(int argc, char **argv)
     for (i = 0; uinfo[i].dev; i++) {
         fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
-        if (lflag) {
+        if (!filename) {
             idcode_count = 0;
             ftdi = get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
             fpgausb_close(ftdi);
@@ -648,7 +623,7 @@ struct ftdi_context *init_fpgajtag(int argc, char **argv)
         }
         fprintf(stderr, "\n");
     }
-    if (lflag)
+    if (!filename)
         exit(1);
     while (1) {
         if (!uinfo[usb_index].dev) {
@@ -659,16 +634,11 @@ struct ftdi_context *init_fpgajtag(int argc, char **argv)
             break;
         usb_index++;
     }
-    if (optind != argc - 1 && !cflag) {
-usage:
-        fprintf(stderr, "%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
-        exit(1);
-    }
 
     /*
      * Read input file
      */
-    uint32_t file_idcode = read_inputfile(argv[optind]);
+    uint32_t file_idcode = read_inputfile(filename);
 
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
@@ -697,17 +667,45 @@ usage:
         //exit(1);
     }
 
-    //(uinfo[device_index].bcdDevice == 0x700) //kc,vc,ac701,zc702  FT2232C
-    //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
-        //found_232H = 1;
     multiple_fpga = idcode_count > 1 && !found_cortex;
     return ftdi;
 }
 
 int main(int argc, char **argv)
 {
-    struct ftdi_context *ftdi = init_fpgajtag(argc, argv);
     uint32_t ret;
+    int i, rflag = 0, lflag = 0, cflag = 0, rescan = 0;
+    const char *serialno = NULL;
+    logfile = stdout;
+    opterr = 0;
+    while ((i = getopt (argc, argv, "trls:c")) != -1)
+        switch (i) {
+        case 't':
+            trace = 1;
+            break;
+        case 'r':
+            rflag = 1;
+            break;
+        case 'l':
+            lflag = 1;
+            break;
+        case 'c':
+            cflag = 1;
+            break;
+        case 's':
+            serialno = optarg;
+            break;
+        default:
+            goto usage;
+        }
+
+    if (optind != argc - 1 && !cflag && !lflag) {
+usage:
+        fprintf(stderr, "%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        exit(1);
+    }
+
+    struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     /*
      * See if we are reading out data

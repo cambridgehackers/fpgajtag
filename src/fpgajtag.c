@@ -462,14 +462,15 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int pre, int match)
+static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cortex_nowait, int pre, int match)
 {
     int toploop, testi, flip;
     for (toploop = 0; toploop < loop_count; toploop++) {
-        int argj = 3 + extra;
         read_idcode(ftdi, cortex_nowait * (toploop == pre));
         for (flip = 0; flip < 1 + multiple_fpga; flip++) {
-            int j = argj;
+            int j = 3;
+            if (!cortex_nowait && !toploop)
+                j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_bypass(ftdi, 0);
@@ -494,7 +495,6 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int ext
             cortex_bypass(ftdi, toploop || cortex_nowait);
         if (toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
-        extra = 0;
     }
 }
 
@@ -509,7 +509,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            access_user2_loop(ftdi, 1, 0, 1, j == 0, j);
+            access_user2_loop(ftdi, 1, 1, j == 0, j);
             if (j)
                 continue;
         }
@@ -747,7 +747,7 @@ usage:
         goto exit_label;
     }
 
-    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, 0, firstflag);
+    access_user2_loop(ftdi, 2, 0, 0, firstflag);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
@@ -767,7 +767,7 @@ usage:
     }
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
-    access_user2_loop(ftdi, bypass_tc, 0, 1, 0, 99999);
+    access_user2_loop(ftdi, bypass_tc, 1, 0, 99999);
     marker_for_reset(ftdi, 0);
 
     /*

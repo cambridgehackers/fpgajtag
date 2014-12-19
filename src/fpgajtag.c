@@ -186,6 +186,18 @@ void write_bit(int read, int bits, int data, char target_state)
     }
 }
 
+static uint64_t read_data_int(struct ftdi_context *ftdi, int extra, int len)
+{
+    uint8_t *bufp = read_data(ftdi);
+    uint64_t ret = 0;
+    uint8_t *backp = bufp + last_read_data_length;
+    while (backp > bufp)
+        ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
+    if (extra)
+        write_bit(0, len - 1, 0xff, 'E');
+    return ret;
+}
+
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
@@ -367,12 +379,11 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0, extra = jtag_index != idcode_count - 1 && read;
-    write_irreg(ftdi, read, command, jtag_index, extra ? 'P' : 'E');
+    int ret = 0, extra = (command == IRREG_BYPASS_EXTEND) ? 'I'
+                       : ((jtag_index != idcode_count - 1 && read) ? 'P' : 'E');
+    write_irreg(ftdi, read, command, jtag_index, extra);
     if (read)
-        ret = read_data_int(ftdi);
-    if (extra)
-        write_bit(0, idcode_len[idcode_count - 1] - 1, 0xff, 'E');
+        ret = read_data_int(ftdi, extra == 'P', idcode_len[idcode_count - 1]);
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -388,9 +399,8 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
 {
-    write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, jtag_index, 'I');
+    uint32_t ret = write_cirreg(ftdi, read, IRREG_BYPASS_EXTEND) & 0xfff;
     if (read) {
-        uint32_t ret = read_data_int(ftdi) & 0xfff;
         if (ret == FIRST_TIME)
             printf("fpgajtag: bypass first time %x\n", ret);
         else if (ret == PROGRAMMED)
@@ -560,9 +570,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index, 0xff);
     write_bytes(ftdi, DREAD, extra ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
-    uint64_t ret = read_data_int(ftdi);
-    if (extra)
-        write_bit(0, 0, 0xff, 'E');
+    uint64_t ret = read_data_int(ftdi, extra, 1);
     //ENTER_TMS_STATE('I');
     return ret;
 }

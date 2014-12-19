@@ -301,16 +301,6 @@ uint8_t *read_data(struct ftdi_context *ftdi)
     return last_read_data;
 }
 
-uint64_t read_data_int(struct ftdi_context *ftdi)
-{
-    uint8_t *bufp = read_data(ftdi);
-    uint64_t ret = 0;
-    uint8_t *backp = bufp + last_read_data_length;
-    while (backp > bufp)
-        ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
-    return ret;
-}
-
 /*
  * USB interface
  */

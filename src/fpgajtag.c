@@ -408,12 +408,12 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (!readitem)
-            write_item(DITEM(DATAR(size)));
-        else
+        if (readitem)
             write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
+        else
+            write_item(DITEM(DATAR(size)));
         if (resp_len <= 0)
-            write_bit(readitem, 0, 0, 'I');
+            write_bit((readitem != 0) * DREAD, 0, 0, 'I');
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
@@ -446,7 +446,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     write_bytes(ftdi, 0, 'I', req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip);
-        ret = fetch_result(ftdi, resp_len, fd, (idcode_count == 1 || flip) * DREAD);
+        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip);
     }
     return ret;
 }
@@ -457,7 +457,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cor
     for (toploop = 0; toploop < loop_count; toploop++) {
         read_idcode(ftdi, cortex_nowait * (toploop == pre));
         for (flip = 0; flip < 1 + multiple_fpga; flip++) {
-            int j = 3;
+            int j = 3, adj = (idcode_count == 1) + flip;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
@@ -466,7 +466,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cor
                     write_dirreg(ftdi, IRREG_USER2, flip);
                     if (testi) {
                         if (testi > 1) {
-                            write_bit(0, idcode_len[0] - (idcode_count == 1) - flip, IRREG_JSTART, 'I'); /* DR data */
+                            write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 'I'); /* DR data */
                             idle_to_shift_dr(flip, 0);
                         }
                         write_one_byte(ftdi, 0, 0x69);
@@ -474,7 +474,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cor
                         if (idcode_count > 1)
                             write_bit(0, 1, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
@@ -510,8 +510,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, uint32_t checkv
         }
         else {
             write_dirreg(ftdi, IRREG_USERCODE, !j && multiple_fpga);
-            ret = fetch_result(ftdi, sizeof(uint32_t), -1,
-                  ((!j && multiple_fpga) || idcode_count == 1) * DREAD);
+            ret = fetch_result(ftdi, sizeof(uint32_t), -1, (!j && multiple_fpga) || idcode_count == 1);
             if (ret != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
@@ -598,14 +597,13 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
 }
 
-int main(int argc, char **argv)
+static int rflag, lflag, cflag, rescan;
+struct ftdi_context *init_fpgajtag(int argc, char **argv)
 {
     logfile = stdout;
     struct ftdi_context *ftdi;
-    uint32_t ret;
-    int i, j, rflag = 0, lflag = 0, cflag = 0;
     const char *serialno = NULL;
-    int rescan = 0;
+    int i, j;
 
     opterr = 0;
     while ((i = getopt (argc, argv, "trls:c")) != -1)
@@ -651,7 +649,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "\n");
     }
     if (lflag)
-        goto exit_label;
+        exit(1);
     while (1) {
         if (!uinfo[usb_index].dev) {
             fprintf(stderr, "fpgajtag: Can't find usable usb interface\n");
@@ -703,18 +701,13 @@ usage:
     //if (uinfo[device_index].bcdDevice == 0x900) //zedboard, zc706 FT232H
         //found_232H = 1;
     multiple_fpga = idcode_count > 1 && !found_cortex;
-    int bypass_tc = 4;
-    if (device_type == DEVICE_AC701)
-        bypass_tc = 3;
-    if (device_type == DEVICE_VC707 && idcode_count == 1)
-        bypass_tc = 6;
-    if (device_type == DEVICE_ZEDBOARD)
-        bypass_tc = 2;
-    if (device_type == DEVICE_ZC702)
-        bypass_tc = 1;
-    if (multiple_fpga && jtag_index == 0)
-        bypass_tc += 8;
-    int firstflag = device_type != DEVICE_ZC702 && !(multiple_fpga && jtag_index == 0);
+    return ftdi;
+}
+
+int main(int argc, char **argv)
+{
+    struct ftdi_context *ftdi = init_fpgajtag(argc, argv);
+    uint32_t ret;
 
     /*
      * See if we are reading out data
@@ -732,7 +725,6 @@ usage:
         close(fd);
         return 0;
     }
-
     /*
      * See if we are in 'command' mode with IR/DR info on command line
      */
@@ -741,7 +733,7 @@ usage:
         goto exit_label;
     }
 
-    access_user2_loop(ftdi, 2, 0, 0, firstflag);
+    access_user2_loop(ftdi, 2, 0, 0, device_type != DEVICE_ZC702 && !(multiple_fpga && jtag_index == 0));
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
@@ -761,6 +753,17 @@ usage:
     }
 
     readout_status(ftdi, 0, 0x301900);
+    int bypass_tc = 4;
+    if (device_type == DEVICE_AC701)
+        bypass_tc = 3;
+    if (device_type == DEVICE_VC707 && idcode_count == 1)
+        bypass_tc = 6;
+    if (device_type == DEVICE_ZEDBOARD)
+        bypass_tc = 2;
+    if (device_type == DEVICE_ZC702)
+        bypass_tc = 1;
+    if (multiple_fpga && jtag_index == 0)
+        bypass_tc += 8;
     access_user2_loop(ftdi, bypass_tc, 1, 0, 99999);
     marker_for_reset(ftdi, 0);
 

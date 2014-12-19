@@ -462,11 +462,12 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait, int prereset, int postreset)
+static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int pre, int match, int post)
 {
-    int testi, flip;
-
-    read_idcode(ftdi, prereset);
+    int toploop, testi, flip;
+    for (toploop = 0; toploop < loop_count; toploop++) {
+        int argj = 3 + (1 - toploop) * extra;
+    read_idcode(ftdi, cortex_nowait * (toploop == pre));
     for (flip = 0; flip < 1 + multiple_fpga; flip++) {
         int j = argj;
         while (j-- > 0) {
@@ -490,16 +491,10 @@ static void access_user2(struct ftdi_context *ftdi, int argj, int cortex_nowait,
         }
     }
     if (found_cortex)
-        cortex_bypass(ftdi, cortex_nowait);
-    if (postreset >= 0)
-        reset_mark_clock(ftdi, postreset);
+        cortex_bypass(ftdi, toploop || cortex_nowait);
+    if (toploop == match && post != -1)
+        reset_mark_clock(ftdi, post);
 }
-static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int match)
-{
-    int i;
-    for (i = 0; i < loop_count; i++)
-        access_user2(ftdi, 3 + (1 - i) * extra, i || cortex_nowait, cortex_nowait * (i == 0), (i == match) ? 1 : -1);
-    marker_for_reset(ftdi, 0);
 }
 
 
@@ -513,7 +508,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            access_user2(ftdi, 3, 1, j, (!j) ? 0: -1);
+            access_user2_loop(ftdi, 1, 0, 1, j == 0, j, 0);
             if (j)
                 continue;
         }
@@ -751,7 +746,8 @@ usage:
         goto exit_label;
     }
 
-    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, firstflag);
+    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, 0, firstflag, 1);
+    marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
 
@@ -770,7 +766,8 @@ usage:
     }
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
-    access_user2_loop(ftdi, bypass_tc, 0, 1, 99999);
+    access_user2_loop(ftdi, bypass_tc, 0, 1, 0, firstflag, -1);
+    marker_for_reset(ftdi, 0);
 
     /*
      * Step 2: Initialization

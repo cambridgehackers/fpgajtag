@@ -462,39 +462,40 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int pre, int match, int post)
+static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int extra, int cortex_nowait, int pre, int match)
 {
     int toploop, testi, flip;
     for (toploop = 0; toploop < loop_count; toploop++) {
-        int argj = 3 + (1 - toploop) * extra;
-    read_idcode(ftdi, cortex_nowait * (toploop == pre));
-    for (flip = 0; flip < 1 + multiple_fpga; flip++) {
-        int j = argj;
-        while (j-- > 0) {
-            for (testi = 0; testi < 4; testi++) {
-                write_bypass(ftdi, 0);
-                write_dirreg(ftdi, IRREG_USER2, flip);
-                if (testi) {
-                    if (testi > 1) {
-                        write_bit(0, idcode_len[0] - (idcode_count == 1) - flip, IRREG_JSTART, 'I'); /* DR data */
-                        idle_to_shift_dr(flip, 0);
+        int argj = 3 + extra;
+        read_idcode(ftdi, cortex_nowait * (toploop == pre));
+        for (flip = 0; flip < 1 + multiple_fpga; flip++) {
+            int j = argj;
+            while (j-- > 0) {
+                for (testi = 0; testi < 4; testi++) {
+                    write_bypass(ftdi, 0);
+                    write_dirreg(ftdi, IRREG_USER2, flip);
+                    if (testi) {
+                        if (testi > 1) {
+                            write_bit(0, idcode_len[0] - (idcode_count == 1) - flip, IRREG_JSTART, 'I'); /* DR data */
+                            idle_to_shift_dr(flip, 0);
+                        }
+                        write_one_byte(ftdi, 0, 0x69);
+                        write_bit(0, 2, 0, 0);
+                        if (idcode_count > 1)
+                            write_bit(0, 1, 0, 0);
                     }
-                    write_one_byte(ftdi, 0, 0x69);
-                    write_bit(0, 2, 0, 0);
-                    if (idcode_count > 1)
-                        write_bit(0, 1, 0, 0);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
+                    if (ret != 0)
+                        printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
-                uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, (idcode_count == 1 || flip) * DREAD);
-                if (ret != 0)
-                    printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
             }
         }
+        if (found_cortex)
+            cortex_bypass(ftdi, toploop || cortex_nowait);
+        if (toploop == match)
+            reset_mark_clock(ftdi, 1 - cortex_nowait);
+        extra = 0;
     }
-    if (found_cortex)
-        cortex_bypass(ftdi, toploop || cortex_nowait);
-    if (toploop == match && post != -1)
-        reset_mark_clock(ftdi, post);
-}
 }
 
 
@@ -508,7 +509,7 @@ static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound,
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-            access_user2_loop(ftdi, 1, 0, 1, j == 0, j, 0);
+            access_user2_loop(ftdi, 1, 0, 1, j == 0, j);
             if (j)
                 continue;
         }
@@ -746,7 +747,7 @@ usage:
         goto exit_label;
     }
 
-    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, 0, firstflag, 1);
+    access_user2_loop(ftdi, 2, device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1, 0, 0, firstflag);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
@@ -766,7 +767,7 @@ usage:
     }
 
     readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
-    access_user2_loop(ftdi, bypass_tc, 0, 1, 0, firstflag, -1);
+    access_user2_loop(ftdi, bypass_tc, 0, 1, 0, 99999);
     marker_for_reset(ftdi, 0);
 
     /*

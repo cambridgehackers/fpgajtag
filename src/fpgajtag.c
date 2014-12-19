@@ -499,12 +499,18 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cor
 }
 
 
-static void readout_status(struct ftdi_context *ftdi, int btype, int upperbound, uint32_t checkval, int bypass)
+static void readout_status(struct ftdi_context *ftdi, int btype, uint32_t checkval)
 {
     int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
+    int upperbound = 1;
+    if (btype)
+        upperbound += (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+                       || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
+    else
+        upperbound += multiple_fpga;
 
     marker_for_reset(ftdi, 0);
-    if (bypass)
+    if (btype || found_cortex)
         write_bypass(ftdi, DREAD);
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
@@ -720,7 +726,6 @@ usage:
     if (multiple_fpga && jtag_index == 0)
         bypass_tc += 8;
     int firstflag = device_type != DEVICE_ZC702 && !(multiple_fpga && jtag_index == 0);
-    int extra_bypass_count = 1 + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
 
     /*
      * See if we are reading out data
@@ -766,7 +771,7 @@ usage:
         memdump(rdata, last_read_data_length, "ACTUAL");
     }
 
-    readout_status(ftdi, 0, 1 + multiple_fpga, 0x301900, found_cortex);
+    readout_status(ftdi, 0, 0x301900);
     access_user2_loop(ftdi, bypass_tc, 1, 0, 99999);
     marker_for_reset(ftdi, 0);
 
@@ -805,7 +810,7 @@ usage:
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
 
-    readout_status(ftdi, 1, extra_bypass_count, 0xf07910, 1);
+    readout_status(ftdi, 1, 0xf07910);
     rescan = 1;
 
     /*

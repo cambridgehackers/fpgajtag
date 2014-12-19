@@ -96,8 +96,7 @@ static void set_clock_divisor(struct ftdi_context *ftdi)
     flush_write(ftdi, DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
 }
 
-static char current_state;
-static char *lasttail;
+static char current_state, *lasttail;
 static int match_state(char req)
 {
     return req == 'X' || !current_state || current_state == req
@@ -125,44 +124,39 @@ void write_tms_transition(char *tail)
 }
 void ENTER_TMS_STATE(char required)
 {
-    char temp = current_state;
+    char temp = current_state == 'D' ? 'S' : current_state;
     static char *tail[] = {"PS10", /* Pause-DR -> Shift-DR */
-        "EI10",  /* Exit1/Exit2 -> Update -> Idle */ "RI0",   /* Reset -> Idle */
-        "SI110", /* Shift-DR -> Update-DR -> Idle */ "SP10",  /* Shift-IR -> Pause-IR */
-        "SE1",   /* Shift-IR -> Exit1-IR */ "SU11",  /* Shift-DR -> Update-DR */
-        "UD100", /* Update -> Shift-DR */   "ID100", /* Idle -> Shift-DR */
-        "RD0100",/* Reset -> Shift-DR */    "IR111", /* Idle -> Reset */
-        "PR11111",/* Pause -> Reset */
-        "IS1100", NULL};    /* Idle -> Shift-IR */
+        "EI10",  /* Exit1/Exit2 -> Update -> Idle */"RI0", /* Reset -> Idle */
+        "SI110", /* Shift-DR -> Update-DR -> Idle */"SP10",/* Shift-IR -> Pause-IR */
+        "SE1",   /* Shift-IR -> Exit1-IR */ "SU11", /* Shift-DR -> Update-DR */
+        "UD100", /* Update -> Shift-DR */   "ID100",/* Idle -> Shift-DR */
+        "RD0100",/* Reset -> Shift-DR */    "IR111",/* Idle -> Reset */
+        "PR11111",/* Pause -> Reset */      "IS1100", NULL};/* Idle -> Shift-IR */
     char **p = tail; 
-    if (temp == 'D')
-        temp = 'S';
     while(*p) {
         if (temp == (*p)[0] && required == (*p)[1])
             write_tms_transition(*p);
         p++;
     }
-    if (!match_state(required)) {
+    if (!match_state(required))
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
-    }
 }
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
 {
-#define send_idle(A) write_item(DITEM(TMSW, (A), 0))
+#define SEND_IDLE(A) write_item(DITEM(TMSW, (A), 0))
     int i;
     ENTER_TMS_STATE('I');
     if (extra)
-        send_idle(0);
+        SEND_IDLE(0);
     for (i = 0; i < delay_time; i++)
-        send_idle(6);
+        SEND_IDLE(6);
     if (extra)
-        send_idle(extra);
+        SEND_IDLE(extra);
 }
 static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
 {
-    uint8_t *temp = DITEM(TMSW, stay_reset, 0x7f);
     ENTER_TMS_STATE('R');
-    flush_write(ftdi, temp);
+    flush_write(ftdi, DITEM(TMSW, stay_reset, 0x7f));
 }
 static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
 {
@@ -187,8 +181,8 @@ void write_bit(int read, int bits, int data, char target_state)
 
 static uint64_t read_data_int(struct ftdi_context *ftdi, int extra, int len)
 {
-    uint8_t *bufp = read_data(ftdi);
     uint64_t ret = 0;
+    uint8_t *bufp = read_data(ftdi);
     uint8_t *backp = bufp + last_read_data_length;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
@@ -200,7 +194,6 @@ static uint64_t read_data_int(struct ftdi_context *ftdi, int extra, int len)
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
 {
-    uint8_t ch = 0;
     ENTER_TMS_STATE('S');
     while (size > 0) {
         int i, rlen = size;
@@ -218,7 +211,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
         ptrin += tlen;
         if (rlen < max_frame_size) {
             if (opttail) {
-                ch = *ptrin++;
+                uint8_t ch = *ptrin++;
                 if (swapbits)
                     ch = bitswap[ch];
                 write_bit(read, 7, ch, target_state);
@@ -256,8 +249,6 @@ void idle_to_shift_dr(int extra, int val)
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    char target_state = 'P';
-
     idle_to_shift_dr(jtag_index, 0xff);
     if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
@@ -265,16 +256,14 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(input_filesize) {
-        int size = FILE_READSIZE;
-        if (input_filesize <= FILE_READSIZE) {
+        int size = FILE_READSIZE, final = (input_filesize <= FILE_READSIZE);
+        if (final)
             size = input_filesize;
-            if (!extra_shift)
-                target_state = 'E';
-        }
-        input_filesize -= size;
-        write_bytes(ftdi, 0, target_state, input_fileptr, size, limit_len, input_filesize != 0 || jtag_index || !multiple_fpga, 1, 1);
+        write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', input_fileptr,
+            size, limit_len, !final || jtag_index || !multiple_fpga, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
+        input_filesize -= size;
         input_fileptr += size;
     };
     if (extra_shift)

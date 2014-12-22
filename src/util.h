@@ -76,3 +76,4 @@ uint8_t *read_data(struct ftdi_context *ftdi);
 void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra);
 void idle_to_shift_dr(int extra, int val);
 uint32_t read_inputfile(const char *filename);
+void sync_ftdi(struct ftdi_context *ftdi, int val);

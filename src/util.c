@@ -147,8 +147,8 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
         memcpy (buf, usbreadbuffer+2, actual_length);
         if (actual_length != size) {
             fprintf(stderr, "[%s] actual_length %d does not match request size %d\n", __FUNCTION__, actual_length, size);
-            if (!trace)
-                exit(-1);
+            //if (!trace)
+                //exit(-1);
             }
         if (logging)
             memdumpfile(buf, actual_length, "READ");
@@ -426,6 +426,19 @@ void fpgausb_release(void)
 #endif
 }
 
+void sync_ftdi(struct ftdi_context *ftdi, int val)
+{
+    uint8_t illegal_command[] = { val, SEND_IMMEDIATE };
+    uint8_t errorcode_ret[] = { 0xfa, val };
+    uint8_t retcode[2];
+
+    ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
+    if (ftdi_read_data(ftdi, retcode, sizeof(retcode)) != sizeof(retcode)
+     || memcmp(retcode, errorcode_ret, sizeof(errorcode_ret))) {
+        printf("%s: error in sync %x\n", __FUNCTION__, val);
+        memdump(retcode, sizeof(retcode), "ACTUAL");
+    }
+}
 /*
  * FTDI generic initialization
  */
@@ -450,16 +463,24 @@ struct ftdi_context *init_ftdi(int device_index)
      * Generic command synchronization with ftdi chip
      */
     for (i = 0; i < 4; i++) {
+#if 0
         ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
         if (ftdi_read_data(ftdi, retcode, sizeof(retcode)) != sizeof(retcode))
             return NULL;
         if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
             memdump(retcode, sizeof(retcode), "RETaa");
+#else
+        sync_ftdi(ftdi, 0xaa);
+#endif
     }
+#if 0
     ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
     ftdi_read_data(ftdi, retcode, sizeof(retcode));
     if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
         memdump(retcode, sizeof(retcode), "RETab");
+#else
+    sync_ftdi(ftdi, 0xab);
+#endif
     return ftdi;
 }
 

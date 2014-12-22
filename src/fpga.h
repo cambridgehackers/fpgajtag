@@ -223,5 +223,6 @@ void write_bit(int read, int bits, int data, char target_state);
 void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
 int found_cortex;
+int idcode_count;
 void write_tms_transition(char *tail);
 void ENTER_TMS_STATE(char required);

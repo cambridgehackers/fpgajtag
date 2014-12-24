@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, multiple_fpga;
-static uint8_t zerodata[8];
+static uint8_t zerodata[8], ones[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static USB_INFO *uinfo;
 
 int idcode_count;
@@ -107,7 +107,7 @@ static int match_state(char req)
 void write_tms_transition(char *tail)
 {
      char *p = tail+2;
-     uint8_t *temp = DITEM(TMSW, 0, 0);
+     uint8_t temp[] = {TMSW, 0, 0};
      int len = 0;
 
      if (!match_state(tail[0])) {
@@ -117,11 +117,11 @@ void write_tms_transition(char *tail)
      current_state = tail[1];
      while (*p) {
          len++;
-         temp[1+2] = (temp[1+2] >> 1) | ((*p++ << 7) & 0x80);
+         temp[2] = (temp[2] >> 1) | ((*p++ << 7) & 0x80);
      }
-     temp[1+1] = len-1;
-     temp[1+2] >>= 8 - len;
-     write_item(temp);
+     temp[1] = len-1;
+     temp[2] >>= 8 - len;
+     write_data(temp, sizeof(temp));
 }
 void ENTER_TMS_STATE(char required)
 {
@@ -310,7 +310,7 @@ static void read_idcode(struct ftdi_context *ftdi, int prereset)
     }
     if (memcmp(idcode_presult+1, rdata, idcode_presult[0])) {
         memdump(idcode_presult+1, idcode_presult[0], "READ_IDCODE: EXPECT");
-        memdump(rdata, idcode_presult[0], "ACTUAL");
+        memdump(rdata, idcode_presult[0], "READ_IDCODE: ACTUAL");
     }
     for (i = 0; i < idcode_count; i++) {
         if (idcode_array[i] == CORTEX_IDCODE) {
@@ -324,6 +324,15 @@ static void read_idcode(struct ftdi_context *ftdi, int prereset)
     }
 }
 
+static void init_device(struct ftdi_context *ftdi, int extra)
+{
+    write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
+    set_clock_divisor(ftdi);
+    write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+    if (extra)
+        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
+}
 static struct ftdi_context *get_deviceid(int device_index)
 {
     struct ftdi_context *ftdi = init_ftdi(device_index);
@@ -332,26 +341,43 @@ static struct ftdi_context *get_deviceid(int device_index)
      */
     idcode_count = 0;
     if (ftdi) {
-        write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
-        set_clock_divisor(ftdi);
-        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-        if (uinfo[device_index].bcdDevice == 0x700) /* not a zedboard */
-            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
-        write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
+        init_device(ftdi, uinfo[device_index].bcdDevice == 0x700); /* not a zedboard */
         first_time_idcode_read = 1;
         read_idcode(ftdi, 1);
     }
     return ftdi;
 }
 
+static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
+{
+    int bytes = width / 8;
+    width -= bytes * 8;
+    if (bytes)
+        write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
+    if (width)
+        write_bit(read, width, 0xff, tail);
+}
 /*
  * Functions for setting Instruction Register(IR)
  */
+static int bozo;
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail)
 {
-    int extralen = idcode_len[idcode_count - 1];
+    int i, bef = 0, aft = 0, idindex = jtag_index;
+    if (flip == USE_CORTEX_IR)
+        idindex = found_cortex;
+    else if (bozo)
+        idindex = 0;
+    for (i = 0; i < idcode_count; i++) {
+        if (i < idindex)
+            bef += idcode_len[i];
+        else if (i > idindex)
+            aft += idcode_len[i];
+    }
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
+#if 1
+    int extralen = idcode_len[idcode_count - 1];
     if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
         write_one_byte(ftdi, read, 0xff);
         extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
@@ -365,6 +391,15 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
     else
         extralen = idcode_len[0];
     write_bit(read, extralen - 1, command, tail);
+#else
+    write_fill(ftdi, 0, aft, 0);
+    if (bef) {
+        write_bit(0, idcode_len[idindex], command, 0);
+        write_fill(ftdi, read, bef - 1, tail);
+    }
+    else
+        write_bit(read, idcode_len[idindex] - 1, command, tail);
+#endif
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
@@ -383,7 +418,7 @@ static void write_dirreg(struct ftdi_context *ftdi, int command, int flip)
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, 1, 'U');
+    write_irreg(ftdi, 0, regname, USE_CORTEX_IR, 'U');
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)
@@ -465,7 +500,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cor
                 for (testi = 0; testi < 4; testi++) {
                     write_bypass(ftdi, 0);
                     write_dirreg(ftdi, IRREG_USER2, flip);
-                    if (testi) {
+                    if (testi && testi < 4) {
                         if (testi > 1) {
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 'I'); /* DR data */
                             idle_to_shift_dr(flip, 0);
@@ -748,7 +783,7 @@ usage:
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
         memdump(idcode_vresult+1, idcode_vresult[0], "IDCODE_VALIDATE: EXPECT");
-        memdump(rdata, last_read_data_length, "ACTUAL");
+        memdump(rdata, last_read_data_length, "IDCODE_VALIDATE: ACTUAL");
     }
 
     readout_status(ftdi, 0, 0x301900);

@@ -360,46 +360,33 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static int bozo;
+static int bozo, trim_tail;
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail)
 {
-    int i, bef = 0, aft = 0, idindex = jtag_index;
+    int i, bef = 0, aft = 0, idindex = 0;
     if (flip == USE_CORTEX_IR)
         idindex = found_cortex;
-    else if (bozo)
-        idindex = 0;
+    else if (read && M(command) == 0xff)
+        idindex = -1;
+    else if (flip || bozo)
+        idindex = idcode_count - 1;
     for (i = 0; i < idcode_count; i++) {
-        if (i < idindex)
+        if (i > idindex)
             bef += idcode_len[i];
-        else if (i > idindex)
+        else if (i < idindex)
             aft += idcode_len[i];
     }
+//printf("[%s:%d] idco %d read %d command %x jtag %d flip %d bozo %d idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, idcode_count, read, command, jtag_index, flip, bozo, idindex, bef, aft);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
-#if 1
-    int extralen = idcode_len[idcode_count - 1];
-    if (idcode_count > 1 && read && command == IRREG_BYPASS_EXTEND) {
-        write_one_byte(ftdi, read, 0xff);
-        extralen -= 8 - idcode_len[0]; /* 2 extra bits sent with write byte*/
-    }
-    else if (idcode_count > 1 && flip)
-        write_bit(0, idcode_len[0], 0xff, 0);
-    else if (idcode_count > 1 && !read) {
-        write_bit(0, idcode_len[0], command, 0);
-        command = 0xff;
-    }
-    else
-        extralen = idcode_len[0];
-    write_bit(read, extralen - 1, command, tail);
-#else
     write_fill(ftdi, 0, aft, 0);
-    if (bef) {
+    if (bef && !trim_tail) {
+        if (idindex != idcode_count)
         write_bit(0, idcode_len[idindex], command, 0);
         write_fill(ftdi, read, bef - 1, tail);
     }
     else
         write_bit(read, idcode_len[idindex] - 1, command, tail);
-#endif
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
@@ -807,6 +794,7 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
+trim_tail = 1;
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
@@ -816,6 +804,7 @@ usage:
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
     send_data_file(ftdi, found_cortex);
+trim_tail = 0;
 
     /*
      * Step 8: Startup
@@ -828,8 +817,10 @@ usage:
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
+trim_tail = 1;
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
+trim_tail = 0;
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)

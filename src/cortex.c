@@ -63,10 +63,10 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
         uint64_t ret = 0;              // Clear out MSB before copy
         memcpy(&ret, rdata, 5);        // copy into bottom of uint64 data target
         if ((ret & 7) != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
-            printf("fpgajtag:%d Error in cortex response %x \n", linenumber, (int)(ret & 7));
+            printf("fpgajtag:%d Info in cortex response %x \n", linenumber, (int)(ret & 7));
         uint32_t ret32 = ret >> 3;
         if (ret32 != *testp) {
-            printf("fpgajtag:%d Error [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
+            printf("fpgajtag:%d Info [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
             memdump(rdata, 5, "RX");
         }
         testp++;

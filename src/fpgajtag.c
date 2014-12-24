@@ -53,7 +53,8 @@ static int verbose, jtag_index = -1, device_type, multiple_fpga;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
-static int idcode_count, first_time_idcode_read = 1;
+int idcode_count;
+static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 

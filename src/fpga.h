@@ -47,6 +47,8 @@
 
 #define EXTEND_EXTRA            0xc0
 
+#define USE_CORTEX_IR           100
+
 /*
  * Xilinx constants
  */

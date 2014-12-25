@@ -371,7 +371,6 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
             idindex = -1;
     }
     else if (flip)
-// || bozo)
         idindex = idcode_count - 1;
     for (i = 0; i < idcode_count; i++) {
         if (i > idindex)
@@ -477,14 +476,17 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     return ret;
 }
 
+int extraloop, bozoextra;
 static void access_user2_loop(struct ftdi_context *ftdi, int loop_count, int cortex_nowait, int pre, int match)
 {
     int toploop, testi, flip;
 bozo = 0;
+//printf("[%s:%d] bef lcount %d now %d pre %d match %d\n", __FUNCTION__, __LINE__, loop_count, cortex_nowait, pre, match);
     for (toploop = 0; toploop < loop_count; toploop++) {
         read_idcode(ftdi, cortex_nowait * (toploop == pre));
-int innerl;
-for (innerl = 0; innerl < 1 + (idcode_count > 2); innerl++) {
+int innerl = 0;
+for (innerl = 0; innerl < 1 + extraloop; innerl++) 
+{
 if (toploop == 0 && innerl == 1) bozo = 1;
         for (flip = 0; flip < 1 + multiple_fpga; flip++) {
 //printf("[%s:%d] toploop %d innerl %d flip %d\n", __FUNCTION__, __LINE__, toploop, innerl, flip);
@@ -492,8 +494,8 @@ if (toploop == 0 && innerl == 1) bozo = 1;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
-                for (testi = bozo; testi < bozo+4; testi++) {
-//printf("[%s:%d] toploop %d innerl %d j %d testi %d flip %d\n", __FUNCTION__, __LINE__, toploop, innerl, j, testi, flip);
+                for (testi = bozo; testi < 4; testi++) {
+//printf("[%s:%d] loop_count %d toploop %d innerl %d j %d testi %d flip %d\n", __FUNCTION__, __LINE__, loop_count, toploop, innerl, j, testi, flip);
                     write_bypass(ftdi, 0);
                     write_dirreg(ftdi, IRREG_USER2, flip);
                     if (testi && testi < 4) {
@@ -514,12 +516,17 @@ if (idcode_count > 2)
                 }
             }
         }
+//printf("[%s:%d] beforecortex toploop %d innerl %d found_cortex %d\n", __FUNCTION__, __LINE__, toploop, innerl, found_cortex);
+if (innerl > 0 || bozoextra)
+continue;
         if (found_cortex)
             cortex_bypass(ftdi, toploop || cortex_nowait);
         if (toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
 }
+//printf("[%s:%d] enddddddtoploop %d\n", __FUNCTION__, __LINE__, toploop);
     }
+//printf("[%s:%d] aft lcount %d now %d pre %d match %d\n", __FUNCTION__, __LINE__, loop_count, cortex_nowait, pre, match);
 }
 
 
@@ -539,9 +546,10 @@ static void readout_status(struct ftdi_context *ftdi, int btype, uint32_t checkv
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
         if (btype) {
-printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d] bef user2 j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
             access_user2_loop(ftdi, 1, 1, j == 0, j);
-printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
+bozoextra = (idcode_count > 2);
+//printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
             if (j)
                 continue;
         }
@@ -768,9 +776,10 @@ usage:
         goto exit_label;
     }
 
-printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d] bef user2 JJJ\n", __FUNCTION__, __LINE__);
+extraloop = (idcode_count > 2);
     access_user2_loop(ftdi, 2, 0, 0, device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0));
-printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
@@ -789,6 +798,7 @@ printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
         memdump(rdata, last_read_data_length, "IDCODE_VALIDATE: ACTUAL");
     }
 
+//printf("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status(ftdi, 0, 0x301900);
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
@@ -801,9 +811,9 @@ printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (multiple_fpga && jtag_index == 0)
         bypass_tc += 8;
-printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
     access_user2_loop(ftdi, bypass_tc, 1, 0, 99999);
-printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
+//printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
     /*
@@ -845,6 +855,8 @@ trim_tail = 0;
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
 
+//printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+extraloop = 0;
     readout_status(ftdi, 1, 0xf07910);
     rescan = 1;
 

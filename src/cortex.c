@@ -61,7 +61,7 @@ static void check_read_cortex(int linenumber, struct ftdi_context *ftdi, uint32_
         if ((ret & 7) != DPACC_RESPONSE_OK)       /* IHI0031C_debug_interface_as.pdf: 3.4.3 */
             printf("fpgajtag:%d Info in cortex response %x \n", linenumber, (int)(ret & 7));
         uint32_t ret32 = ret >> 3;
-        if (ret32 != *testp) {
+        if ((ret32 & 0x1fffffff) != (*testp & 0x1fffffff)) {
             printf("fpgajtag:%d Info [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
             memdump(rdata, 5, "RX");
         }

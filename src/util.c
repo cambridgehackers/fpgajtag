@@ -445,12 +445,8 @@ void sync_ftdi(struct ftdi_context *ftdi, int val)
 struct ftdi_context *init_ftdi(int device_index)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
-    static uint8_t command_ab[] = { 0xab, SEND_IMMEDIATE };
-    static uint8_t errorcode_aa[] = { 0xfa, 0xaa };
-    static uint8_t errorcode_ab[] = { 0xfa, 0xab };
     struct ftdi_context *ftdi = (struct ftdi_context *)illegal_command;
     int i;
-    uint8_t retcode[2];
 
     fpgausb_open(device_index);            /*** Open selected USB interface ***/
 #ifdef USE_LIBFTDI
@@ -462,25 +458,9 @@ struct ftdi_context *init_ftdi(int device_index)
     /*
      * Generic command synchronization with ftdi chip
      */
-    for (i = 0; i < 4; i++) {
-#if 0
-        ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
-        if (ftdi_read_data(ftdi, retcode, sizeof(retcode)) != sizeof(retcode))
-            return NULL;
-        if (memcmp(retcode, errorcode_aa, sizeof(errorcode_aa)))
-            memdump(retcode, sizeof(retcode), "RETaa");
-#else
+    for (i = 0; i < 4; i++)
         sync_ftdi(ftdi, 0xaa);
-#endif
-    }
-#if 0
-    ftdi_write_data(ftdi, command_ab, sizeof(command_ab));
-    ftdi_read_data(ftdi, retcode, sizeof(retcode));
-    if (memcmp(retcode, errorcode_ab, sizeof(errorcode_ab)))
-        memdump(retcode, sizeof(retcode), "RETab");
-#else
     sync_ftdi(ftdi, 0xab);
-#endif
     return ftdi;
 }
 

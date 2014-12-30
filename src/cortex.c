@@ -33,7 +33,9 @@ static void loaddr(int aread, uint32_t v, int extra3bits)
     ENTER_TMS_STATE('D');
     write_bit(0, 1, 0, 0);
     write_item(DITEM(DATAW(aread, 4), INT32(temp)));
-    write_bit(aread, idcode_count, (v>>29) & 0x3f, idcode_count > 2 ? 0 : 'I');
+    write_bit(aread, idcode_count > 3 ? 3 : idcode_count, (v>>29) & 0x3f, idcode_count > 2 ? 0 : 'I');
+    if (idcode_count > 3)
+        write_bit(0, idcode_count - 3, 0, 0);
     ENTER_TMS_STATE('I');
 }
 

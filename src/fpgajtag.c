@@ -456,7 +456,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
 }
 
-static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem)
+static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem, int bitlen)
 {
     int j;
     uint32_t ret = 0;
@@ -472,7 +472,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
             write_item(DITEM(DATAR(size)));
         if (resp_len <= 0)
             write_bit((readitem != 0) * DREAD,
-                  (!readitem && !bozo && idcode_count > 2) ?
+                  (!readitem && bitlen && idcode_count > 2) ?
                   (idcode_count - (found_cortex != 0) - 1): 0, 0, 'I');
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
@@ -498,7 +498,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
 }
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
-     int fd, int oneformat, int flip)
+     int fd, int oneformat, int flip, int bititem)
 {
     uint32_t ret = 0;
 
@@ -506,12 +506,11 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
 DPRINT("[%s:%d] resp %d oneformat %d flip %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, flip);
     if (resp_len && !oneformat && !flip && idcode_count > 2)
-        //write_item(DITEM(0x1b, 0x00, 0x00));
         write_bit(0, 1, 0, 0);
     ENTER_TMS_STATE('I');
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip != 0);
-        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip);
+        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip, bititem);
     }
     return ret;
 }
@@ -568,7 +567,7 @@ DPRINT("[%s:%d] testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n
                         else
                             write_bit(0, idcode_count - 1, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, !bozo);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
@@ -615,7 +614,7 @@ DPRINT("[%s:%d] btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j
             else if (j && idcode_count > 2 && found_cortex)
                 write_bypass(ftdi, DREAD);
             write_dirreg(ftdi, IRREG_USERCODE, (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1);
-            ret = fetch_result(ftdi, sizeof(uint32_t), -1, (!j && multiple_fpga) || idcode_count == 1);
+            ret = fetch_result(ftdi, sizeof(uint32_t), -1, (!j && multiple_fpga) || idcode_count == 1, !bozo);
             if (ret != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
             for (i = 0; i < 3; i++)
@@ -645,7 +644,7 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
             sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -1 : 1,
-            multiple_fpga * (!statparam) || (idcode_count > 2 && !j));
+            multiple_fpga * (!statparam) || (idcode_count > 2 && !j), !bozo);
         bozo = 0;
         master_innerl = 0;
         uint32_t status = ret >> 8;
@@ -709,12 +708,12 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0, 1);
     readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0, 1);
 #endif
     write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(ftdi, 6, 0);
@@ -725,7 +724,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0, 1);
 }
 
 struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)

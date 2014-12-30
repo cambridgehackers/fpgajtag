@@ -49,11 +49,16 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
+#define DPRINT \
+    if (tracep) flush_write(ftdi, NULL); \
+    if (tracep) printf
+
 static int verbose, jtag_index = -1, device_type, multiple_fpga;
 static uint8_t zerodata[8], ones[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 static USB_INFO *uinfo;
 
 int idcode_count;
+static int tracep;// = 1;
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
@@ -161,8 +166,7 @@ static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
 }
 static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
 {
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     if (clock)
         set_clock_divisor(ftdi);
@@ -296,8 +300,7 @@ static void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
     int i, offset = 0;
 
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] prereset %d\n", __FUNCTION__, __LINE__, prereset);
+DPRINT("[%s:%d] prereset %d\n", __FUNCTION__, __LINE__, prereset);
     if (prereset)
         write_tms_transition("RR1");
     marker_for_reset(ftdi, 4);
@@ -480,8 +483,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 
     write_dirreg(ftdi, IRREG_CFG_IN, flip); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] resp %d oneformat %d flip %d freak %d weird %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, flip, freak_bit, weird_bit);
+DPRINT("[%s:%d] resp %d oneformat %d flip %d freak %d weird %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, flip, freak_bit, weird_bit);
     if (resp_len && !oneformat && !flip && !freak_bit && !weird_bit && idcode_count > 2)
         write_item(DITEM(0x1b, 0x00, 0x00));
     ENTER_TMS_STATE('I');
@@ -497,13 +499,11 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_c
     int toploop, testi, flip = 0;
     for (toploop = 0; toploop < loop_count; toploop++) {
         int lbozo = 0, innerl = 0;
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
+DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
         if (!ignore_idcode) {
             ENTER_TMS_STATE('R');
             if (version == 1 && multiple_fpga && jtag_index == 0 && toploop != pre) {
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                 marker_for_reset(ftdi, 0);
                 set_clock_divisor(ftdi);
                 write_tms_transition("RR1");
@@ -513,8 +513,7 @@ flush_write(ftdi, NULL);
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2); innerl++) {
         if (innerl == 1) lbozo = 1;
         for (flip = 0; flip < 1 + (multiple_fpga && idcode_count <= 2); flip++) {
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip);
+DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip);
             int j = 3, adj = (idcode_count == 1) + flip;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
@@ -552,12 +551,10 @@ flush_write(ftdi, NULL);
             }
         }
         bozo = 0;
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] cor version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
+DPRINT("[%s:%d] cor version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
         if (!innerl && found_cortex && !shift_enable)
             cortex_bypass(ftdi, toploop || cortex_nowait);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         if (innerl && toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
     }
@@ -574,25 +571,20 @@ static void readout_status(struct ftdi_context *ftdi, int btype, uint32_t checkv
     else
         upperbound += multiple_fpga;
 
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (btype || (found_cortex && idcode_count <= 2))
         write_bypass(ftdi, DREAD);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (btype && idcode_count > 2) {
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         reset_mark_clock(ftdi, 0);
         flush_write(ftdi, NULL);
     }
     ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
+DPRINT("[%s:%d] btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
         if (!btype) {
             if (j > 0 && idcode_count > 2 && found_cortex)
                 write_bypass(ftdi, DREAD);
@@ -613,13 +605,11 @@ freak_bit = 0;
                 //bozo = 1;
             access_user2_loop(ftdi, 0, 1, 1, j == 0, j, j != 0 && !multiple_fpga && idcode_count != 1, j == 0 && multiple_fpga);
             //bozo = 0;
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 if ((!multiple_fpga && idcode_count != 1) || !j)
             reset_mark_clock(ftdi, 0);
         }
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
+DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
         if (!btype || !j) {
         freak_bit = (idcode_count > 2);
         bozo = !j && idcode_count > 2;
@@ -656,8 +646,7 @@ flush_write(ftdi, NULL);
             bozo = 0;
         }
     }
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] over btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
+DPRINT("[%s:%d] over btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
 }
 
 /*
@@ -683,8 +672,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1) {
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 0, 0, 1);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         write_bit(0, 7 - (idcode_count > 2), 0, 0);
     }
     write_int32(ftdi, req+1, req[0]);
@@ -860,26 +848,21 @@ usage:
 //printf("[%s:%d] bef user2 JJJ\n", __FUNCTION__, __LINE__);
     access_user2_loop(ftdi, 1, 2, 0, 0, device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0), 0, 0);
 //printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
+DPRINT("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     marker_for_reset(ftdi, 0);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (jtag_index != 0 || !multiple_fpga) {
         if (idcode_count <= 2)
             set_clock_divisor(ftdi);
         write_tms_transition("RR1");
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
     }
     if (idcode_count <= 2) {
         write_tms_transition("RR1");
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
 
     /*
@@ -888,8 +871,7 @@ flush_write(ftdi, NULL);
      * on the first call
      */
     idle_to_shift_dr(0, 0);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bytes(ftdi, DREAD, 'P', idcode_vpattern, sizeof(idcode_vpattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_vresult[0]
@@ -898,11 +880,9 @@ flush_write(ftdi, NULL);
         memdump(rdata, last_read_data_length, "IDCODE_VALIDATE: ACTUAL");
     }
 
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status(ftdi, 0, 0x301900);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
         bypass_tc = 3;
@@ -917,8 +897,7 @@ flush_write(ftdi, NULL);
 //printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
     access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0);
 //printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
     /*
@@ -938,42 +917,35 @@ trim_tail = 1;
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
     send_data_file(ftdi, found_cortex && (idcode_count <= 2));
 trim_tail = 0;
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
     /*
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) !=
             ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
 trim_tail = 1;
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
 trim_tail = 0;
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
 
-flush_write(ftdi, NULL);
-//ZZ printf("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status(ftdi, 1, 0xf07910);
     rescan = 1;
 

@@ -541,7 +541,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
-                    int adj = (idcode_count == 1) + flip + ((bozo && idcode_count > 1)? idcode_count - 2 : 0);
+                    int adj = (idcode_count == 1) + flip + (bozo ? idcode_count - 2 : 0);
 DPRINT("[%s:%d] testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, testi, adj, idcode_count, flip, innerl, jtag_index);
                     if (idcode_count > 3)
                         adj = (master_innerl == 2);
@@ -555,7 +555,7 @@ DPRINT("[%s:%d] testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n
                             if (!bozo && idcode_count > 2)
                                 write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
                             idle_to_shift_dr(flip != 0, 0);
-                            if (bozo)
+                            if (bozo && idcode_count > 2)
                                 write_bit(0, idcode_count - (found_cortex != 0) - (idcode_count > 3), 0, 0);
                         }
                         write_one_byte(ftdi, 0, 0x69);

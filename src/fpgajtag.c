@@ -496,7 +496,6 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
     return ret;
 }
 
-int weird_bit;
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
      int fd, int oneformat, int flip)
 {
@@ -504,15 +503,14 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 
     write_dirreg(ftdi, IRREG_CFG_IN, flip != 0); /* Select CFG_IN so that we can send out our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] resp %d oneformat %d flip %d weird %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, flip, weird_bit);
-    if (resp_len && !oneformat && !flip 
-&& !weird_bit 
-&& idcode_count > 2)
-        write_item(DITEM(0x1b, 0x00, 0x00));
+DPRINT("[%s:%d] resp %d oneformat %d flip %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, flip);
+    if (resp_len && !oneformat && !flip && idcode_count > 2)
+        //write_item(DITEM(0x1b, 0x00, 0x00));
+        write_bit(0, 1, 0, 0);
     ENTER_TMS_STATE('I');
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip != 0);
-        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip || (idcode_count > 2 && !weird_bit));
+        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip);
     }
     return ret;
 }
@@ -545,12 +543,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 for (testi = 0; testi < 4; testi++) {
                     int adj = (idcode_count == 1) + flip + ((bozo && idcode_count > 1)? idcode_count - 2 : 0);
 DPRINT("[%s:%d] testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, testi, adj, idcode_count, flip, innerl, jtag_index);
-                    if (idcode_count > 3) {
-                        if (master_innerl == 2)
-                            adj = 1;
-                        else
-                            adj = 0;
-                    }
+                    if (idcode_count > 3)
+                        adj = (master_innerl == 2);
                     write_bypass(ftdi, 0);
                     write_dirreg(ftdi, IRREG_USER2, flip != 0);
                     if (bozo)
@@ -643,7 +637,6 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
             master_innerl = 2;
         else if (idcode_count > 3)
             bozo = 1;
-        weird_bit = idcode_count > 2;
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -658,7 +651,6 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
             multiple_fpga * (!statparam) || (idcode_count > 2 && !j));
         bozo = 0;
         master_innerl = 0;
-        weird_bit = 0;
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);

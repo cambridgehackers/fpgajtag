@@ -865,10 +865,8 @@ usage:
 DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
         (device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0)) + 10 * (idcode_count > 3), 0, 0);
-//printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     marker_for_reset(ftdi, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (jtag_index != 0 || !multiple_fpga) {
         if (idcode_count <= 2)
             set_clock_divisor(ftdi);
@@ -876,11 +874,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
     }
-    if (idcode_count <= 2 || idcode_count > 3) {
+    if (idcode_count != 3) {
         write_tms_transition("RR1");
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d] new 3\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
 
     /*
@@ -912,9 +909,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (multiple_fpga && idcode_count == 2 && jtag_index == 0)
         bypass_tc += 8;
-//printf("[%s:%d] bef user2\n", __FUNCTION__, __LINE__);
     access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0);
-//printf("[%s:%d] aft user2\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
@@ -946,7 +941,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     write_cirreg(ftdi, 0, IRREG_JSTART);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
@@ -956,7 +950,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

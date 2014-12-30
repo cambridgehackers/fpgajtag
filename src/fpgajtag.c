@@ -510,7 +510,7 @@ DPRINT("[%s:%d] resp %d oneformat %d flip %d freak %d weird %d\n", __FUNCTION__,
     ENTER_TMS_STATE('I');
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, flip != 0);
-        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip || (freak_bit && !weird_bit));
+        ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || flip || (idcode_count > 2 && freak_bit && !weird_bit));
     }
     return ret;
 }
@@ -617,13 +617,11 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
         if (!btype) {
-if (j && idcode_count > 3)
-    bozo = 1;
+            if (j && idcode_count > 3)
+                bozo = 1;
             else if (j && idcode_count > 2 && found_cortex)
                 write_bypass(ftdi, DREAD);
-            write_dirreg(ftdi, IRREG_USERCODE, 
-(j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1
-);
+            write_dirreg(ftdi, IRREG_USERCODE, (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1);
 freak_bit = !j && (idcode_count > 2);
             ret = fetch_result(ftdi, sizeof(uint32_t), -1, (!j && multiple_fpga) || idcode_count == 1);
 freak_bit = 0;
@@ -632,7 +630,7 @@ freak_bit = 0;
             for (i = 0; i < 3; i++)
                 write_bypass(ftdi, DREAD);
             ENTER_TMS_STATE('R');
-bozo = 0;
+            bozo = 0;
         }
         if (btype && idcode_count <= 2) {
             flush_write(ftdi, NULL);
@@ -642,13 +640,12 @@ bozo = 0;
             access_user2_loop(ftdi, 0, 1, 1, j == 0, j, j != 0 && !multiple_fpga && idcode_count != 1, j == 0 && multiple_fpga);
             //bozo = 0;
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-if ((!multiple_fpga && idcode_count != 1) || !j)
-            reset_mark_clock(ftdi, 0);
+            if ((!multiple_fpga && idcode_count != 1) || !j)
+                reset_mark_clock(ftdi, 0);
         }
 DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
         if (!btype || !j) {
         freak_bit = (idcode_count > 2);
-        //bozo = !j && idcode_count > 2;
         if (!j && idcode_count > 2)
             master_innerl = 2;
         else if (idcode_count > 3)
@@ -679,8 +676,6 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
         ENTER_TMS_STATE('R');
         }
         if (btype && idcode_count > 2) {
-            //flush_write(ftdi, NULL);
-            //printf("[%s:%d] bef user2 j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
             if (j)
                 bozo = 1;
             access_user2_loop(ftdi, 0, 1, 1, j != 0, j, j != 0, j != 0);

@@ -545,11 +545,10 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     int adj = (idcode_count == 1) + flip
-                        + (bozo  && (version || ignore_idcode || idcode_count < 3) ? (//idcode_count >= 3 && !version && !ignore_idcode ? idcode_count - 1 : 
-idcode_count - 2) : 0);
-DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
+                        + (bozo  && (version || ignore_idcode || idcode_count < 3) ? (idcode_count - 2) : 0);
                     if (idcode_count > 3)
-                        adj = (master_innerl == 2) + (master_innerl == 0) * (version == 0) * (testi > 1);
+                        adj = (master_innerl == 2);
+DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
                     write_bypass(ftdi, 0);
                     write_dirreg(ftdi, IRREG_USER2, flip != 0);
 DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
@@ -577,7 +576,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
 DPRINT("[%s:%d] version %d innerl %d bozo %d\n", __FUNCTION__, __LINE__, version, innerl, bozo);
-                        if (idcode_count > 3 && (version == 0 || innerl == 1 || bozo)) {
+                        if (idcode_count > 3 && ((version == 0 && !testi) || innerl == 1 || (innerl != 2 && bozo))) {
                             write_bit(0, 1, 0, 0);
                             write_bit(0, idcode_count - 2, 0, 0);
                         }
@@ -967,7 +966,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_bypass(ftdi, DREAD);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (idcode_count > 2) {
+    if (idcode_count == 3) {
         reset_mark_clock(ftdi, 0);
         flush_write(ftdi, NULL);
     }

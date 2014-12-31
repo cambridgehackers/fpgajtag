@@ -58,6 +58,9 @@ static int tracep;// = 1;
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
+static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
+            CONFIG_SYNC, CONFIG_TYPE2(0),
+            CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
 
 #define DPRINT \
     flush_write(ftdi, NULL); \
@@ -547,20 +550,27 @@ DPRINT("[%s:%d] testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n
                         adj = (master_innerl == 2);
                     write_bypass(ftdi, 0);
                     write_dirreg(ftdi, IRREG_USER2, flip != 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                     if (bozo)
-                        write_bit(0, idcode_count - (found_cortex != 0) - (idcode_count > 3), 0, 0);
+                        write_bit(0, idcode_count - (found_cortex != 0) - (version == 1)*(innerl != 2) * (idcode_count > 3), 0, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                     if (testi && testi < 4) {
                         if (testi > 1) {
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                             if (!bozo && idcode_count > 2)
                                 write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
+DPRINT("[%s:%d] version %d flip %d\n", __FUNCTION__, __LINE__, version, flip);
                             idle_to_shift_dr(flip != 0, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                             if (bozo && idcode_count > 2)
-                                write_bit(0, idcode_count - (found_cortex != 0) - (idcode_count > 3), 0, 0);
+                                write_bit(0, idcode_count - (found_cortex != 0) - (version == 1)*(innerl != 2) * (idcode_count > 3), 0, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                         }
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
-                        if (idcode_count > 3 && innerl) {
+DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
+                        if (idcode_count > 3 && innerl == 1) {
                             write_bit(0, 1, 0, 0);
                             write_bit(0, idcode_count - 2, 0, 0);
                         }
@@ -585,12 +595,10 @@ master_innerl = 0;
     }
 }
 
-static void readout_status0(struct ftdi_context *ftdi, uint32_t checkval)
+static void readout_status0(struct ftdi_context *ftdi, int upperbound)
 {
     int i, j, statparam = found_cortex ? 1 : -(0 && jtag_index == 0);
     uint32_t ret;
-    int upperbound = 1 + (idcode_count > 3);
-        upperbound += multiple_fpga;
 
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
@@ -617,18 +625,15 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
-            CONFIG_SYNC, CONFIG_TYPE2(0),
-            CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
-            sizeof(uint32_t), -1,
+        ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
-            : idcode_count <= 2 ? 0 : j ? -1 : 1,
+            : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
             multiple_fpga * (!statparam) || (idcode_count > 2 && !j), !bozo);
         bozo = 0;
         master_innerl = 0;
         uint32_t status = ret >> 8;
-        if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
-            printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
+        if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
+            printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
@@ -636,42 +641,11 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
     }
 DPRINT("[%s:%d] over 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
 }
-static void readout_status1(struct ftdi_context *ftdi, uint32_t checkval)
+static void readout_status1(struct ftdi_context *ftdi, int upperbound)
 {
-    int j, statparam = found_cortex ? 1 : -(jtag_index == 0);
-    int upperbound = 1 + 2 * (idcode_count > 3)
-        + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-          || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
+    int j;
 
 DPRINT("[%s:%d] upperbound %d\n", __FUNCTION__, __LINE__, upperbound);
-    if (idcode_count <= 2) {
-        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga);
-        reset_mark_clock(ftdi, 0);
-    }
-    if (idcode_count > 2)
-        master_innerl = 2;
-    else if (idcode_count > 3)
-        bozo = 1;
-    /*
-     * Read Xilinx configuration status register
-     * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
-     * through the JTAG Interface" and Table 6-3.
-     */
-    uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
-        CONFIG_SYNC, CONFIG_TYPE2(0),
-        CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
-        sizeof(uint32_t), -1,
-        (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
-        : (idcode_count > 2),
-        multiple_fpga * (!statparam) || idcode_count > 2, !bozo);
-    bozo = 0;
-    master_innerl = 0;
-    uint32_t status = ret >> 8;
-    if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
-        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
-    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
-        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    ENTER_TMS_STATE('R');
     for (j = 1; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
         if (idcode_count <= 2) {
@@ -922,7 +896,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (found_cortex && idcode_count <= 2)
         write_bypass(ftdi, DREAD);
     ENTER_TMS_STATE('I');
-    readout_status0(ftdi, 0x301900);
+    readout_status0(ftdi, 1 + (idcode_count > 3) + multiple_fpga);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
@@ -987,7 +961,36 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         flush_write(ftdi, NULL);
     }
     ENTER_TMS_STATE('I');
-    readout_status1(ftdi, 0xf07910);
+    if (idcode_count <= 2) {
+        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga);
+        reset_mark_clock(ftdi, 0);
+    }
+    if (idcode_count > 2)
+        master_innerl = 2;
+    else if (idcode_count > 3)
+        bozo = 1;
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    /*
+     * Read Xilinx configuration status register
+     * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
+     * through the JTAG Interface" and Table 6-3.
+     */
+    int statparam = found_cortex ? 1 : -(jtag_index == 0);
+    uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
+        (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
+        multiple_fpga * (!statparam) || idcode_count > 2, !bozo);
+    int status = sret >> 8;
+    if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
+    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
+        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+    bozo = 0;
+    master_innerl = 0;
+    ENTER_TMS_STATE('R');
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    readout_status1(ftdi, 1 + 2 * (idcode_count > 3)
+        + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+          || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
     rescan = 1;
 
     /*

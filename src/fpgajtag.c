@@ -585,50 +585,29 @@ master_innerl = 0;
     }
 }
 
-static void readout_status(struct ftdi_context *ftdi, int btype, uint32_t checkval)
+static void readout_status0(struct ftdi_context *ftdi, uint32_t checkval)
 {
-    int i, j, ret, statparam = found_cortex ? 1 : -(btype && jtag_index == 0);
+    int i, j, statparam = found_cortex ? 1 : -(0 && jtag_index == 0);
+    uint32_t ret;
     int upperbound = 1 + (idcode_count > 3);
-    if (btype)
-        upperbound += (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-                       || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)))
-            + (idcode_count > 3);
-    else
         upperbound += multiple_fpga;
 
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    marker_for_reset(ftdi, 0);
-    if (btype || (found_cortex && idcode_count <= 2))
-        write_bypass(ftdi, DREAD);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (btype && idcode_count > 2) {
-        reset_mark_clock(ftdi, 0);
-        flush_write(ftdi, NULL);
-    }
-    ENTER_TMS_STATE('I');
     for (j = 0; j < upperbound; j++) {
-DPRINT("[%s:%d] btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
-        if (!btype) {
-            if (j && idcode_count > 3)
-                bozo = 1;
-            else if (j && idcode_count > 2 && found_cortex)
-                write_bypass(ftdi, DREAD);
-            write_dirreg(ftdi, IRREG_USERCODE, (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1);
-            ret = fetch_result(ftdi, sizeof(uint32_t), -1, (!j && multiple_fpga) || idcode_count == 1, !bozo);
-            if (ret != 0xffffffff)
-                printf("fpgajtag: USERCODE value %x\n", ret);
-            for (i = 0; i < 3; i++)
-                write_bypass(ftdi, DREAD);
-            ENTER_TMS_STATE('R');
-            bozo = 0;
-        }
-        if (btype && idcode_count <= 2) {
-            access_user2_loop(ftdi, 0, 1, 1, j == 0, j, j != 0 && !multiple_fpga && idcode_count != 1, j == 0 && multiple_fpga);
-            if ((!multiple_fpga && idcode_count != 1) || !j)
-                reset_mark_clock(ftdi, 0);
-        }
-DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
-        if (!btype || !j) {
+DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
+        if (j && idcode_count > 3)
+            bozo = 1;
+        else if (j && idcode_count > 2 && found_cortex)
+            write_bypass(ftdi, DREAD);
+        write_dirreg(ftdi, IRREG_USERCODE, (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1);
+        ret = fetch_result(ftdi, sizeof(uint32_t), -1,
+             (!j && multiple_fpga) || idcode_count == 1, !bozo);
+        if (ret != 0xffffffff)
+            printf("fpgajtag: USERCODE value %x\n", ret);
+        for (i = 0; i < 3; i++)
+            write_bypass(ftdi, DREAD);
+        ENTER_TMS_STATE('R');
+        bozo = 0;
+DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (!j && idcode_count > 2)
             master_innerl = 2;
         else if (idcode_count > 3)
@@ -638,7 +617,7 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
+        ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
             CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
             sizeof(uint32_t), -1,
@@ -654,15 +633,59 @@ DPRINT("[%s:%d] btype %d j %d\n", __FUNCTION__, __LINE__, btype, j);
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
         ENTER_TMS_STATE('R');
+    }
+DPRINT("[%s:%d] over 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
+}
+static void readout_status1(struct ftdi_context *ftdi, uint32_t checkval)
+{
+    int j, statparam = found_cortex ? 1 : -(jtag_index == 0);
+    int upperbound = 1 + 2 * (idcode_count > 3)
+        + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+          || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD)));
+
+DPRINT("[%s:%d] upperbound %d\n", __FUNCTION__, __LINE__, upperbound);
+    if (idcode_count <= 2) {
+        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga);
+        reset_mark_clock(ftdi, 0);
+    }
+    if (idcode_count > 2)
+        master_innerl = 2;
+    else if (idcode_count > 3)
+        bozo = 1;
+    /*
+     * Read Xilinx configuration status register
+     * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
+     * through the JTAG Interface" and Table 6-3.
+     */
+    uint32_t ret = readout_seq(ftdi, DITEM(CONFIG_DUMMY,
+        CONFIG_SYNC, CONFIG_TYPE2(0),
+        CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0)),
+        sizeof(uint32_t), -1,
+        (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
+        : (idcode_count > 2),
+        multiple_fpga * (!statparam) || idcode_count > 2, !bozo);
+    bozo = 0;
+    master_innerl = 0;
+    uint32_t status = ret >> 8;
+    if (verbose && (bitswap[M(ret)] != 2 || status != checkval))
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, checkval, ret);
+    printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
+        status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
+    ENTER_TMS_STATE('R');
+    for (j = 1; j < upperbound; j++) {
+DPRINT("[%s:%d] j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
+        if (idcode_count <= 2) {
+            access_user2_loop(ftdi, 0, 1, 1, 0, j, !multiple_fpga && idcode_count != 1, 0);
+            if (!multiple_fpga && idcode_count != 1)
+                reset_mark_clock(ftdi, 0);
         }
-        if (btype && idcode_count > 2) {
-            if (j)
-                bozo = 1;
-            access_user2_loop(ftdi, 0, 1, 1, j != 0, j, j != 0, j != 0);
+        else {
+            bozo = 1;
+            access_user2_loop(ftdi, 0, 1, 1, 1, j, 1, 1);
             bozo = 0;
         }
     }
-DPRINT("[%s:%d] over btype %d j %d upperbound %d\n", __FUNCTION__, __LINE__, btype, j, upperbound);
+DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
 }
 
 /*
@@ -895,7 +918,11 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    readout_status(ftdi, 0, 0x301900);
+    marker_for_reset(ftdi, 0);
+    if (found_cortex && idcode_count <= 2)
+        write_bypass(ftdi, DREAD);
+    ENTER_TMS_STATE('I');
+    readout_status0(ftdi, 0x301900);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)
@@ -952,7 +979,15 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    readout_status(ftdi, 1, 0xf07910);
+    marker_for_reset(ftdi, 0);
+    write_bypass(ftdi, DREAD);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    if (idcode_count > 2) {
+        reset_mark_clock(ftdi, 0);
+        flush_write(ftdi, NULL);
+    }
+    ENTER_TMS_STATE('I');
+    readout_status1(ftdi, 0xf07910);
     rescan = 1;
 
     /*

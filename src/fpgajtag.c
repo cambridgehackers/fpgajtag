@@ -393,12 +393,12 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
     if (flip == USE_CORTEX_IR)
         idindex = found_cortex;
     else if (master_innerl == 2)
-        idindex = idcode_count - 1;
+        idindex = jtag_index;
     else if (bozo && read == 0) {
         if (idcode_count > 3)
             idindex = idcode_count - 2;
         else
-            idindex = idcode_count - 1;
+            idindex = jtag_index;
     }
     else if (M(command) == 0xff) {
         if (read)
@@ -658,14 +658,16 @@ DPRINT("[%s:%d] upperbound %d\n", __FUNCTION__, __LINE__, upperbound);
     for (j = 1; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ \n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
         if (idcode_count <= 2) {
-            access_user2_loop(ftdi, 0, 1, 1, 0, j, !multiple_fpga && idcode_count != 1, 0);
+            access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
+                !multiple_fpga && idcode_count != 1, 0);
             if (!multiple_fpga && idcode_count != 1)
                 reset_mark_clock(ftdi, 0);
         }
         else {
             if (idcode_count < 3 || j == 2)
                 bozo = 1;
-            access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j, idcode_count < 3 || j != 1, idcode_count < 3 || j != 1);
+            access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
+                idcode_count < 3 || j != 1, idcode_count < 3 || j != 1);
             bozo = 0;
         }
     }
@@ -975,9 +977,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga);
         reset_mark_clock(ftdi, 0);
     }
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+//tracep = 1;
     if (idcode_count > 3) {
     ENTER_TMS_STATE('R');
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status1(ftdi, 1 + 2 * (idcode_count > 3)
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
           || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
@@ -1004,7 +1007,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     bozo = 0;
     master_innerl = 0;
     ENTER_TMS_STATE('R');
-//tracep = 1;
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status1(ftdi, 1 + (idcode_count > 3) + (idcode_count >= 3)
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701

@@ -501,7 +501,7 @@ DPRINT("[%s:%d] resp %d oneformat %d extra %d\n", __FUNCTION__, __LINE__, resp_l
     return ret;
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int origbozo)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
 {
     int toploop, testi, flip = 0;
     for (toploop = 0; toploop < loop_count; toploop++) {
@@ -517,15 +517,14 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2) + (version && idcode_count > 3); innerl++) {
-        int bozo = origbozo;
 master_innerl = innerl;
-        if (innerl && idcode_count > 2 && (idcode_count != 3 || version))
-            bozo = 1;
         for (flip = 0; flip < 1 + (multiple_fpga && idcode_count <= 2); flip++) {
+            int btemp = addrtemp
+                      || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
             int idindex = 0;
             if (innerl == 2)
                 idindex = jtag_index;
-            else if (bozo) {
+            else if (btemp) {
                 if (idcode_count > 3)
                     idindex = idcode_count - 2;
                 else
@@ -539,8 +538,10 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
+                    int bcond1 = btemp && (version || ignore_idcode || idcode_count < 3);
+                    int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl);
                     int adj = (idcode_count == 1) + flip
-                        + (bozo  && (version || ignore_idcode || idcode_count < 3) ? (idcode_count - 2) : 0);
+                        + (bcond1 ? (idcode_count - 2) : 0);
                     if (idcode_count > 3)
                         adj = (innerl == 2);
 DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
@@ -552,33 +553,36 @@ DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl
                                 + (version == 0)*(innerl == 0)
                                 + (version == 1)*(innerl != 2)
                                 + (version == 2)*(innerl == 1));
-                    if (bozo && (idcode_count <= 3 || version != 2 || innerl))
+                    if (bcond2)
                         write_bit(0, fillwidth, 0, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                     if (testi && testi < 4) {
                         if (testi > 1) {
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-                            if (!bozo && idcode_count > 2)
+                            if (!btemp && idcode_count > 2)
                                 write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
 DPRINT("[%s:%d] version %d flip %d\n", __FUNCTION__, __LINE__, version, flip);
                             idle_to_shift_dr(flip != 0, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-                            if (bozo && idcode_count > 2)
+                            if (btemp && idcode_count > 2)
                                 write_bit(0, fillwidth, 0, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                         }
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
-DPRINT("[%s:%d] version %d innerl %d bozo %d\n", __FUNCTION__, __LINE__, version, innerl, bozo);
-                        if (idcode_count > 3 && ((version == 0 && !testi) || innerl == 1 || (innerl != 2 && bozo))) {
+DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
+                        if (idcode_count > 3
+                         && ((version == 0 && !testi)
+                            || innerl == 1
+                            || (innerl != 2 && btemp))) {
                             write_bit(0, 1, 0, 0);
                             write_bit(0, idcode_count - 2, 0, 0);
                         }
                         else
                             write_bit(0, idcode_count - 1, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, !bozo);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, !btemp);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
@@ -668,14 +672,11 @@ DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
             if (!multiple_fpga && idcode_count != 1)
                 reset_mark_clock(ftdi, 0);
         }
-        else {
-int bozo = 0;
-            if (idcode_count < 3 || j == 2)
-                bozo = 1;
+        else
             access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
-                idcode_count < 3 || j != 1, idcode_count < 3 || j != 1, bozo);
-            bozo = 0;
-        }
+                idcode_count < 3 || j != 1,
+                idcode_count < 3 || j != 1,
+                idcode_count < 3 || j == 2);
     }
 DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
 }
@@ -992,12 +993,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
           || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
     }
 {
-int bozo = 0;
-    if (idcode_count > 2)
-        master_innerl = 2;
-    else if (idcode_count > 3)
-        bozo = 1;
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     /*
      * Read Xilinx configuration status register
      * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -1006,26 +1001,27 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int statparam = found_cortex ? 1 : -(jtag_index == 0);
     int extra = multiple_fpga * (!statparam) || idcode_count > 2;
     int idindex = 0;
-    if (master_innerl == 2)
+    if (idcode_count > 2)
         idindex = jtag_index;
-    else if (bozo) {
-        if (idcode_count > 3)
-            idindex = idcode_count - 2;
-        else
-            idindex = jtag_index;
-    }
+    else if (idcode_count > 3)
+        idindex = idcode_count - 2;
     else if (extra)
         idindex = idcode_count - 1;
+printf("[%s:%d] before readoutseq\n", __FUNCTION__, __LINE__);
+    int hozo = 0;
+    if (idcode_count > 2) {}
+    else if (idcode_count > 3)
+        hozo = 1;
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
-        idindex, !bozo, extra);
+        idindex,
+        !hozo,
+        extra);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    bozo = 0;
-    master_innerl = 0;
 }
     ENTER_TMS_STATE('R');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

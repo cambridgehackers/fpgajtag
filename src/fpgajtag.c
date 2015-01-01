@@ -367,12 +367,11 @@ static struct ftdi_context *get_deviceid(int device_index)
     return ftdi;
 }
 
-static int master_innerl;
 static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 {
     static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
     if (width >= 8) {
-        int bytes = (width - (master_innerl == 1))/8;
+        int bytes = width/8;
         write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
         width -= 8 * bytes;
     }
@@ -517,7 +516,6 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2) + (version && idcode_count > 3); innerl++) {
-master_innerl = innerl;
         for (flip = 0; flip < 1 + (multiple_fpga && idcode_count <= 2); flip++) {
             int btemp = addrtemp
                       || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
@@ -538,12 +536,11 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
-                    int bcond1 = btemp && (version || ignore_idcode || idcode_count < 3);
+                    int bcond1 = btemp && (idcode_count < 3 || version || ignore_idcode);
                     int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl);
-                    int adj = (idcode_count == 1) + flip
-                        + (bcond1 ? (idcode_count - 2) : 0);
-                    if (idcode_count > 3)
-                        adj = (innerl == 2);
+                    int adj = idcode_count > 3 ? innerl == 2 :
+                        ((idcode_count == 1) + flip
+                        + (bcond1 ? (idcode_count - 2) : 0));
 DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
                     write_cirreg(ftdi, 0, IRREG_BYPASS_EXTEND, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
@@ -595,7 +592,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         if (innerl && toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
     }
-master_innerl = 0;
     }
 }
 

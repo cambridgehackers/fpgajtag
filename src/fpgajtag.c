@@ -603,25 +603,17 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
 {
-int bozo = 0;
-        if (j && idcode_count > 3)
-            bozo = 1;
-        else if (j && idcode_count > 2 && found_cortex)
+        if (j && idcode_count == 3 && found_cortex)
             write_bypass(ftdi);
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
         int idindex = 0;
-        if (bozo) {
-            if (idcode_count > 3)
-                idindex = idcode_count - 2;
-            else
-                idindex = jtag_index;
-        }
+        if (j && idcode_count > 3)
+            idindex = idcode_count - 2;
         else if (extra)
             idindex = idcode_count - 1;
-        bozo = 0;
         write_dirreg(ftdi, IRREG_USERCODE, idindex, extra);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1,
-             (!j && multiple_fpga) || idcode_count == 1, !bozo);
+             (!j && multiple_fpga) || idcode_count == 1, !(j && idcode_count > 3));
 }
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
@@ -630,7 +622,6 @@ int bozo = 0;
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 {
-int bozo = 0;
         int extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
         int idindex = 0;
         if (!j && idcode_count > 2)
@@ -648,10 +639,11 @@ int bozo = 0;
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
+printf("[%s:%d] before readout_seq\n", __FUNCTION__, __LINE__);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
-            idindex, !bozo, extra);
+            idindex, !j || idcode_count <= 3, extra);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

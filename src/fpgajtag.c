@@ -367,7 +367,7 @@ static struct ftdi_context *get_deviceid(int device_index)
     return ftdi;
 }
 
-static int bozo, master_innerl;
+static int master_innerl;
 static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 {
     static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
@@ -430,18 +430,16 @@ void write_creg(struct ftdi_context *ftdi, int regname)
     write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
-static void write_bypass(struct ftdi_context *ftdi, int read, int idindex)
+static void write_bypass(struct ftdi_context *ftdi)
 {
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    uint32_t ret = write_cirreg(ftdi, read, IRREG_BYPASS_EXTEND, idindex) & 0xff;
-    if (read) {
-        if (ret == FIRST_TIME)
-            printf("fpgajtag: bypass first time %x\n", ret);
-        else if (ret == PROGRAMMED)
-            printf("fpgajtag: bypass already programmed %x\n", ret);
-        else
-            printf("fpgajtag: bypass unknown %x\n", ret);
-    }
+    uint32_t ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS_EXTEND, -1) & 0xff;
+    if (ret == FIRST_TIME)
+        printf("fpgajtag: bypass first time %x\n", ret);
+    else if (ret == PROGRAMMED)
+        printf("fpgajtag: bypass already programmed %x\n", ret);
+    else
+        printf("fpgajtag: bypass unknown %x\n", ret);
 }
 
 static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, int readitem, int bitlen)
@@ -503,9 +501,10 @@ DPRINT("[%s:%d] resp %d oneformat %d extra %d\n", __FUNCTION__, __LINE__, resp_l
     return ret;
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int origbozo)
 {
-    int toploop, testi, flip = 0, origbozo = bozo;
+    int toploop, testi, flip = 0;
+    int bozo = origbozo;
     for (toploop = 0; toploop < loop_count; toploop++) {
         int innerl = 0;
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
@@ -545,7 +544,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                     if (idcode_count > 3)
                         adj = (master_innerl == 2);
 DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
-                    write_bypass(ftdi, 0, idindex);
+                    write_cirreg(ftdi, 0, IRREG_BYPASS_EXTEND, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
 DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
                     int fillwidth = idcode_count - (found_cortex != 0)
@@ -609,7 +608,7 @@ int bozo = 0;
         if (j && idcode_count > 3)
             bozo = 1;
         else if (j && idcode_count > 2 && found_cortex)
-            write_bypass(ftdi, DREAD, -1);
+            write_bypass(ftdi);
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
         int idindex = 0;
         if (master_innerl == 2)
@@ -624,13 +623,13 @@ int bozo = 0;
             idindex = idcode_count - 1;
         bozo = 0;
         write_dirreg(ftdi, IRREG_USERCODE, idindex, extra);
-}
         ret = fetch_result(ftdi, sizeof(uint32_t), -1,
              (!j && multiple_fpga) || idcode_count == 1, !bozo);
+}
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
-            write_bypass(ftdi, DREAD, -1);
+            write_bypass(ftdi);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 {
@@ -674,7 +673,6 @@ int bozo = 0;
 DPRINT("[%s:%d] over 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
 }
 static void readout_status1(struct ftdi_context *ftdi, int upperbound)
-//, int pre, int match, int ignore_idcode, int shift_enable)
 {
     int j;
 
@@ -683,15 +681,16 @@ DPRINT("[%s:%d] upperbound %d\n", __FUNCTION__, __LINE__, upperbound);
 DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ \n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
         if (idcode_count <= 2) {
             access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
-                !multiple_fpga && idcode_count != 1, 0);
+                !multiple_fpga && idcode_count != 1, 0, 0);
             if (!multiple_fpga && idcode_count != 1)
                 reset_mark_clock(ftdi, 0);
         }
         else {
+int bozo = 0;
             if (idcode_count < 3 || j == 2)
                 bozo = 1;
             access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
-                idcode_count < 3 || j != 1, idcode_count < 3 || j != 1);
+                idcode_count < 3 || j != 1, idcode_count < 3 || j != 1, bozo);
             bozo = 0;
         }
     }
@@ -896,7 +895,7 @@ usage:
 
 DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0)) + 10 * (idcode_count > 3), 0, 0);
+        (device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0)) + 10 * (idcode_count > 3), 0, 0, 0);
 DPRINT("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     marker_for_reset(ftdi, 0);
     if (jtag_index != 0 || !multiple_fpga) {
@@ -930,7 +929,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     if (found_cortex && idcode_count <= 2)
-        write_bypass(ftdi, DREAD, -1);
+        write_bypass(ftdi);
     ENTER_TMS_STATE('I');
     readout_status0(ftdi, 1 + (idcode_count > 3) + multiple_fpga);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -945,7 +944,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (multiple_fpga && idcode_count == 2 && jtag_index == 0)
         bypass_tc += 8;
-    access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0);
+    access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
@@ -990,7 +989,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-    write_bypass(ftdi, DREAD, -1);
+    write_bypass(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (idcode_count == 3) {
         reset_mark_clock(ftdi, 0);
@@ -998,7 +997,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
     ENTER_TMS_STATE('I');
     if (idcode_count <= 2) {
-        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga);
+        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga, 0);
         reset_mark_clock(ftdi, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -1009,6 +1008,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
           || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
     }
+{
+int bozo = 0;
     if (idcode_count > 2)
         master_innerl = 2;
     else if (idcode_count > 3)
@@ -1020,7 +1021,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * through the JTAG Interface" and Table 6-3.
      */
     int statparam = found_cortex ? 1 : -(jtag_index == 0);
-{
     int extra = multiple_fpga * (!statparam) || idcode_count > 2;
     int idindex = 0;
     if (master_innerl == 2)

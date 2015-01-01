@@ -504,7 +504,6 @@ DPRINT("[%s:%d] resp %d oneformat %d extra %d\n", __FUNCTION__, __LINE__, resp_l
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int origbozo)
 {
     int toploop, testi, flip = 0;
-    int bozo = origbozo;
     for (toploop = 0; toploop < loop_count; toploop++) {
         int innerl = 0;
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
@@ -518,12 +517,13 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2) + (version && idcode_count > 3); innerl++) {
+        int bozo = origbozo;
 master_innerl = innerl;
         if (innerl && idcode_count > 2 && (idcode_count != 3 || version))
             bozo = 1;
         for (flip = 0; flip < 1 + (multiple_fpga && idcode_count <= 2); flip++) {
             int idindex = 0;
-            if (master_innerl == 2)
+            if (innerl == 2)
                 idindex = jtag_index;
             else if (bozo) {
                 if (idcode_count > 3)
@@ -542,7 +542,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                     int adj = (idcode_count == 1) + flip
                         + (bozo  && (version || ignore_idcode || idcode_count < 3) ? (idcode_count - 2) : 0);
                     if (idcode_count > 3)
-                        adj = (master_innerl == 2);
+                        adj = (innerl == 2);
 DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
                     write_cirreg(ftdi, 0, IRREG_BYPASS_EXTEND, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
@@ -584,7 +584,6 @@ DPRINT("[%s:%d] version %d innerl %d bozo %d\n", __FUNCTION__, __LINE__, version
                 }
             }
         }
-        bozo = origbozo;
 DPRINT("[%s:%d] cor version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
         if (!innerl && found_cortex && !shift_enable)
             cortex_bypass(ftdi, toploop || cortex_nowait);
@@ -611,9 +610,7 @@ int bozo = 0;
             write_bypass(ftdi);
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
         int idindex = 0;
-        if (master_innerl == 2)
-            idindex = jtag_index;
-        else if (bozo) {
+        if (bozo) {
             if (idcode_count > 3)
                 idindex = idcode_count - 2;
             else
@@ -634,15 +631,11 @@ int bozo = 0;
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 {
 int bozo = 0;
-        if (!j && idcode_count > 2)
-            master_innerl = 2;
-        else if (idcode_count > 3)
-            bozo = 1;
         int extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
         int idindex = 0;
-        if (master_innerl == 2)
+        if (!j && idcode_count > 2)
             idindex = jtag_index;
-        else if (bozo) {
+        else if (idcode_count > 3) {
             if (idcode_count > 3)
                 idindex = idcode_count - 2;
             else
@@ -659,8 +652,6 @@ int bozo = 0;
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
             idindex, !bozo, extra);
-        bozo = 0;
-        master_innerl = 0;
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

@@ -389,10 +389,6 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, char tail)
 {
     int i, bef = 0, aft = 0;
-    if (M(command) == 0xff) {
-        if (read)
-            idindex = -1;
-    }
     for (i = 0; i < idcode_count; i++) {
         if (i > idindex)
             aft += idcode_len[i];
@@ -400,11 +396,12 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, 
             bef += idcode_len[i];
     }
 if(tracep)
-printf("[%s:%d] idco %d read %d command %x jtag %d bozo %d idindex %d bef %d aft %d master_innerl %d\n", __FUNCTION__, __LINE__, idcode_count, read, command, jtag_index, bozo, idindex, bef, aft, master_innerl);
+printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, read, command, idindex, bef, aft);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
     write_fill(ftdi, 0, bef, 0);
-    int trim = (read && command != IRREG_BYPASS_EXTEND);
+    int trim = (read && idindex != -1);
+//command != IRREG_BYPASS_EXTEND);
     if (aft && !trim) {
         if (idindex != -1)
             write_bit(0, idcode_len[idindex], command, 0);
@@ -493,7 +490,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 {
     uint32_t ret = 0;
 
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, extra); /* Select CFG_IN so that we can send out our request */
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex, extra); /* Select CFG_IN for sending our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
 DPRINT("[%s:%d] resp %d oneformat %d extra %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra);
     if (resp_len && !oneformat && extra && idcode_count > 2)
@@ -608,10 +605,11 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
 {
+int bozo = 0;
         if (j && idcode_count > 3)
             bozo = 1;
         else if (j && idcode_count > 2 && found_cortex)
-            write_bypass(ftdi, DREAD, 0);
+            write_bypass(ftdi, DREAD, -1);
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
         int idindex = 0;
         if (master_innerl == 2)
@@ -632,10 +630,11 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
-            write_bypass(ftdi, DREAD, 0);
+            write_bypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 {
+int bozo = 0;
         if (!j && idcode_count > 2)
             master_innerl = 2;
         else if (idcode_count > 3)
@@ -931,7 +930,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     if (found_cortex && idcode_count <= 2)
-        write_bypass(ftdi, DREAD, 0);
+        write_bypass(ftdi, DREAD, -1);
     ENTER_TMS_STATE('I');
     readout_status0(ftdi, 1 + (idcode_count > 3) + multiple_fpga);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -991,7 +990,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-    write_bypass(ftdi, DREAD, 0);
+    write_bypass(ftdi, DREAD, -1);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (idcode_count == 3) {
         reset_mark_clock(ftdi, 0);

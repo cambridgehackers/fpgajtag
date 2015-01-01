@@ -386,26 +386,13 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 /*
  * Functions for setting Instruction Register(IR)
  */
-void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail)
+void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, char tail)
 {
-    int i, bef = 0, aft = 0, idindex = 0;
-    int trim = (read && command != IRREG_BYPASS_EXTEND);
-    if (flip == USE_CORTEX_IR)
-        idindex = found_cortex;
-    else if (master_innerl == 2)
-        idindex = jtag_index;
-    else if (bozo && read == 0) {
-        if (idcode_count > 3)
-            idindex = idcode_count - 2;
-        else
-            idindex = jtag_index;
-    }
-    else if (M(command) == 0xff) {
+    int i, bef = 0, aft = 0;
+    if (M(command) == 0xff) {
         if (read)
             idindex = -1;
     }
-    else if (flip)
-        idindex = idcode_count - 1;
     for (i = 0; i < idcode_count; i++) {
         if (i > idindex)
             aft += idcode_len[i];
@@ -413,10 +400,11 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, cha
             bef += idcode_len[i];
     }
 if(tracep)
-printf("[%s:%d] idco %d read %d command %x jtag %d flip %d bozo %d idindex %d bef %d aft %d master_innerl %d\n", __FUNCTION__, __LINE__, idcode_count, read, command, jtag_index, flip, bozo, idindex, bef, aft, master_innerl);
+printf("[%s:%d] idco %d read %d command %x jtag %d bozo %d idindex %d bef %d aft %d master_innerl %d\n", __FUNCTION__, __LINE__, idcode_count, read, command, jtag_index, bozo, idindex, bef, aft, master_innerl);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
     write_fill(ftdi, 0, bef, 0);
+    int trim = (read && command != IRREG_BYPASS_EXTEND);
     if (aft && !trim) {
         if (idindex != -1)
             write_bit(0, idcode_len[idindex], command, 0);
@@ -429,7 +417,16 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, target_state = (command == IRREG_BYPASS_EXTEND) ? 'I'
                        : ((jtag_index != idcode_count - 1 && read) ? 'P' : 'E');
-    write_irreg(ftdi, read, command, jtag_index, target_state);
+    int idindex = 0;
+    if (master_innerl == 2)
+        idindex = jtag_index;
+    else if (bozo) {
+        if (idcode_count > 3)
+            idindex = idcode_count - 2;
+        else
+            idindex = jtag_index;
+    }
+    write_irreg(ftdi, read, command, idindex, target_state);
     if (read)
         ret = read_data_int(ftdi, target_state == 'P', idcode_len[idcode_count - 1]);
     ENTER_TMS_STATE('I');
@@ -437,12 +434,23 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 }
 static void write_dirreg(struct ftdi_context *ftdi, int command, int extra)
 {
-    write_irreg(ftdi, 0, EXTEND_EXTRA | command, extra, 'I');
+    int idindex = 0;
+    if (master_innerl == 2)
+        idindex = jtag_index;
+    else if (bozo) {
+        if (idcode_count > 3)
+            idindex = idcode_count - 2;
+        else
+            idindex = jtag_index;
+    }
+    else if (extra)
+        idindex = idcode_count - 1;
+    write_irreg(ftdi, 0, EXTEND_EXTRA | command, idindex, 'I');
     idle_to_shift_dr(extra, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
-    write_irreg(ftdi, 0, regname, USE_CORTEX_IR, 'U');
+    write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
 static void write_bypass(struct ftdi_context *ftdi, int read)

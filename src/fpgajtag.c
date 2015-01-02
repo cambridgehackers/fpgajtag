@@ -528,50 +528,41 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2) + (version && idcode_count > 3); innerl++) {
-int mult = 1 + (multiple_fpga && idcode_count <= 2);
+        int mult = 1 + (multiple_fpga && idcode_count <= 2);
         for (flip = 0; flip < mult; flip++) {
             int btemp = addrtemp
                       || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
             int idindex = innerl * mult + flip + (innerl && found_cortex);
             if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
-                idindex += //2 * loop_count
-match;
+                idindex += match;
             int j = 3;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             int bcond1 = btemp && (idcode_count < 3 || version || ignore_idcode);
             int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl);
-            int adj = idcode_count > 3 ? innerl == 2 :
-                ((idcode_count == 1) + flip
-                + (bcond1 ? (idcode_count - 2) : 0));
+            int adj = (idcode_count - 1) == idindex;
             int fillwidth = idcode_count - (found_cortex != 0)
                     - (idcode_count > 3) * (
                         + (version == 0)*(innerl == 0)
                         + (version == 1)*(innerl != 2)
                         + (version == 2)*(innerl == 1));
 flush_write(ftdi, NULL);
-printf("[%s:%d] jtagin %d version %d max %d nowait %d pre %d match %d ignore %d toploop %d inner %d flip %d idcode_count %d btemp %d idindex %d\n", __FUNCTION__, __LINE__, jtag_index, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, idcode_count, btemp, idindex);
-printf("[%s:%d] adj %d fillwidth %d\n", __FUNCTION__, __LINE__, adj, fillwidth);
+printf("[%s:%d] jtag %d ver %d max %d now %d pre %d match %d ign %d topl %d in %d flip %d idcount %d btemp %d idindex %d adj %d fill %d\n", __FUNCTION__, __LINE__, jtag_index, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, idcode_count, btemp, idindex, adj, fillwidth);
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
-DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
                     if (bcond2)
                         write_bit(0, fillwidth, 0, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                     if (testi && testi < 4) {
                         if (testi > 1) {
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                             if (!btemp && idcode_count > 2)
                                 write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
 DPRINT("[%s:%d] version %d flip %d\n", __FUNCTION__, __LINE__, version, flip);
                             idle_to_shift_dr(flip != 0, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                             if (btemp && idcode_count > 2)
                                 write_bit(0, fillwidth, 0, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                         }
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
@@ -586,6 +577,7 @@ DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl
                         else
                             write_bit(0, idcode_count - 1, 0, 0);
                     }
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
                     uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj,
                          (!adj && (!btemp) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0);
                     if (ret != 0)
@@ -596,7 +588,6 @@ DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl
 DPRINT("[%s:%d] cor version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, shift_enable);
         if (!innerl && found_cortex && !shift_enable)
             cortex_bypass(ftdi, toploop || cortex_nowait);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         if (innerl && toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
     }

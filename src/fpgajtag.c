@@ -618,53 +618,30 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         int idindex = 0;
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
-{
         if (j == upperbound - 1 && idcode_count > 2 && found_cortex)
             write_bypass(ftdi);
-DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
-#if 0
-        if (j == upperbound - 1 && idcode_count > 3)
-            idindex = idcode_count - 2;
-        else if (extra)
-            idindex = idcode_count - 1;
-#else
         if (j != upperbound - 1)
             idindex = idcode_count - 1 - j;
-#endif
         write_dirreg(ftdi, IRREG_USERCODE, idindex, extra);
-        int readitem = (!j && multiple_fpga) || idcode_count == 1;
-        int bitlen = (!readitem && (!(j && idcode_count > 3)) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
+        int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
+        int bitlen = (j == upperbound - 1 && idcode_count > 2) ? 1 : 0;
+flush_write(ftdi, NULL);
+printf("[%s:%d] j %d upperbound %d readitem %d bitlen %d\n", __FUNCTION__, __LINE__, j, upperbound, readitem, bitlen);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, bitlen);
-}
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
-{
         extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
-#if 0
-idcode_count > 3 ? 2 - extra 
-        int idindex = 0;
-        if (!j && idcode_count > 2)
-            idindex = jtag_index;
-        else if (idcode_count > 3) {
-            if (idcode_count > 3)
-                idindex = idcode_count - 2;
-            else
-                idindex = jtag_index;
-        }
-        else if (extra)
-            idindex = idcode_count - 1;
-#endif
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
 printf("[%s:%d] before readout_seq j %d extra %d idindex %d\n", __FUNCTION__, __LINE__, j, extra, idindex);
-        int bitlen = (!(idcode_count == 1 || extra) && (!j || idcode_count <= 3) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0,
+        bitlen = (!(idcode_count == 1 || extra) && (!j || idcode_count <= 3) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0,
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
@@ -676,7 +653,6 @@ printf("[%s:%d] before readout_seq j %d extra %d idindex %d\n", __FUNCTION__, __
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         statparam = 1;
-}
         ENTER_TMS_STATE('R');
     }
 DPRINT("[%s:%d] over 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
@@ -1036,15 +1012,15 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         idindex = idcode_count - 2;
     else if (extra)
         idindex = idcode_count - 1;
-printf("[%s:%d] before readoutseq\n", __FUNCTION__, __LINE__);
     int hozo = 0;
     if (idcode_count > 2) {}
     else if (idcode_count > 3)
         hozo = 1;
     int bitlen = (!(idcode_count == 1 || extra) && (!hozo) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
+printf("[%s:%d] before readoutseq hozo %d bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, hozo, bitlen, jtag_index, statparam);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
-        idindex, bitlen, extra, 0, 0);
+        idindex, bitlen, extra, 0, jtag_index != 0);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

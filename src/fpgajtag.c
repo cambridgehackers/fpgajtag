@@ -409,13 +409,21 @@ printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __
     else
         write_bit(read, idcode_len[idindex] - 1, command, tail);
 }
-static int write_cirreg(struct ftdi_context *ftdi, int read, int command, int idindex)
+static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0, target_state = (command == IRREG_BYPASS_EXTEND) ? 'I'
-                       : ((jtag_index != idcode_count - 1 && read) ? 'P' : 'E');
-    write_irreg(ftdi, read, command, idindex, target_state);
+    int ret = 0, target_state = ((jtag_index != idcode_count - 1 && read) ? 'P' : 'E');
+    write_irreg(ftdi, read, command, jtag_index, target_state);
     if (read)
         ret = read_data_int(ftdi, target_state == 'P', idcode_len[idcode_count - 1]);
+    ENTER_TMS_STATE('I');
+    return ret;
+}
+static int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
+{
+    int ret = 0;
+    write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, idindex, 'I');
+    if (read)
+        ret = read_data_int(ftdi, 0, idcode_len[idcode_count - 1]);
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -432,7 +440,7 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 static void write_bypass(struct ftdi_context *ftdi)
 {
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    uint32_t ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS_EXTEND, -1) & 0xff;
+    uint32_t ret = write_cbypass(ftdi, DREAD, -1) & 0xff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
     else if (ret == PROGRAMMED)
@@ -483,18 +491,22 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
 }
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
-     int fd, int oneformat, int idindex, int bititem, int extra)
+     int fd, int oneformat, int idindex, int bititem, int extra, int addfill)
 {
     uint32_t ret = 0;
 
     write_dirreg(ftdi, IRREG_CFG_IN, idindex, extra); /* Select CFG_IN for sending our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] resp %d oneformat %d extra %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra);
+DPRINT("[%s:%d] resp %d oneformat %d extra %d idindex %d bititem %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra, idindex, bititem);
     if (resp_len && !oneformat && extra && idcode_count > 2)
         write_bit(0, 1, 0, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     ENTER_TMS_STATE('I');
     if (resp_len) {
         write_dirreg(ftdi, IRREG_CFG_OUT, idindex, extra);
+DPRINT("[%s:%d]JJJJJ resp %d oneformat %d extra %d idindex %d bititem %d addfill %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra, idindex, bititem, addfill);
+        if (idcode_count > 3 && addfill)
+            write_bit(0, 2, 0, 0);
         ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || extra, bititem);
     }
     return ret;
@@ -542,7 +554,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         ((idcode_count == 1) + flip
                         + (bcond1 ? (idcode_count - 2) : 0));
 DPRINT("[%s:%d] j %d testi %d adj %d idcode_count %d flip %d innerl %d jtagindex %d\n", __FUNCTION__, __LINE__, j, testi, adj, idcode_count, flip, innerl, jtag_index);
-                    write_cirreg(ftdi, 0, IRREG_BYPASS_EXTEND, idindex);
+                    write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
 DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl);
                     int fillwidth = idcode_count - (found_cortex != 0)
@@ -605,6 +617,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
 {
         if (j && idcode_count == 3 && found_cortex)
             write_bypass(ftdi);
+DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
         int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
         int idindex = 0;
         if (j && idcode_count > 3)
@@ -620,7 +633,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
+DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
 {
         int extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
         int idindex = 0;
@@ -643,7 +656,7 @@ printf("[%s:%d] before readout_seq\n", __FUNCTION__, __LINE__);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
-            idindex, !j || idcode_count <= 3, extra);
+            idindex, !j || idcode_count <= 3, extra, j == 1);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -695,7 +708,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t dummy[] = {CONFIG_DUMMY};
     int extra = jtag_index != idcode_count - 1;
 
-    write_cirreg(ftdi, 0, IRREG_CFG_IN, 0);
+    write_cirreg(ftdi, 0, IRREG_CFG_IN);
     idle_to_shift_dr(jtag_index != 0, 0xff);
     write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1) {
@@ -705,7 +718,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
-    write_cirreg(ftdi, 0, IRREG_CFG_OUT, 0);
+    write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index != 0, 0xff);
     write_bytes(ftdi, DREAD, extra ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, extra, 1);
@@ -720,14 +733,14 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0, 1, 0, 0);
     readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0, 1, 0, 0);
 #endif
-    write_cirreg(ftdi, 0, IRREG_JSHUTDOWN, 0);
+    write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(ftdi, 6, 0);
     readout_seq(ftdi, DITEM( CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
@@ -736,7 +749,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0, 1, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0, 1, 0, 0);
 }
 
 struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
@@ -879,7 +892,7 @@ DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, m
 DPRINT("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     marker_for_reset(ftdi, 0);
     if (jtag_index != 0 || !multiple_fpga) {
-        if (idcode_count <= 2)
+        if (idcode_count != 3)
             set_clock_divisor(ftdi);
         write_tms_transition("RR1");
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -931,16 +944,20 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     /*
      * Step 2: Initialization
      */
-    write_cirreg(ftdi, 0, IRREG_JPROGRAM, 0);
-    write_cirreg(ftdi, 0, IRREG_ISC_NOOP, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_cirreg(ftdi, 0, IRREG_JPROGRAM);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP, 0)) != INPROGRAMMING)
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN, 0)) != INPROGRAMMING)
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
     send_data_file(ftdi, found_cortex && (idcode_count <= 2));
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -954,18 +971,21 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
             ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_cirreg(ftdi, 0, IRREG_BYPASS, 0);
-    write_cirreg(ftdi, 0, IRREG_JSTART, 0);
+    write_cirreg(ftdi, 0, IRREG_BYPASS);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS, 0)) != FINISHED)
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_cirreg(ftdi, 0, IRREG_BYPASS, 0);
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    write_cirreg(ftdi, 0, IRREG_BYPASS);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
@@ -1012,7 +1032,7 @@ printf("[%s:%d] before readoutseq\n", __FUNCTION__, __LINE__);
         (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
         idindex,
         !hozo,
-        extra);
+        extra, 0);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

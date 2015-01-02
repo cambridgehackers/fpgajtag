@@ -464,9 +464,7 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
         else
             write_item(DITEM(DATAR(size)));
         if (resp_len <= 0)
-            write_bit((readitem != 0) * DREAD,
-                  (!readitem && bitlen && idcode_count > 2) ?
-                  (idcode_count - (found_cortex != 0) - 1): 0, 0, 'I');
+            write_bit((readitem != 0) * DREAD, bitlen, 0, 'I');
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
@@ -491,11 +489,13 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
 }
 
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
-     int fd, int oneformat, int idindex, int bititem, int extra, int addfill)
+     int fd, int oneformat, int idindex, int bititem, int extra, int addfill, int shiftdr)
 {
     uint32_t ret = 0;
 
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, extra); /* Select CFG_IN for sending our request */
+DPRINT("[%s:%d] extra %d shiftdr %d\n", __FUNCTION__, __LINE__, extra, shiftdr);
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex, shiftdr); /* Select CFG_IN for sending our request */
+DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
 DPRINT("[%s:%d] resp %d oneformat %d extra %d idindex %d bititem %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra, idindex, bititem);
     if (resp_len && !oneformat && extra && idcode_count > 2)
@@ -591,7 +591,9 @@ DPRINT("[%s:%d] version %d innerl %d\n", __FUNCTION__, __LINE__, version, innerl
                         else
                             write_bit(0, idcode_count - 1, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, !btemp);
+                  
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj,
+                         (!adj && (!btemp) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
@@ -614,19 +616,25 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
 
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
+        int idindex = 0;
+        int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
 {
-        if (j && idcode_count == 3 && found_cortex)
+        if (j == upperbound - 1 && idcode_count > 2 && found_cortex)
             write_bypass(ftdi);
 DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
-        int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
-        int idindex = 0;
-        if (j && idcode_count > 3)
+#if 0
+        if (j == upperbound - 1 && idcode_count > 3)
             idindex = idcode_count - 2;
         else if (extra)
             idindex = idcode_count - 1;
+#else
+        if (j != upperbound - 1)
+            idindex = idcode_count - 1 - j;
+#endif
         write_dirreg(ftdi, IRREG_USERCODE, idindex, extra);
-        ret = fetch_result(ftdi, sizeof(uint32_t), -1,
-             (!j && multiple_fpga) || idcode_count == 1, !(j && idcode_count > 3));
+        int readitem = (!j && multiple_fpga) || idcode_count == 1;
+        int bitlen = (!readitem && (!(j && idcode_count > 3)) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
+        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, bitlen);
 }
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
@@ -635,7 +643,9 @@ DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
 {
-        int extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
+        extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j);
+#if 0
+idcode_count > 3 ? 2 - extra 
         int idindex = 0;
         if (!j && idcode_count > 2)
             idindex = jtag_index;
@@ -647,16 +657,19 @@ DPRINT("[%s:%d] j %d\n", __FUNCTION__, __LINE__, j);
         }
         else if (extra)
             idindex = idcode_count - 1;
+#endif
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-printf("[%s:%d] before readout_seq\n", __FUNCTION__, __LINE__);
+printf("[%s:%d] before readout_seq j %d extra %d idindex %d\n", __FUNCTION__, __LINE__, j, extra, idindex);
+        int bitlen = (!(idcode_count == 1 || extra) && (!j || idcode_count <= 3) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0,
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
             : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
-            idindex, !j || idcode_count <= 3, extra, j == 1);
+            idindex, bitlen, extra, j == 1,
+            j == upperbound - 1 ? 0 : (j + 1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -733,12 +746,12 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0, 1, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1, 1, 0, 1, 0, 0, 0);
     readout_seq(ftdi, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0, 1, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1, 1, 0, 1, 0, 0, 0);
 #endif
     write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(ftdi, 6, 0);
@@ -749,7 +762,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0, 1, 0, 0);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd, 1, 0, 1, 0, 0, 0);
 }
 
 struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
@@ -1028,11 +1041,10 @@ printf("[%s:%d] before readoutseq\n", __FUNCTION__, __LINE__);
     if (idcode_count > 2) {}
     else if (idcode_count > 3)
         hozo = 1;
+    int bitlen = (!(idcode_count == 1 || extra) && (!hozo) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
-        idindex,
-        !hozo,
-        extra, 0);
+        idindex, bitlen, extra, 0, 0);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

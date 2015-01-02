@@ -49,12 +49,12 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
 int idcode_count;
-static int tracep;// = 1;
+static int tracep ;//= 1;
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
@@ -528,10 +528,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         for (innerl = 0; innerl < 1 + (version && idcode_count > 2) + (version && idcode_count > 3); innerl++) {
-        for (flip = 0; flip < 1 + (multiple_fpga && idcode_count <= 2); flip++) {
+int mult = 1 + (multiple_fpga && idcode_count <= 2);
+        for (flip = 0; flip < mult; flip++) {
             int btemp = addrtemp
                       || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
             int idindex = 0;
+#if 0
             if (innerl == 2)
                 idindex = jtag_index;
             else if (btemp) {
@@ -542,7 +544,16 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             }
             else if (flip)
                 idindex = idcode_count - 1;
-DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d inner %d flip %d idcode_count %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, idcode_count);
+#endif
+idindex = innerl * mult + flip;
+if (!version && idcode_count == 2 && ignore_idcode)
+    idindex += mult * loop_count;
+if (innerl && found_cortex)
+    idindex++;
+//idcode_count - 1 - innerl;
+//(innerl != 0) * (innerl + 1);
+flush_write(ftdi, NULL);
+printf("[%s:%d] jtagin %d version %d max %d nowait %d pre %d match %d ignore %d toploop %d inner %d flip %d idcode_count %d btemp %d idindex %d\n", __FUNCTION__, __LINE__, jtag_index, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, innerl, flip, idcode_count, btemp, idindex);
             int j = 3;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
@@ -617,16 +628,18 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         int idindex = 0;
-        int extra = (j || !multiple_fpga) ? (idcode_count > 3 ? 2 : 0) : 1;
+        int extra = (j || !multiple_fpga) ? (//idcode_count > 3 ? 2 : 
+0) : 1;
         if (j == upperbound - 1 && idcode_count > 2 && found_cortex)
             write_bypass(ftdi);
         if (j != upperbound - 1)
             idindex = idcode_count - 1 - j;
         write_dirreg(ftdi, IRREG_USERCODE, idindex, extra);
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int bitlen = (j == upperbound - 1 && idcode_count > 2) ? 1 : 0;
+        int bitlen = (j != 0) * (idcode_count - 2);
+//(j == upperbound - 1 && idcode_count > 2) ? idcode_count - 2 : 0;
 flush_write(ftdi, NULL);
-printf("[%s:%d] j %d upperbound %d readitem %d bitlen %d\n", __FUNCTION__, __LINE__, j, upperbound, readitem, bitlen);
+printf("[%s:%d] jtag_index %d j %d upperbound %d readitem %d bitlen %d\n", __FUNCTION__, __LINE__, jtag_index, j, upperbound, readitem, bitlen);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, bitlen);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
@@ -789,8 +802,11 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
      */
     ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
-        if (idcode_array[i] == file_idcode)
+        if (idcode_array[i] == file_idcode) {
             jtag_index = i;
+            if (skip_idcode-- <= 0)
+                break;
+        }
     if (jtag_index == -1) {
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
         exit(-1);
@@ -822,7 +838,7 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "trls:c")) != -1)
+    while ((i = getopt (argc, argv, "trls:ci:")) != -1)
         switch (i) {
         case 't':
             trace = 1;
@@ -838,6 +854,9 @@ int main(int argc, char **argv)
             break;
         case 's':
             serialno = optarg;
+            break;
+        case 'i':
+            skip_idcode = atoi(optarg);
             break;
         default:
             goto usage;
@@ -934,6 +953,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * Step 2: Initialization
      */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+//tracep = 1;
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);

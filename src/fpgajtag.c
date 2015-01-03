@@ -516,7 +516,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
 {
-    int toploop, testi, flip, innerl;
+    int toploop, testi, innerl;
     int inmax = 1 + (version && idcode_count > 2) + (version && idcode_count > 3);
     int mult = 1 + (multiple_fpga && idcode_count <= 2);
     for (toploop = 0; toploop < loop_count; toploop++) {
@@ -533,9 +533,10 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         int idindex = 0;
         if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
             idindex += match;
+        int flip = 0;
         for (innerl = 0; innerl < inmax; innerl++) {
             int btemp = addrtemp || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
-        for (flip = 0; flip < mult; flip++) {
+            int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int mod3 = (idcode_count > 3) * (
                         + (version == 0)*(innerl == 0)*(adj == 0)
@@ -550,7 +551,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
-                    write_dirreg(ftdi, IRREG_USER2, idindex, flip != 0);
+                    write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
                     if (bcond2 || extracond)
                         write_bit(0, fillwidth, 0, 0);
                     if (testi) {
@@ -558,7 +559,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
                             if ((!btemp && idcode_count > 2) && !extracond)
                                 write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
-                            idle_to_shift_dr(flip != 0, 0);
+                            idle_to_shift_dr(nonfirst, 0);
                             if ((btemp && idcode_count > 2) || extracond)
                                 write_bit(0, fillwidth, 0, 0);
                         }
@@ -579,13 +580,15 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 }
             }
             idindex += 1;
+        if (++flip >= mult) {
+            flip = 0;
+            if (!innerl && found_cortex && !shift_enable)
+                cortex_bypass(ftdi, toploop || cortex_nowait);
+            if (innerl && toploop == match)
+                reset_mark_clock(ftdi, 1 - cortex_nowait);
+            if (!innerl && found_cortex)
+                idindex += 1;
         }
-        if (!innerl && found_cortex && !shift_enable)
-            cortex_bypass(ftdi, toploop || cortex_nowait);
-        if (innerl && toploop == match)
-            reset_mark_clock(ftdi, 1 - cortex_nowait);
-        if (!innerl && found_cortex)
-            idindex += 1;
     }
     }
 }

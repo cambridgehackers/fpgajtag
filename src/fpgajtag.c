@@ -536,22 +536,23 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         int idindex = (!version && ignore_idcode) * match; // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
         int btemp = addrtemp;
-        for (innerl = 0; innerl < inmax * mult; innerl++) {
-            int izero = innerl/mult == 0;
-            int ione = innerl/mult == 1;
-            int itwo = innerl/mult == 2;
+        int top_wait = toploop || cortex_nowait;
+        for (innerl = 0; innerl < inmax; innerl++) {
+            int izero = innerl == 0;
+            int ione = innerl == 1;
+            int itwo = innerl == 2;
             int v0_3 = idcode_count > 3 && version == 0;
             int v1_3 = idcode_count > 3 && version == 1;
             int v2_3 = idcode_count > 3 && version == 2;
+        for (flip = 0; flip < mult; flip++) {
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
             int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
-            int extracond = v0_3 && adj;
+            int extracond = v0_3 && !adj;
             int bitstar = ((!btemp && idcode_count > 2) && !extracond) * dcount;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
-            int top_wait = toploop || cortex_nowait;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -575,8 +576,9 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
             }
-            if (++flip >= mult) {
-                flip = 0;
+                idindex++;
+        }
+            {
                 if (izero && found_cortex) {
                     if (!shift_enable)
                         cortex_bypass(ftdi, top_wait);
@@ -584,7 +586,6 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 }
                 if (!izero && toploop == match)
                     reset_mark_clock(ftdi, !cortex_nowait);
-                idindex++;
                 btemp |= idcode_count > 3 || (version && idcode_count > 2);
             }
         }

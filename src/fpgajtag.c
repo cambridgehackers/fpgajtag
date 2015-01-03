@@ -540,17 +540,18 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int izero = innerl/mult == 0;
             int ione = innerl/mult == 1;
             int itwo = innerl/mult == 2;
+            int v0_3 = idcode_count > 3 && version == 0;
+            int v1_3 = idcode_count > 3 && version == 1;
+            int v2_3 = idcode_count > 3 && version == 2;
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
-            int v2_3 = idcode_count > 3 && version == 2;
-            int v0_3 = idcode_count > 3 && version == 0;
-            int top_wait = toploop || cortex_nowait;
-            int mod3 = v2_3*ione +
-                (idcode_count > 3) * ((version == 0)*izero*(!adj) + (version == 1)*(!itwo));
+            int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
+            int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && adj;
+            int bitstar = ((!btemp && idcode_count > 2) && !extracond) * dcount;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
-            int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
+            int top_wait = toploop || cortex_nowait;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -559,7 +560,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                     write_bit(0, ((btemp && (!v2_3 || !izero || mod3)) || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
-                        write_bit(0, ((!btemp && idcode_count > 2) && !extracond) * dcount, 0, 0);
+                        write_bit(0, bitstar, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
                         write_bit(0, ((btemp && idcode_count > 2) || extracond) * fillwidth, 0, 0);
                     }

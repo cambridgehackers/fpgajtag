@@ -516,7 +516,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
 {
-    int toploop, testi, innerl;
+    int toploop;
     int inmax = 1 + (version && idcode_count > 2) + (version && idcode_count > 3);
     int mult = 1 + (multiple_fpga && idcode_count <= 2);
     for (toploop = 0; toploop < loop_count; toploop++) {
@@ -533,9 +533,10 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         int idindex = 0;
         if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
             idindex += match;
-        int flip = 0;
+        int innerl, testi, flip = 0;
         for (innerl = 0; innerl < inmax; innerl++) {
-            int btemp = addrtemp || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
+looptop:;
+            int btemp = addrtemp || (innerl != 0 && idcode_count > 2 && (idcode_count != 3 || version));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int mod3 = (idcode_count > 3) * (
@@ -544,7 +545,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         + (version == 2)*(innerl == 1));
             int fillwidth = idcode_count - (found_cortex != 0) - mod3;
             int extracond = (!version && idcode_count > 3 && idindex == idcode_count - 1);
-            int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl || mod3);
+            int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl != 0 || mod3);
             int j = 3;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
@@ -579,16 +580,16 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
             }
-            idindex += 1;
         if (++flip >= mult) {
             flip = 0;
-            if (!innerl && found_cortex && !shift_enable)
+            if (innerl == 0 && found_cortex && !shift_enable)
                 cortex_bypass(ftdi, toploop || cortex_nowait);
-            if (innerl && toploop == match)
+            if (innerl != 0 && toploop == match)
                 reset_mark_clock(ftdi, 1 - cortex_nowait);
-            if (!innerl && found_cortex)
-                idindex += 1;
+            idindex += 1 + (innerl == 0 && found_cortex);
         }
+        else
+            goto looptop;
     }
     }
 }

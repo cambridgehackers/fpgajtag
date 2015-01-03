@@ -535,11 +535,11 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         }
         int idindex = (!version && ignore_idcode) * match; // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
+        int btemp = addrtemp;
         for (innerl = 0; innerl < inmax * mult; innerl++) {
             int izero = innerl/mult == 0;
             int ione = innerl/mult == 1;
             int itwo = innerl/mult == 2;
-            int btemp = addrtemp || (!izero && (idcode_count > 3 || (version && idcode_count > 2)));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int v2_3 = idcode_count > 3 && version == 2;
@@ -548,14 +548,14 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 (idcode_count > 3) * ((version == 0)*izero*(!adj) + (version == 1)*(!itwo));
             int fillwidth = dcount + 1 - mod3;
             int extracond = !version && idcode_count > 3 && adj;
-            int bcond2 = (btemp && (!v2_3 || !izero || mod3)) || extracond;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
+            int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    if (bcond2)
+                    if ((btemp && (!v2_3 || !izero || mod3)) || extracond)
                         write_bit(0, fillwidth, 0, 0);
                     if (testi) {
                         if (testi > 1) {
@@ -568,12 +568,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         }
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
-                        if (idcode_count > 3 && (ione || (!itwo && btemp))) {
-                            write_bit(0, 1, 0, 0);
-                            write_bit(0, idcode_count - 2, 0, 0);
-                        }
-                        else
-                            write_bit(0, idcode_count - 1, 0, 0);
+                        write_bit(0, bcond4, 0, 0);
+                        write_bit(0, idcode_count - 1 - bcond4, 0, 0);
                     }
                     uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, bitex);
                     if (ret != 0)
@@ -590,6 +586,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 if (!izero && toploop == match)
                     reset_mark_clock(ftdi, !cortex_nowait);
                 idindex++;
+                btemp |= idcode_count > 3 || (version && idcode_count > 2);
             }
         }
     }

@@ -543,11 +543,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int v2_3 = idcode_count > 3 && version == 2;
+            int v0_3 = idcode_count > 3 && version == 0;
             int top_wait = toploop || cortex_nowait;
             int mod3 = v2_3*ione +
                 (idcode_count > 3) * ((version == 0)*izero*(!adj) + (version == 1)*(!itwo));
             int fillwidth = dcount + 1 - mod3;
-            int extracond = !version && idcode_count > 3 && adj;
+            int extracond = v0_3 && adj;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
             int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
             int j = 3 + !top_wait;
@@ -555,17 +556,14 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    if ((btemp && (!v2_3 || !izero || mod3)) || extracond)
-                        write_bit(0, fillwidth, 0, 0);
+                    write_bit(0, ((btemp && (!v2_3 || !izero || mod3)) || extracond) * fillwidth, 0, 0);
+                    if (testi > 1) {
+                        write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
+                        write_bit(0, ((!btemp && idcode_count > 2) && !extracond) * dcount, 0, 0);
+                        idle_to_shift_dr(nonfirst, 0);
+                        write_bit(0, ((btemp && idcode_count > 2) || extracond) * fillwidth, 0, 0);
+                    }
                     if (testi) {
-                        if (testi > 1) {
-                            write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
-                            if ((!btemp && idcode_count > 2) && !extracond)
-                                write_bit(0, dcount, 0, 0);
-                            idle_to_shift_dr(nonfirst, 0);
-                            if ((btemp && idcode_count > 2) || extracond)
-                                write_bit(0, fillwidth, 0, 0);
-                        }
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
                         write_bit(0, bcond4, 0, 0);

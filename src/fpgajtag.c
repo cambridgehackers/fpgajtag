@@ -530,12 +530,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             }
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
+        int idindex = 0;
+        if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
+            idindex += match;
         for (innerl = 0; innerl < inmax; innerl++) {
             int btemp = addrtemp || (innerl && idcode_count > 2 && (idcode_count != 3 || version));
         for (flip = 0; flip < mult; flip++) {
-            int idindex = innerl * mult + flip + (innerl && found_cortex);
-            if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
-                idindex += match;
             int adj = (idcode_count - 1) == idindex;
             int mod3 = (idcode_count > 3) * (
                         + (version == 0)*(innerl == 0)*(adj == 0)
@@ -578,11 +578,14 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
             }
+            idindex += 1;
         }
         if (!innerl && found_cortex && !shift_enable)
             cortex_bypass(ftdi, toploop || cortex_nowait);
         if (innerl && toploop == match)
             reset_mark_clock(ftdi, 1 - cortex_nowait);
+        if (!innerl && found_cortex)
+            idindex += 1;
     }
     }
 }

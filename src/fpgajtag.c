@@ -262,10 +262,14 @@ void idle_to_shift_dr(int extra, int val)
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    idle_to_shift_dr(jtag_index != 0, 0xff);
-    if (idcode_count > 2)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME,
-            -6 + (idcode_count - 2), 0, 0);
+    idle_to_shift_dr((jtag_index != 0) + (idcode_count > 3 && jtag_index != idcode_count - 1), 0xff);
+    if (idcode_count > 3 && jtag_index != idcode_count - 1)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
+    if (idcode_count > 3)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5
+           - (jtag_index != idcode_count - 1), 0, 0);
+    else if (idcode_count > 2)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -6, 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, zerodata, sizeof(uint32_t));
@@ -535,7 +539,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int izero = innerl/mult == 0;
             int ione = innerl/mult == 1;
             int itwo = innerl/mult == 2;
-            int btemp = addrtemp || (!izero && idcode_count > 2 && (idcode_count != 3 || version));
+            int btemp = addrtemp || (!izero && (idcode_count > 3 || (version && idcode_count > 2)));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int mod3 = (idcode_count > 3) * ((version == 0)*izero*(!adj)
@@ -546,7 +550,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
             int j = 3;
             if (!cortex_nowait && !toploop)
-                j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
+                j += 1;
+//device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);

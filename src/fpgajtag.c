@@ -562,7 +562,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
                         write_bit(0, bitstar, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
-                        write_bit(0, ((btemp && idcode_count > 2) || extracond) * fillwidth, 0, 0);
+                        write_bit(0, (btemp || extracond) * fillwidth, 0, 0);
                     }
                     if (testi) {
                         write_one_byte(ftdi, 0, 0x69);
@@ -584,7 +584,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 }
                 if (!izero && toploop == match)
                     reset_mark_clock(ftdi, !cortex_nowait);
-                btemp |= idcode_count > 3 || (version && idcode_count > 2);
+                btemp |= idcode_count > 3 || version;
             }
             idindex++;
         }

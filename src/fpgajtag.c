@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -541,12 +541,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int btemp = addrtemp || (!izero && idcode_count > 2 && (idcode_count != 3 || version));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
-            int mod3 = (idcode_count > 3) * ((version == 0)*izero*(adj == 0)
+            int mod3 = (idcode_count > 3) * ((version == 0)*izero*(!adj)
                         + (version == 1)*(!itwo) + (version == 2)*ione);
             int fillwidth = idcode_count - (found_cortex != 0) - mod3;
             int extracond = !version && idcode_count > 3 && adj;
             int bcond2 = btemp && (idcode_count <= 3 || version != 2 || !izero || mod3);
-            int bitex = (!adj && (!btemp) && idcode_count > 2)*(idcode_count-(found_cortex != 0)-1);
+            int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
             int j = 3;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
@@ -560,7 +560,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         if (testi > 1) {
                             write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
                             if ((!btemp && idcode_count > 2) && !extracond)
-                                write_bit(0, idcode_count - (found_cortex != 0) - 1, 0, 0);
+                                write_bit(0, dcount, 0, 0);
                             idle_to_shift_dr(nonfirst, 0);
                             if ((btemp && idcode_count > 2) || extracond)
                                 write_bit(0, fillwidth, 0, 0);
@@ -624,7 +624,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        bitlen = (!(idcode_count == 1 || extra) && (!j || idcode_count <= 3) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
+        bitlen = (!(idcode_count == 1 || extra) && (!j || idcode_count <= 3) && idcode_count > 2) ? dcount: 0;
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d statparam %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen, statparam);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
@@ -796,6 +796,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         //exit(1);
     }
 
+    dcount = idcode_count - (found_cortex != 0) - 1;
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
     return ftdi;
 }
@@ -1003,7 +1004,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (idcode_count > 2) {}
     else if (idcode_count > 3)
         hozo = 1;
-    int bitlen = (!(idcode_count == 1 || extra) && (!hozo) && idcode_count > 2) ?  (idcode_count - (found_cortex != 0) - 1): 0;
+    int bitlen = (!(idcode_count == 1 || extra) && (!hozo) && idcode_count > 2)*dcount;
 printf("[%s:%d] before readoutseq hozo %d bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, hozo, bitlen, jtag_index, statparam);
     if (idcode_count > 3)
         reset_mark_clock(ftdi, 0);

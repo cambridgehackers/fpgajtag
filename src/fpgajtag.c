@@ -263,10 +263,9 @@ void idle_to_shift_dr(int extra, int val)
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
     idle_to_shift_dr(jtag_index != 0, 0xff);
-    if (idcode_count > 3)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5, 0, 0);
-    else if (idcode_count > 2)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -6, 0, 0);
+    if (idcode_count > 2)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME,
+            -6 + (idcode_count - 2), 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, zerodata, sizeof(uint32_t));
@@ -530,7 +529,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             }
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
-        int idindex = (!version && ignore_idcode)*match; // this is 2nd time calling w/ version == 0!
+        int idindex = (!version && ignore_idcode) * match; // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
         for (innerl = 0; innerl < inmax * mult; innerl++) {
             int izero = innerl/mult == 0;

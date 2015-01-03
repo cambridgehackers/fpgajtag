@@ -501,8 +501,8 @@ DPRINT("[%s:%d] oneformat %d extra %d\n", __FUNCTION__, __LINE__, oneformat, ext
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     ENTER_TMS_STATE('I');
     if (resp_len) {
-if (!oneformat && idcode_count > 3)
-    extra = 0;
+        if (!oneformat && idcode_count > 3)
+            extra = 0;
         write_dirreg(ftdi, IRREG_CFG_OUT, idindex, extra);
 DPRINT("[%s:%d] addfill %d\n", __FUNCTION__, __LINE__, addfill);
         if (addfill)
@@ -623,8 +623,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        bitlen = (//idcode_count != 1 && 
-!extra && (!j || idcode_count == 3) && idcode_count > 2) ? dcount: 0;
+        bitlen = (!extra && (!j || idcode_count == 3) && idcode_count > 2) ? dcount: 0;
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d statparam %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen, statparam);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
@@ -654,9 +653,7 @@ DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
         }
         else
             access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3 && (j != 1 || !version), j,
-                idcode_count < 3 || j != 1,
-                idcode_count < 3 || j != 1,
-                idcode_count < 3 || j == 2);
+                j != 1, j != 1, j == 2);
     }
 DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
 }
@@ -985,7 +982,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
           || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
     }
-{
     /*
      * Read Xilinx configuration status register
      * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -996,16 +992,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int idindex = 0;
     if (idcode_count > 2)
         idindex = jtag_index;
-    else if (idcode_count > 3)
-        idindex = idcode_count - 2;
     else if (extra)
         idindex = idcode_count - 1;
-    int hozo = 0;
-    if (idcode_count > 2) {}
-    else if (idcode_count > 3)
-        hozo = 1;
-    int bitlen = (!(idcode_count == 1 || extra) && (!hozo) && idcode_count > 2)*dcount;
-printf("[%s:%d] before readoutseq hozo %d bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, hozo, bitlen, jtag_index, statparam);
+    int bitlen = (!extra && idcode_count > 2)*dcount;
+printf("[%s:%d] before readoutseq bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index, statparam);
     if (idcode_count > 3)
         reset_mark_clock(ftdi, 0);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
@@ -1016,7 +1006,6 @@ printf("[%s:%d] before readoutseq hozo %d bitlen %d jtag_index %d statparam %d\n
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-}
     ENTER_TMS_STATE('R');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status1(ftdi, 1, 1 + (idcode_count > 3) + (idcode_count >= 3)

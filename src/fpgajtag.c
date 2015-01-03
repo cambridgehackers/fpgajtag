@@ -542,16 +542,15 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int btemp = addrtemp || (!izero && (idcode_count > 3 || (version && idcode_count > 2)));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
-            int mod3 = (idcode_count > 3) * ((version == 0)*izero*(!adj)
-                        + (version == 1)*(!itwo) + (version == 2)*ione);
+            int v2_3 = idcode_count > 3 && version == 2;
+            int top_wait = toploop || cortex_nowait;
+            int mod3 = v2_3*ione +
+                (idcode_count > 3) * ((version == 0)*izero*(!adj) + (version == 1)*(!itwo));
             int fillwidth = dcount + 1 - mod3;
             int extracond = !version && idcode_count > 3 && adj;
-            int bcond2 = (btemp && (idcode_count <= 3 || version != 2 || !izero || mod3)) || extracond;
+            int bcond2 = (btemp && (!v2_3 || !izero || mod3)) || extracond;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
-            int j = 3;
-            if (!cortex_nowait && !toploop)
-                j += 1;
-//device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
+            int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
@@ -585,11 +584,11 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 flip = 0;
                 if (izero && found_cortex) {
                     if (!shift_enable)
-                        cortex_bypass(ftdi, toploop || cortex_nowait);
+                        cortex_bypass(ftdi, top_wait);
                     idindex++;
                 }
                 if (!izero && toploop == match)
-                    reset_mark_clock(ftdi, 1 - cortex_nowait);
+                    reset_mark_clock(ftdi, !cortex_nowait);
                 idindex++;
             }
         }

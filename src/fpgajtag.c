@@ -534,18 +534,17 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         if (!version && ignore_idcode) // this is 2nd time calling w/ version == 0!
             idindex += match;
         int innerl, testi, flip = 0;
-        for (innerl = 0; innerl < inmax; innerl++) {
-looptop:;
-            int btemp = addrtemp || (innerl != 0 && idcode_count > 2 && (idcode_count != 3 || version));
+        for (innerl = 0; innerl < inmax * mult; innerl++) {
+            int btemp = addrtemp || (innerl/mult != 0 && idcode_count > 2 && (idcode_count != 3 || version));
             int nonfirst = flip != 0;
             int adj = (idcode_count - 1) == idindex;
             int mod3 = (idcode_count > 3) * (
-                        + (version == 0)*(innerl == 0)*(adj == 0)
-                        + (version == 1)*(innerl != 2)
-                        + (version == 2)*(innerl == 1));
+                        + (version == 0)*(innerl/mult == 0)*(adj == 0)
+                        + (version == 1)*(innerl/mult != 2)
+                        + (version == 2)*(innerl/mult == 1));
             int fillwidth = idcode_count - (found_cortex != 0) - mod3;
             int extracond = (!version && idcode_count > 3 && idindex == idcode_count - 1);
-            int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl != 0 || mod3);
+            int bcond2 = btemp && (idcode_count <= 3 || version != 2 || innerl/mult != 0 || mod3);
             int j = 3;
             if (!cortex_nowait && !toploop)
                 j += device_type == DEVICE_VC707 || device_type == DEVICE_AC701 || idcode_count > 1;
@@ -567,7 +566,7 @@ looptop:;
                         write_one_byte(ftdi, 0, 0x69);
                         write_bit(0, 2, 0, 0);
                         if (idcode_count > 3
-                         && ((version == 0 && !testi) || innerl == 1 || (innerl != 2 && btemp))) {
+                         && ((version == 0 && !testi) || innerl/mult == 1 || (innerl/mult != 2 && btemp))) {
                             write_bit(0, 1, 0, 0);
                             write_bit(0, idcode_count - 2, 0, 0);
                         }
@@ -580,17 +579,15 @@ looptop:;
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
             }
-        if (++flip >= mult) {
-            flip = 0;
-            if (innerl == 0 && found_cortex && !shift_enable)
-                cortex_bypass(ftdi, toploop || cortex_nowait);
-            if (innerl != 0 && toploop == match)
-                reset_mark_clock(ftdi, 1 - cortex_nowait);
-            idindex += 1 + (innerl == 0 && found_cortex);
+            if (++flip >= mult) {
+                flip = 0;
+                if (innerl/mult == 0 && found_cortex && !shift_enable)
+                    cortex_bypass(ftdi, toploop || cortex_nowait);
+                if (innerl/mult != 0 && toploop == match)
+                    reset_mark_clock(ftdi, 1 - cortex_nowait);
+                idindex += 1 + (innerl/mult == 0 && found_cortex);
+            }
         }
-        else
-            goto looptop;
-    }
     }
 }
 

@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, id3_extra, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -266,8 +266,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
     if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 3)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5
-           - (jtag_index != idcode_count - 1), 0, 0);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5 - not_last_id, 0, 0);
     else if (idcode_count > 2)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -6, 0, 0);
     else if (idcode_count > 1)
@@ -413,7 +412,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, 
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0, target_state = ((jtag_index != idcode_count - 1 && read) ? 'P' : 'E');
+    int ret = 0, target_state = (not_last_id && read ? 'P' : 'E');
     write_irreg(ftdi, read, command, jtag_index, target_state);
     if (read)
         ret = read_data_int(ftdi, target_state == 'P', idcode_len[idcode_count - 1]);
@@ -673,7 +672,6 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     uint8_t constant4[] = {INT32(4)};
     uint8_t dummy[] = {CONFIG_DUMMY};
-    int extra = jtag_index != idcode_count - 1;
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
     idle_to_shift_dr(scount, 0xff);
@@ -683,14 +681,14 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
             write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 0, 0, 1);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-        write_bit(0, 7 - (idcode_count > 2 ? idcode_count - 2 - id3_extra : 0), 0, 0);
+        write_bit(0, 7 - (idcode_count > 2) * (idcode_count - 2 - id3_extra), 0, 0);
     }
     write_int32(ftdi, req+1, req[0]);
-    write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
+    write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !not_last_id, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(scount, 0xff);
-    write_bytes(ftdi, DREAD, extra ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
-    uint64_t ret = read_data_int(ftdi, extra, 1);
+    write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
+    uint64_t ret = read_data_int(ftdi, not_last_id, 1);
     //ENTER_TMS_STATE('I');
     return ret;
 }
@@ -795,7 +793,8 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     }
 
     dcount = idcode_count - (found_cortex != 0) - 1;
-    id3_extra = idcode_count > 3 && jtag_index != idcode_count - 1;
+    not_last_id = jtag_index != idcode_count - 1;
+    id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) + id3_extra;
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
     return ftdi;
@@ -945,8 +944,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) !=
-            ((jtag_index != idcode_count - 1) ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (not_last_id ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_BYPASS);
@@ -983,7 +981,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     ENTER_TMS_STATE('R');
     readout_status1(ftdi, 0, 1 + 2 * (idcode_count > 3)
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-          || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
+          || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
     }
     /*
      * Read Xilinx configuration status register
@@ -1017,7 +1015,7 @@ DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d statparam %d\n", __FUN
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status1(ftdi, 1, 1 + (idcode_count > 3) + (idcode_count >= 3)
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-          || (jtag_index != idcode_count - 1 && (device_type != DEVICE_ZEDBOARD))));
+          || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
     rescan = 1;
 
     /*

@@ -612,12 +612,11 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-        int extra = multiple_fpga * (!found_cortex && !j)
-              || (idcode_count > 2 && !j) || (idcode_count && j == 2);
+        int extra = multiple_fpga * (!found_cortex && !j) || j == 2
+              || (idcode_count > 2 && !j);
         bitlen = ((idcode_count > 3 && j == 2)
-          || (!extra && (!j || idcode_count == 3) && idcode_count > 2))*dcount;
-        int oneformat = (!found_cortex && !j) ? 1 : idcode_count <= 2 ? 0
-               : j ? -(idcode_count <= 3) : 1;
+          || (!extra && ((!j && idcode_count > 2) || idcode_count == 3))) * dcount;
+        int oneformat = (!found_cortex && !j) ? 1 : (idcode_count > 2) * (j ? -(idcode_count <= 3) : 1);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*

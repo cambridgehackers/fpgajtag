@@ -275,7 +275,7 @@ static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize
     return MAX_SINGLE_USB_DATA - buffer_current_size();
 }
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *pdata, int psize,
-     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail)
+     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail, int swapbits)
 {
     int limit_len = send_data_header(ftdi, pre, presize, post, postsize);
     while(psize) {
@@ -283,7 +283,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *
         if (final)
             size = psize;
         write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', pdata,
-            size, limit_len, !final || opttail, 1, 1);
+            size, limit_len, !final || opttail, swapbits, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         psize -= size;
@@ -677,8 +677,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    send_data_header(ftdi, dummy, sizeof(uint32_t), req+1, req[0]);
-    write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !not_last_id, 0, 1);
+    send_data_file(ftdi, 0, constant4, sizeof(constant4),
+        dummy, sizeof(uint32_t), req+1, req[0], !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(scount, 0xff);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
@@ -932,7 +932,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
-        NULL, 0, zerodata, sizeof(uint32_t), (scount == 1) || !multiple_fpga);
+        NULL, 0, zerodata, sizeof(uint32_t), (scount == 1) || !multiple_fpga, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

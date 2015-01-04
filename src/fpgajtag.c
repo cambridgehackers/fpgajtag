@@ -584,16 +584,17 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
 
 static void readout_status0(struct ftdi_context *ftdi, int upperbound)
 {
-    int i, j, statparam = found_cortex ? 1 : -(0 && jtag_index == 0);
+    int i, j;
     uint32_t ret;
+    int idindex = idcode_count - 1;
 
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
-        int idindex = 0;
-        if (j != upperbound - 1)
-            idindex = idcode_count - 1 - j;
-        else if (idcode_count > 2 && found_cortex)
-            write_bypass(ftdi);
+        if (j == upperbound - 1) {
+            idindex = 0;
+            if (idcode_count > 2 && found_cortex)
+                write_bypass(ftdi);
+        }
         write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && multiple_fpga);
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int bitlen = (j != 0) * (idcode_count - 2);
@@ -607,17 +608,17 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
+        int statparam = found_cortex || j;
         int extra = multiple_fpga * (!statparam) || (idcode_count > 2 && !j) || (idcode_count && j == 2);
+        bitlen = ((idcode_count > 3 && j == 2) || (!extra && (!j || idcode_count == 3) && idcode_count > 2)) * dcount;
+        int oneformat = (!statparam) ? 1 : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1;
+DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        bitlen = ((idcode_count > 3 && j == 2) || (!extra && (!j || idcode_count == 3) && idcode_count > 2)) * dcount;
-DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d statparam %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen, statparam);
-        ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-            (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
-            : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1,
+        ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
             idindex, bitlen, extra, 2 * (idcode_count > 3) * (j == 1),
             (j != upperbound - 1) * (j + 1));
         uint32_t status = ret >> 8;
@@ -625,8 +626,8 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d statparam 
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-        statparam = 1;
         ENTER_TMS_STATE('R');
+        idindex--;
     }
 }
 static void readout_status1(struct ftdi_context *ftdi, int version, int upperbound)

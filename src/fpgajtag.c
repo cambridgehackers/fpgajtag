@@ -260,7 +260,8 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, idcode_count - extra, val, 0);
 }
 
-static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize, uint8_t *post, int postsize)
+static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *pdata, int psize,
+     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail, int swapbits)
 {
     idle_to_shift_dr(scount, 0xff);
     write_int32(ftdi, pre, presize);
@@ -272,12 +273,7 @@ static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     write_int32(ftdi, post, postsize);
-    return MAX_SINGLE_USB_DATA - buffer_current_size();
-}
-static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *pdata, int psize,
-     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail, int swapbits)
-{
-    int limit_len = send_data_header(ftdi, pre, presize, post, postsize);
+    int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {
         int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
         if (final)

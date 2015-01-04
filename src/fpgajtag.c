@@ -679,9 +679,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     if (idcode_count > 1) {
         if (id3_extra)
             write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 0, 0, 1);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-        write_bit(0, 7 - (idcode_count > 2) * (idcode_count - 2 - id3_extra), 0, 0);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 
+            -(7 - (idcode_count > 2) * (idcode_count - 2 - id3_extra)) , 0, 0);
     }
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !not_last_id, 0, 1);

@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, idbase_extra, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -260,17 +260,19 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, idcode_count - extra, val, 0);
 }
 
+static void send_data_header(struct ftdi_context *ftdi)
+{
+    if (id3_extra)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
+    if (idcode_count > 2)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - idbase_extra), 0, 0);
+    else if (idcode_count > 1)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+}
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
     idle_to_shift_dr(scount, 0xff);
-    if (id3_extra)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (idcode_count > 3)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5 - not_last_id, 0, 0);
-    else if (idcode_count > 2)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -6, 0, 0);
-    else if (idcode_count > 1)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+    send_data_header(ftdi);
     write_int32(ftdi, zerodata, sizeof(uint32_t));
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
@@ -676,12 +678,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
     idle_to_shift_dr(scount, 0xff);
     write_int32(ftdi, dummy, sizeof(uint32_t));
-    if (idcode_count > 1) {
-        if (id3_extra)
-            write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 
-            -(7 - (idcode_count > 2) * (idcode_count - 2 - id3_extra)) , 0, 0);
-    }
+    if (idcode_count > 1)
+        send_data_header(ftdi);
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !not_last_id, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
@@ -794,6 +792,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;
+    idbase_extra = (idcode_count > 2) * (idcode_count - 2 - id3_extra);
     scount = (jtag_index != 0) + id3_extra;
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
     return ftdi;

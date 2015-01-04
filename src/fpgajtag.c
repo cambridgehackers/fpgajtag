@@ -642,18 +642,10 @@ static void readout_status1(struct ftdi_context *ftdi, int version, int upperbou
 
     ENTER_TMS_STATE('R');
     for (j = 1; j < upperbound; j++) {
-DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ \n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
-        if (idcode_count <= 2) {
-            access_user2_loop(ftdi, 0, 1, 1,
-                idcode_count > 3, j,
-                !multiple_fpga && idcode_count != 1, 0, 0);
-            if (!multiple_fpga && idcode_count != 1)
-                reset_mark_clock(ftdi, 0);
-        }
-        else
-            access_user2_loop(ftdi, 0, 1, 1,
-                idcode_count > 3 && (j != 1 || !version), j,
-                j != 1, j != 1, j == 2);
+DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
+        access_user2_loop(ftdi, 0, 1, 1,
+            idcode_count > 3 && (j != 1 || !version), j,
+            j != 1, j != 1, j == 2);
     }
 DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
 }
@@ -971,20 +963,12 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * through the JTAG Interface" and Table 6-3.
      */
     int id2 = idcode_count > 2 && !id3_extra;
-    int extra = multiple_fpga * (!found_cortex && jtag_index != 0) || id2;
-    int idindex = 0;
-    if (idcode_count > 2)
-        idindex = jtag_index;
-    else if (extra)
-        idindex = idcode_count - 1;
-    int addfill = id3_extra * scount;
+    int extra = multiple_fpga * (!found_cortex && jtag_index) || id2;
     int bitlen = (!extra && id2)*dcount;
+    int oneopt = !found_cortex && (jtag_index || !multiple_fpga) ? 1 : id2;
 DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);
-    int oneopt = ((!found_cortex && jtag_index != 0)
-                 || ((jtag_index || !multiple_fpga) && (!found_cortex && jtag_index == 0))
-                 ) ? 1 : id2;
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        oneopt, idindex, bitlen, extra, addfill, scount);
+        oneopt, jtag_index, bitlen, extra, id3_extra * scount, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

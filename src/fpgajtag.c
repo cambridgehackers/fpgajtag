@@ -260,8 +260,10 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, idcode_count - extra, val, 0);
 }
 
-static void send_data_header(struct ftdi_context *ftdi)
+static void send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize, uint8_t *data, int size)
 {
+    idle_to_shift_dr(scount, 0xff);
+    write_int32(ftdi, pre, presize);
     if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 2)
@@ -269,12 +271,11 @@ static void send_data_header(struct ftdi_context *ftdi)
             (idcode_count > 2) * (idcode_count - 2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_int32(ftdi, data, size);
 }
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    idle_to_shift_dr(scount, 0xff);
-    send_data_header(ftdi);
-    write_int32(ftdi, zerodata, sizeof(uint32_t));
+    send_data_header(ftdi, NULL, 0, zerodata, sizeof(uint32_t));
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     printf("fpgajtag: Starting to send file\n");
     while(input_filesize) {
@@ -677,11 +678,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint8_t dummy[] = {CONFIG_DUMMY};
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    idle_to_shift_dr(scount, 0xff);
-    write_int32(ftdi, dummy, sizeof(uint32_t));
-    if (idcode_count > 1)
-        send_data_header(ftdi);
-    write_int32(ftdi, req+1, req[0]);
+    send_data_header(ftdi, dummy, sizeof(uint32_t), req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !not_last_id, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(scount, 0xff);

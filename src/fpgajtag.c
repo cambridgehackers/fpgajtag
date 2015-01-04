@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -262,7 +262,7 @@ void idle_to_shift_dr(int extra, int val)
 
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
-    idle_to_shift_dr((jtag_index != 0) + (idcode_count > 3 && jtag_index != idcode_count - 1), 0xff);
+    idle_to_shift_dr(scount, 0xff);
     if (idcode_count > 3 && jtag_index != idcode_count - 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 3)
@@ -280,7 +280,7 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
         if (final)
             size = input_filesize;
         write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', input_fileptr,
-            size, limit_len, !final || jtag_index || !multiple_fpga, 1, 1);
+            size, limit_len, !final || (scount == 1) || !multiple_fpga, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         input_filesize -= size;
@@ -549,7 +549,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
             int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
-            int extracond = v0_3 && !adj;
+            int extracond = v0_3 && adj;
             int bitstar = ((!btemp && idcode_count > 2) && !extracond) * dcount;
             int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
             int j = 3 + !top_wait;
@@ -622,7 +622,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
-        bitlen = (!extra && (!j || idcode_count == 3) && idcode_count > 2) ? dcount: 0;
+        bitlen = ((idcode_count > 3 && j == 2) || (!extra && (!j || idcode_count == 3) && idcode_count > 2)) * dcount;
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d statparam %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen, statparam);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
             (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1
@@ -676,17 +676,20 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     int extra = jtag_index != idcode_count - 1;
 
     write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    idle_to_shift_dr(jtag_index != 0, 0xff);
+    idle_to_shift_dr(scount, 0xff);
     write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1) {
+        if (idcode_count > 3 && jtag_index != idcode_count - 1)
+            write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 0, 0, 1);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-        write_bit(0, 7 - (idcode_count > 2 ? idcode_count - 2 : 0), 0, 0);
+        write_bit(0, 7 - (idcode_count > 2 ? idcode_count - 2
+               - (idcode_count > 3 && jtag_index != idcode_count - 1) : 0), 0, 0);
     }
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(jtag_index != 0, 0xff);
+    idle_to_shift_dr(scount, 0xff);
     write_bytes(ftdi, DREAD, extra ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, extra, 1);
     //ENTER_TMS_STATE('I');
@@ -793,6 +796,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     }
 
     dcount = idcode_count - (found_cortex != 0) - 1;
+    scount = (jtag_index != 0) + (idcode_count > 3 && jtag_index != idcode_count - 1);
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
     return ftdi;
 }
@@ -987,19 +991,24 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * through the JTAG Interface" and Table 6-3.
      */
     int statparam = found_cortex ? 1 : -(jtag_index == 0);
-    int extra = multiple_fpga * (!statparam) || idcode_count > 2;
+    int id3_extra = idcode_count > 3 && jtag_index != idcode_count - 1;
+    int id2 = idcode_count > 2 && !id3_extra;
+    int extra = multiple_fpga * (!statparam) || id2;
     int idindex = 0;
     if (idcode_count > 2)
         idindex = jtag_index;
     else if (extra)
         idindex = idcode_count - 1;
-    int bitlen = (!extra && idcode_count > 2)*dcount;
-printf("[%s:%d] before readoutseq bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index, statparam);
+    int addfill = id3_extra * scount;
+    int bitlen = (!extra && id2)*dcount;
+DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index, statparam);
     if (idcode_count > 3)
         reset_mark_clock(ftdi, 0);
+    int oneopt = (!statparam
+                 || ((jtag_index || !multiple_fpga) && statparam == -1)
+                 ) ? 1 : id2;
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        (!statparam || ((jtag_index || !multiple_fpga) && statparam == -1)) ? 1 : (idcode_count > 2),
-        idindex, bitlen, extra, 0, jtag_index != 0);
+        oneopt, idindex, bitlen, extra, addfill, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

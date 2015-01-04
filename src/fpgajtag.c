@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, id3_extra, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -263,7 +263,7 @@ void idle_to_shift_dr(int extra, int val)
 static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
 {
     idle_to_shift_dr(scount, 0xff);
-    if (idcode_count > 3 && jtag_index != idcode_count - 1)
+    if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 3)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -5
@@ -679,12 +679,11 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     idle_to_shift_dr(scount, 0xff);
     write_int32(ftdi, dummy, sizeof(uint32_t));
     if (idcode_count > 1) {
-        if (idcode_count > 3 && jtag_index != idcode_count - 1)
+        if (id3_extra)
             write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata)-1, SEND_SINGLE_FRAME, 0, 0, 1);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-        write_bit(0, 7 - (idcode_count > 2 ? idcode_count - 2
-               - (idcode_count > 3 && jtag_index != idcode_count - 1) : 0), 0, 0);
+        write_bit(0, 7 - (idcode_count > 2 ? idcode_count - 2 - id3_extra : 0), 0, 0);
     }
     write_int32(ftdi, req+1, req[0]);
     write_bytes(ftdi, 0, 'E', constant4, sizeof(constant4), SEND_SINGLE_FRAME, !extra, 0, 1);
@@ -796,7 +795,8 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     }
 
     dcount = idcode_count - (found_cortex != 0) - 1;
-    scount = (jtag_index != 0) + (idcode_count > 3 && jtag_index != idcode_count - 1);
+    id3_extra = idcode_count > 3 && jtag_index != idcode_count - 1;
+    scount = (jtag_index != 0) + id3_extra;
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
     return ftdi;
 }
@@ -991,7 +991,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * through the JTAG Interface" and Table 6-3.
      */
     int statparam = found_cortex ? 1 : -(jtag_index == 0);
-    int id3_extra = idcode_count > 3 && jtag_index != idcode_count - 1;
     int id2 = idcode_count > 2 && !id3_extra;
     int extra = multiple_fpga * (!statparam) || id2;
     int idindex = 0;

@@ -260,7 +260,7 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, idcode_count - extra, val, 0);
 }
 
-static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize, uint8_t *data, int size)
+static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize, uint8_t *post, int postsize)
 {
     idle_to_shift_dr(scount, 0xff);
     write_int32(ftdi, pre, presize);
@@ -271,29 +271,28 @@ static int send_data_header(struct ftdi_context *ftdi, uint8_t *pre, int presize
             (idcode_count > 2) * (idcode_count - 2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
-    write_int32(ftdi, data, size);
+    write_int32(ftdi, post, postsize);
     return MAX_SINGLE_USB_DATA - buffer_current_size();
 }
-static void send_data_file(struct ftdi_context *ftdi, int extra_shift)
+static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *pdata, int psize,
+     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail)
 {
-    int limit_len = send_data_header(ftdi, NULL, 0, zerodata, sizeof(uint32_t));
-    printf("fpgajtag: Starting to send file\n");
-    while(input_filesize) {
-        int size = FILE_READSIZE, final = (input_filesize <= FILE_READSIZE);
+    int limit_len = send_data_header(ftdi, pre, presize, post, postsize);
+    while(psize) {
+        int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
         if (final)
-            size = input_filesize;
-        write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', input_fileptr,
-            size, limit_len, !final || (scount == 1) || !multiple_fpga, 1, 1);
+            size = psize;
+        write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', pdata,
+            size, limit_len, !final || opttail, 1, 1);
         flush_write(ftdi, NULL);
         limit_len = MAX_SINGLE_USB_DATA;
-        input_filesize -= size;
-        input_fileptr += size;
+        psize -= size;
+        pdata += size;
     };
     if (extra_shift)
         write_bit(0, 0, 0xff, 'E');
     ENTER_TMS_STATE('I');
     flush_write(ftdi, NULL);
-    printf("fpgajtag: Done sending file\n");
 }
 
 /*
@@ -931,8 +930,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    send_data_file(ftdi, found_cortex && (idcode_count <= 2));
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    printf("fpgajtag: Starting to send file\n");
+    send_data_file(ftdi, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
+        NULL, 0, zerodata, sizeof(uint32_t), (scount == 1) || !multiple_fpga);
+    printf("fpgajtag: Done sending file\n");
 
     /*
      * Step 8: Startup

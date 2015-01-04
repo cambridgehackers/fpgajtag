@@ -640,6 +640,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version, int upperbou
 {
     int j;
 
+    ENTER_TMS_STATE('R');
     for (j = 1; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ \n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
         if (idcode_count <= 2) {
@@ -956,23 +957,14 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_bypass(ftdi);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (idcode_count == 3) {
-        reset_mark_clock(ftdi, 0);
-        flush_write(ftdi, NULL);
-    }
-    ENTER_TMS_STATE('I');
-    if (idcode_count <= 2) {
+    if (idcode_count < 3)
         access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga, 0);
-        reset_mark_clock(ftdi, 0);
-    }
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    if (idcode_count > 3) {
-        ENTER_TMS_STATE('R');
+    else if (idcode_count > 3)
         readout_status1(ftdi, 0, 1 + 2 * (idcode_count > 3)
             + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
               || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
-    }
+    reset_mark_clock(ftdi, 0);
+    flush_write(ftdi, NULL);
     /*
      * Read Xilinx configuration status register
      * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -988,8 +980,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int addfill = id3_extra * scount;
     int bitlen = (!extra && id2)*dcount;
 DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);
-    if (idcode_count > 3)
-        reset_mark_clock(ftdi, 0);
     int oneopt = ((!found_cortex && jtag_index != 0)
                  || ((jtag_index || !multiple_fpga) && (!found_cortex && jtag_index == 0))
                  ) ? 1 : id2;
@@ -1000,8 +990,6 @@ DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LI
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    ENTER_TMS_STATE('R');
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status1(ftdi, 1, 1 + (idcode_count > 3) + (idcode_count >= 3)
         + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
           || (not_last_id && (device_type != DEVICE_ZEDBOARD))));

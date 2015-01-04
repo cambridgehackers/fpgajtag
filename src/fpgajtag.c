@@ -61,6 +61,7 @@ static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
             CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
+static int write_cirreg(struct ftdi_context *ftdi, int read, int command);
 
 #define DPRINT \
     flush_write(ftdi, NULL); \
@@ -260,11 +261,13 @@ void idle_to_shift_dr(int extra, int val)
         write_bit(0, idcode_count - extra, val, 0);
 }
 
-static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *pdata, int psize,
-     uint8_t *pre, int presize, uint8_t *post, int postsize, int opttail, int swapbits)
+static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
+     uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
+    write_cirreg(ftdi, read, IRREG_CFG_IN);
     idle_to_shift_dr(scount, 0xff);
-    write_int32(ftdi, pre, presize);
+    if (pre)
+        write_int32(ftdi, pre+1, pre[0]);
     if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 2)
@@ -272,7 +275,8 @@ static void send_data_file(struct ftdi_context *ftdi, int extra_shift, uint8_t *
             (idcode_count > 2) * (idcode_count - 2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
-    write_int32(ftdi, post, postsize);
+    if (post)
+        write_int32(ftdi, post+1, post[0]);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {
         int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
@@ -669,11 +673,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         CONFIG_CMD_DESYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     uint8_t constant4[] = {INT32(4)};
-    uint8_t dummy[] = {CONFIG_DUMMY};
 
-    write_cirreg(ftdi, 0, IRREG_CFG_IN);
-    send_data_file(ftdi, 0, constant4, sizeof(constant4),
-        dummy, sizeof(uint32_t), req+1, req[0], !not_last_id, 0);
+    send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(scount, 0xff);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
@@ -925,10 +926,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     printf("fpgajtag: Starting to send file\n");
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
-        printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    send_data_file(ftdi, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
-        NULL, 0, zerodata, sizeof(uint32_t), (scount == 1) || !multiple_fpga, 1);
+    send_data_file(ftdi, DREAD, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
+        NULL, DITEM(INT32(0)), (scount == 1) || !multiple_fpga, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

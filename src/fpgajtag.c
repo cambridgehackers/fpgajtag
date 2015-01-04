@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, jnmult, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -780,6 +780,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) + id3_extra;
     multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
+    jnmult = !multiple_fpga || jtag_index;
     return ftdi;
 }
 
@@ -849,11 +850,11 @@ usage:
 DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
         (device_type != DEVICE_ZC702
-         && (!multiple_fpga || jtag_index != 0))
+         && (jnmult))
              + 10 * (idcode_count > 3), 0, 0, 0);
 
     marker_for_reset(ftdi, 0);
-    if (jtag_index != 0 || !multiple_fpga) {
+    if (jnmult) {
         if (idcode_count != 3)
             set_clock_divisor(ftdi);
         write_tms_transition("RR1");
@@ -965,7 +966,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int id2 = idcode_count > 2 && !id3_extra;
     int extra = multiple_fpga * (!found_cortex && jtag_index) || id2;
     int bitlen = (!extra && id2)*dcount;
-    int oneopt = !found_cortex && (jtag_index || !multiple_fpga) ? 1 : id2;
+    int oneopt = (!found_cortex && jnmult) || id2;
 DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         oneopt, jtag_index, bitlen, extra, id3_extra * scount, scount);

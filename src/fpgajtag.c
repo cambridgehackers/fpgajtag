@@ -608,10 +608,14 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-        int extra = multiple_fpga * (!found_cortex && !j) || (idcode_count > 2 && !j) || (idcode_count && j == 2);
-        bitlen = ((idcode_count > 3 && j == 2) || (!extra && (!j || idcode_count == 3) && idcode_count > 2)) * dcount;
-        int oneformat = (!found_cortex && !j) ? 1 : idcode_count <= 2 ? 0 : j ? -(idcode_count <= 3) : 1;
-DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n", __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
+        int extra = multiple_fpga * (!found_cortex && !j)
+              || (idcode_count > 2 && !j) || (idcode_count && j == 2);
+        bitlen = ((idcode_count > 3 && j == 2)
+          || (!extra && (!j || idcode_count == 3) && idcode_count > 2))*dcount;
+        int oneformat = (!found_cortex && !j) ? 1 : idcode_count <= 2 ? 0
+               : j ? -(idcode_count <= 3) : 1;
+DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
+ __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
@@ -636,13 +640,15 @@ static void readout_status1(struct ftdi_context *ftdi, int version, int upperbou
     for (j = 1; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ \n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
         if (idcode_count <= 2) {
-            access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3, j,
+            access_user2_loop(ftdi, 0, 1, 1,
+                idcode_count > 3, j,
                 !multiple_fpga && idcode_count != 1, 0, 0);
             if (!multiple_fpga && idcode_count != 1)
                 reset_mark_clock(ftdi, 0);
         }
         else
-            access_user2_loop(ftdi, 0, 1, 1, idcode_count > 3 && (j != 1 || !version), j,
+            access_user2_loop(ftdi, 0, 1, 1,
+                idcode_count > 3 && (j != 1 || !version), j,
                 j != 1, j != 1, j == 2);
     }
 DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
@@ -670,7 +676,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         dummy, sizeof(uint32_t), req+1, req[0], !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(scount, 0xff);
-    write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata, sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
+          sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, not_last_id, 1);
     //ENTER_TMS_STATE('I');
     return ret;
@@ -848,7 +855,9 @@ usage:
 
 DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0)) + 10 * (idcode_count > 3), 0, 0, 0);
+        (device_type != DEVICE_ZC702
+         && (!multiple_fpga || jtag_index != 0))
+             + 10 * (idcode_count > 3), 0, 0, 0);
 
     marker_for_reset(ftdi, 0);
     if (jtag_index != 0 || !multiple_fpga) {

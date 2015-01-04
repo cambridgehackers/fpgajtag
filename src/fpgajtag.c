@@ -592,6 +592,8 @@ static void readout_status0(struct ftdi_context *ftdi, int upperbound)
     uint32_t ret;
     int idindex = idcode_count - 1;
 
+    if (found_cortex && idcode_count <= 2)
+        write_bypass(ftdi);
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         if (j == upperbound - 1) {
@@ -612,11 +614,11 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-        int extra = multiple_fpga * (!found_cortex && !j) || j == 2
-              || (idcode_count > 2 && !j);
-        bitlen = ((idcode_count > 3 && j == 2)
-          || (!extra && ((!j && idcode_count > 2) || idcode_count == 3))) * dcount;
-        int oneformat = (!found_cortex && !j) ? 1 : (idcode_count > 2) * (j ? -(idcode_count <= 3) : 1);
+        int i2n = idcode_count > 2 && !j;
+        int nfj = !found_cortex && !j;
+        int extra = multiple_fpga * nfj || j == 2 || i2n;
+        bitlen = (idcode_count > 3 && j == 2) || (!extra && (i2n || idcode_count == 3));
+        int oneformat = nfj ? 1 : (idcode_count > 2) * (j ? -(idcode_count <= 3) : 1);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*
@@ -625,7 +627,7 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
          * through the JTAG Interface" and Table 6-3.
          */
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bitlen, extra, 2 * (idcode_count > 3) * (j == 1),
+            idindex, bitlen * dcount, extra, 2 * (idcode_count > 3) * (j == 1),
             (j != upperbound - 1) * (j + 1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -647,7 +649,6 @@ DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZ\n", __FUNCTION__, __LINE__
             idcode_count > 3 && (j != 1 || !version), j,
             j != 1, j != 1, j == 2);
     }
-DPRINT("[%s:%d] over j %d upperbound %d\n", __FUNCTION__, __LINE__, j, upperbound);
 }
 
 /*
@@ -882,9 +883,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-    if (found_cortex && idcode_count <= 2)
-        write_bypass(ftdi);
-    ENTER_TMS_STATE('I');
     readout_status0(ftdi, 1 + (idcode_count > 3) + multiple_fpga);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int bypass_tc = 4;

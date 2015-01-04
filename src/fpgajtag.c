@@ -494,23 +494,16 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     uint32_t ret = 0;
 
     write_dirreg(ftdi, IRREG_CFG_IN, idindex, shiftdr); /* Select CFG_IN for sending our request */
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] oneformat %d extra %d\n", __FUNCTION__, __LINE__, oneformat, extra);
-    if (resp_len && !oneformat && extra && idcode_count > 2)
-        write_bit(0, idcode_count - 2, 0, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __LINE__, oneformat, extra, addfill, bititem);
+    write_bit(0, (resp_len && !oneformat && extra)*(idcode_count - 2), 0, 0);
     ENTER_TMS_STATE('I');
     if (resp_len) {
         if (!oneformat && idcode_count > 3)
             extra = 0;
         write_dirreg(ftdi, IRREG_CFG_OUT, idindex, extra);
-DPRINT("[%s:%d] addfill %d\n", __FUNCTION__, __LINE__, addfill);
-        if (addfill)
-            write_bit(0, addfill, 0, 0);
-DPRINT("[%s:%d] bititem %d\n", __FUNCTION__, __LINE__, bititem);
+        write_bit(0, addfill, 0, 0);
         ret = fetch_result(ftdi, resp_len, fd, idcode_count == 1 || extra, bititem);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
     return ret;
 }
@@ -856,18 +849,16 @@ usage:
 DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
         (device_type != DEVICE_ZC702 && (!multiple_fpga || jtag_index != 0)) + 10 * (idcode_count > 3), 0, 0, 0);
-DPRINT("[%s:%d] jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
+
     marker_for_reset(ftdi, 0);
     if (jtag_index != 0 || !multiple_fpga) {
         if (idcode_count != 3)
             set_clock_divisor(ftdi);
         write_tms_transition("RR1");
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
     }
     if (idcode_count != 3) {
         write_tms_transition("RR1");
-DPRINT("[%s:%d] new 3\n", __FUNCTION__, __LINE__);
         marker_for_reset(ftdi, 0);
     }
 
@@ -924,9 +915,9 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * Step 6: Load Configuration Data Frames
      */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    printf("fpgajtag: Starting to send file\n");
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_CFG_IN)) != INPROGRAMMING)
         printf("[%s:%d] CFG_IN/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
         NULL, 0, zerodata, sizeof(uint32_t), (scount == 1) || !multiple_fpga, 1);
     printf("fpgajtag: Done sending file\n");
@@ -970,19 +961,18 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (idcode_count > 3) {
-    ENTER_TMS_STATE('R');
-    readout_status1(ftdi, 0, 1 + 2 * (idcode_count > 3)
-        + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-          || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
+        ENTER_TMS_STATE('R');
+        readout_status1(ftdi, 0, 1 + 2 * (idcode_count > 3)
+            + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+              || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
     }
     /*
      * Read Xilinx configuration status register
      * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
      * through the JTAG Interface" and Table 6-3.
      */
-    int statparam = found_cortex ? 1 : -(jtag_index == 0);
     int id2 = idcode_count > 2 && !id3_extra;
-    int extra = multiple_fpga * (!statparam) || id2;
+    int extra = multiple_fpga * (!found_cortex && jtag_index != 0) || id2;
     int idindex = 0;
     if (idcode_count > 2)
         idindex = jtag_index;
@@ -990,11 +980,11 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         idindex = idcode_count - 1;
     int addfill = id3_extra * scount;
     int bitlen = (!extra && id2)*dcount;
-DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d statparam %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index, statparam);
+DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);
     if (idcode_count > 3)
         reset_mark_clock(ftdi, 0);
-    int oneopt = (!statparam
-                 || ((jtag_index || !multiple_fpga) && statparam == -1)
+    int oneopt = ((!found_cortex && jtag_index != 0)
+                 || ((jtag_index || !multiple_fpga) && (!found_cortex && jtag_index == 0))
                  ) ? 1 : id2;
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         oneopt, idindex, bitlen, extra, addfill, scount);

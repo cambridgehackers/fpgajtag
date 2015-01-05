@@ -585,14 +585,11 @@ static void readout_status0(struct ftdi_context *ftdi)
     uint32_t ret;
     int idindex = idcode_count - 1;
     int oneformat = dcount || !not_last_id;
-    int e1 = dcount || !not_last_id;
-    int ben = idgt2 || idco3;
+    int ben = idgt2;
 
     for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int extra = !e1 && j != 2;
-        int bnum = (idcogt3 && j == dcount)
-                || (extra && ben);
+        int bnum = (idcogt3 && j == dcount) || (oneformat <= 0 && ben);
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (j == dcount) {
@@ -609,10 +606,10 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
- __FUNCTION__, __LINE__, j, extra, idindex, bnum);
+DPRINT("[%s:%d] before readout_seq j %d idindex %d bnum %d\n",
+ __FUNCTION__, __LINE__, j, idindex, bnum);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bnum * dcount, !extra, 2 * (j && j != dcount),
+            idindex, bnum * dcount, oneformat > 0 || j == 2, 2 * (j && j != dcount),
             (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -622,8 +619,7 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
         ENTER_TMS_STATE('R');
         idindex--;
         oneformat = -idco3;
-        e1 = 0;
-        ben = idco3;
+        ben = idco3 && j != 1;
     }
 }
 static void readout_status1(struct ftdi_context *ftdi, int version)

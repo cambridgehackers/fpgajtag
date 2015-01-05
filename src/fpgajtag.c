@@ -207,7 +207,7 @@ static uint64_t read_data_int(struct ftdi_context *ftdi, int extra, int len)
 }
 
 void write_bytes(struct ftdi_context *ftdi, uint8_t read,
-    char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext)
+    char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int exchar)
 {
     ENTER_TMS_STATE('S');
     while (size > 0) {
@@ -226,13 +226,12 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
         ptrin += tlen;
         if (rlen < max_frame_size) {
             if (opttail > 0) {
-                uint8_t ch = *ptrin++;
+                exchar = *ptrin++;
                 if (swapbits)
-                    ch = bitswap[ch];
-                write_bit(read, 7, ch, target_state);
+                    exchar = bitswap[exchar];
+                opttail = -7;
             }
-            else
-                write_bit(read, -opttail, default_ext, target_state); /* this is the 'bypass' bit value */
+            write_bit(read, -opttail, exchar, target_state);
         }
         size -= max_frame_size;
         if (size > 0)
@@ -258,8 +257,7 @@ void idle_to_shift_dr(int extra, int val)
 {
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('D');
-    if (extra)
-        write_bit(0, idcode_count - extra, val, 0);
+    write_bit(0, (extra != 0) * (idcode_count - extra), val, 0);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
@@ -381,8 +379,7 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
         write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
         width -= 8 * bytes;
     }
-    if (width)
-        write_bit(read, width, 0xff, tail);
+    write_bit(read, width, 0xff, tail);
 }
 /*
  * Functions for setting Instruction Register(IR)
@@ -523,11 +520,8 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_c
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
         if (!ignore_idcode) {
             ENTER_TMS_STATE('R');
-            if (version == 1 && !jnmult && toploop != pre) {
-                marker_for_reset(ftdi, 0);
-                set_clock_divisor(ftdi);
-                write_tms_transition("RR1");
-            }
+            if (version == 1 && !jnmult && toploop != pre)
+                reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
         int idindex = (!version && ignore_idcode) * match; // this is 2nd time calling w/ version == 0!
@@ -865,13 +859,9 @@ DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
         (device_type != DEVICE_ZC702 && jnmult) + 10 * (idcode_count > 3),
         0, 0, 0);
 
+    if (jnmult)
+        reset_mark_clock(ftdi, idcode_count != 3);
     marker_for_reset(ftdi, 0);
-    if (jnmult) {
-        if (idcode_count != 3)
-            set_clock_divisor(ftdi);
-        write_tms_transition("RR1");
-        marker_for_reset(ftdi, 0);
-    }
     if (idcode_count != 3) {
         write_tms_transition("RR1");
         marker_for_reset(ftdi, 0);

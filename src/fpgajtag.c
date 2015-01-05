@@ -588,7 +588,6 @@ static void readout_status0(struct ftdi_context *ftdi)
     uint32_t ret;
     int idindex = idcode_count - 1;
     int upperbound = dcount;
-//(idcode_count > 3) + (dcount != 0);
 
     for (j = 0; j < 1 + upperbound; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
@@ -781,14 +780,13 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) + id3_extra;
-    id2 = idcode_count == 3 || (idcode_count > 2 && 
-!not_last_id);
-    ncorid2 = (!found_cortex && jtag_index) || id2;
+    id2 = (found_cortex && !not_last_id);
+    ncorid2 = idcode_count > 1 && !not_last_id;
     jnmult = !dcount || jtag_index;
     idmult2 = !found_cortex && idcode_count == 2;
     fcor2 = found_cortex && idcode_count == 2;
-    nfcormult2 = (!found_cortex && jnmult) || id2;
-printf("[%s:%d] count %d cortex %d jtag %d nfcormult2 %d fcor2 %d idmult2 %d jnmult %d ncorid2 %d id2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, nfcormult2, fcor2, idmult2, jnmult, ncorid2, id2, scount);
+    nfcormult2 = !not_last_id;
+printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d ncorid2 %d id2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, ncorid2, id2, scount);
     return ftdi;
 }
 

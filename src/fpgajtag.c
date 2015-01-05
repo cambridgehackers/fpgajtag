@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount;
+static int verbose, jtag_index = -1, device_type, dcount, scount;
 static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2, nfcormult2, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
@@ -587,7 +587,7 @@ static void readout_status0(struct ftdi_context *ftdi)
     int i, j;
     uint32_t ret;
     int idindex = idcode_count - 1;
-    int upperbound = (idcode_count > 3) + multiple_fpga;
+    int upperbound = (idcode_count > 3) + (dcount != 0);
 
     for (j = 0; j < 1 + upperbound; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
@@ -606,7 +606,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
             if (found_cortex)
                 write_bypass(ftdi);
         }
-        write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && multiple_fpga);
+        write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && dcount != 0);
         write_bit(0, i3j1 * bitlen, 0, 0);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (!i3j1) * bitlen);
         if (ret != 0xffffffff)
@@ -638,7 +638,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
               || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
     ENTER_TMS_STATE('R');
     if (enab) {
-        shift_enable = multiple_fpga;
+        shift_enable = dcount != 0;
         upperbound = 1;
     }
     for (j = 0; j < upperbound; j++) {
@@ -775,18 +775,19 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         //exit(1);
     }
 
-    above2 = (idcode_count > 2) * (idcode_count - 2);
+    above2 = (idcode_count > 1) * (idcode_count - 2);
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) + id3_extra;
-    id2 = idcode_count > 2 && !id3_extra;
+    id2 = idcode_count == 3 || (idcode_count > 2 && 
+!not_last_id);
     ncorid2 = (!found_cortex && jtag_index) || id2;
-    multiple_fpga = dcount != 0;
-    jnmult = !multiple_fpga || jtag_index;
-    idmult2 = multiple_fpga && idcode_count == 2;
+    jnmult = dcount == 0 || jtag_index;
+    idmult2 = !found_cortex && idcode_count == 2;
     fcor2 = found_cortex && idcode_count == 2;
     nfcormult2 = (!found_cortex && jnmult) || id2;
+printf("[%s:%d] count %d cortex %d jtag %d nfcormult2 %d fcor2 %d idmult2 %d jnmult %d ncorid2 %d id2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, nfcormult2, fcor2, idmult2, jnmult, ncorid2, id2, scount);
     return ftdi;
 }
 
@@ -917,7 +918,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, fcor2, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), (scount == 1) || !multiple_fpga, 1);
+        NULL, DITEM(INT32(0)), (scount == 1) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

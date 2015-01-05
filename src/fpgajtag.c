@@ -585,11 +585,14 @@ static void readout_status0(struct ftdi_context *ftdi)
     uint32_t ret;
     int idindex = idcode_count - 1;
     int oneformat = dcount || !not_last_id;
+    int e1 = dcount || !not_last_id;
+    int ben = idgt2 || idco3;
 
     for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int extra = (j || (!dcount && not_last_id)) && j != 2;
-        int bnum = (idcogt3 && j == dcount) || (extra && ((idgt2 && !j) || idco3));
+        int extra = !e1 && j != 2;
+        int bnum = (idcogt3 && j == dcount)
+                || (extra && ben);
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (j == dcount) {
@@ -599,7 +602,8 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         }
         write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && dcount);
         write_bit(0, (j && j != dcount) * above2, 0, 0);
-        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (j == dcount) * above2);
+        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem,
+            (j == dcount) * above2);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
@@ -608,7 +612,8 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bnum);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bnum * dcount, !extra, 2 * (j && j != dcount), (j != dcount) * (j+1));
+            idindex, bnum * dcount, !extra, 2 * (j && j != dcount),
+            (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -617,6 +622,8 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
         ENTER_TMS_STATE('R');
         idindex--;
         oneformat = -idco3;
+        e1 = 0;
+        ben = idco3;
     }
 }
 static void readout_status1(struct ftdi_context *ftdi, int version)

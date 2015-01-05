@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount;
-static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2;
+static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2, nfcormult2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -376,7 +376,7 @@ static struct ftdi_context *get_deviceid(int device_index)
 static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 {
     static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
-    if (width >= 8) {
+    if (width > 7) {
         int bytes = width/8;
         write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
         width -= 8 * bytes;
@@ -638,21 +638,23 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
 static void readout_status1(struct ftdi_context *ftdi, int version)
 {
     int j;
+    int shift_enable = 0;
+    int enab = !version && idcode_count < 3;
 
-    int upperbound = 1 + (idcode_count > 3) + (idcode_count >= 3) + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+    int upperbound = (idcode_count > 2) * (idcode_count - 2)
+            + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
               || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
     ENTER_TMS_STATE('R');
-    if (!version && idcode_count < 3)
-        access_user2_loop(ftdi, 0, 1, 1,
-            1, 0,
-            0, multiple_fpga, 0);
-    else {
-    for (j = 1; j < upperbound; j++) {
+    if (enab) {
+        shift_enable = multiple_fpga;
+        upperbound = 1;
+    }
+    for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
         access_user2_loop(ftdi, 0, 1, 1,
-            idcode_count > 3 && (j != 1 || !version), j,
-            j != 1, j != 1, j == 2);
-    }
+            (idcode_count > 3 && j != 0) || !version, (!enab) * (j+1),
+            j != 0, shift_enable, j == 1);
+        shift_enable = 1;
     }
 }
 
@@ -678,7 +680,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, not_last_id, 1);
-    //ENTER_TMS_STATE('I');
+    write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }
 
@@ -791,6 +793,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     jnmult = !multiple_fpga || jtag_index;
     idmult2 = multiple_fpga && idcode_count == 2;
     fcor2 = found_cortex && idcode_count == 2;
+    nfcormult2 = (!found_cortex && jnmult) || id2;
     return ftdi;
 }
 
@@ -859,9 +862,8 @@ usage:
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702
-         && (jnmult))
-             + 10 * (idcode_count > 3), 0, 0, 0);
+        (device_type != DEVICE_ZC702 && jnmult) + 10 * (idcode_count > 3),
+        0, 0, 0);
 
     marker_for_reset(ftdi, 0);
     if (jnmult) {
@@ -938,7 +940,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (not_last_id ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_cirreg(ftdi, 0, IRREG_BYPASS);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
@@ -951,8 +952,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_cirreg(ftdi, 0, IRREG_BYPASS);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
@@ -961,10 +960,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         readout_status1(ftdi, 0);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
-    int oneopt = (!found_cortex && jnmult) || id2;
+
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        oneopt, jtag_index, 0, ncorid2, id3_extra * scount, scount);
+        nfcormult2, jtag_index, 0, ncorid2, id3_extra * scount, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

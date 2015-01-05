@@ -514,8 +514,6 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
 {
     int toploop;
-    int inmax = 1 + (version != 0) * above2;
-    int mult = 1 + idmult2;
     for (toploop = 0; toploop < loop_count; toploop++) {
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
         if (!ignore_idcode) {
@@ -528,21 +526,21 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         int innerl, testi, flip = 0;
         int btemp = addrtemp;
         int top_wait = toploop || cortex_nowait;
-        for (innerl = 0; innerl < inmax * mult; innerl++) {
-            int izero = innerl/mult == 0;
-            int ione = innerl/mult == 1;
-            int itwo = innerl/mult == 2;
+        for (innerl = 0; innerl < (1 + (version != 0) * above2) * idmult2; innerl++) {
+            int izero = innerl/idmult2 == 0;
+            int ione = innerl/idmult2 == 1;
+            int itwo = innerl/idmult2 == 2;
             int v0_3 = idcode_count > 3 && version == 0;
             int v1_3 = idcode_count > 3 && version == 1;
             int v2_3 = idcode_count > 3 && version == 2;
             int nonfirst = flip != 0;
-            int adj = (idcode_count - 1) == idindex;
+            int address_last = (idcode_count - 1) == idindex;
             int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
-            int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
+            int mod3 = v0_3 * izero * (!address_last) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
-            int extracond = v0_3 && adj;
+            int extracond = v0_3 && address_last;
             int bitstar = (!btemp && above2 && !extracond) * dcount;
-            int bitex   = (!btemp && above2 && !adj) * dcount;
+            int bitex   = (!btemp && above2 && !address_last) * dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -550,7 +548,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
                     write_bit(0, ((btemp && (!v2_3 || !izero || mod3)) || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
-                        write_bit(0, idcode_len[0] - adj, IRREG_JSTART, 0); /* DR data */
+                        write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
                         write_bit(0, bitstar, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
                         write_bit(0, (btemp || extracond) * fillwidth, 0, 0);
@@ -561,12 +559,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         write_bit(0, bcond4, 0, 0);
                         write_bit(0, idcode_count - 1 - bcond4, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, adj, bitex);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, address_last, bitex);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
             }
-            if (++flip >= mult) {
+            if (++flip >= idmult2) {
                 flip = 0;
                 if (izero && found_cortex) {
                     if (!shift_enable)
@@ -779,7 +777,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     scount = (jtag_index != 0) * (idcode_count - jtag_index);
     idco3 = idcode_count == 3;
     jnmult = !dcount || jtag_index;
-    idmult2 = !found_cortex && idcode_count == 2;
+    idmult2 = 1 + (!found_cortex && idcode_count == 2);
     fcor2 = !dcount && not_last_id;
 printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, scount);
     return ftdi;
@@ -889,7 +887,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 2;
     if (device_type == DEVICE_ZC702)
         bypass_tc = 1;
-    if (idmult2 && !jtag_index)
+    if (idmult2 > 1 && !jtag_index)
         bypass_tc += 8;
     access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

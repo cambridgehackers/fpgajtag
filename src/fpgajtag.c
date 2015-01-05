@@ -452,11 +452,10 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
 {
     int j;
     uint32_t ret = 0;
-    if (idindex >= 0) {
+    if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex, extra);
         write_bit(0, extrabitlen, 0, 0);
     }
-
     while (resp_len > 0) {
         int size = resp_len;
         if (size > SEGMENT_LENGTH)
@@ -506,10 +505,8 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
     ENTER_TMS_STATE('I');
     if (!oneformat && idcogt3)
         extra = 0;
-    if (resp_len)
-        return fetch_result(ftdi, resp_len, fd, idcode_count == 1 || extra,
-            bititem, IRREG_CFG_OUT, idindex, extra, addfill);
-    return 0;
+    return fetch_result(ftdi, resp_len, fd, idcode_count == 1 || extra,
+        bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
@@ -529,15 +526,13 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
         int top_wait = toploop || cortex_nowait;
         for (innerl = 0; innerl < (1 + (version != 0) * above2) * idmult2; innerl++) {
             int izero = innerl/idmult2 == 0;
-            int ione = innerl/idmult2 == 1;
-            int itwo = innerl/idmult2 == 2;
+            int ione = idcogt3 && innerl/idmult2 == 1;
+            int intwo = idcogt3 && innerl/idmult2 != 2;
             int v0_3 = idcogt3 && version == 0;
-            int v1_3 = idcogt3 && version == 1;
-            int v2_3 = idcogt3 && version == 2;
             int nonfirst = flip != 0;
             int address_last = (idcode_count - 1) == idindex;
-            int bcond4 = idcogt3 && (ione || (!itwo && btemp));
-            int mod3 = v0_3 * izero * (!address_last) + v1_3 * (!itwo) + v2_3 * ione;
+            int bcond4 = ione || (intwo && btemp);
+            int mod3 = v0_3 * izero * (!address_last) + (version == 1) * intwo + (version == 2) * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && address_last;
             int bcount = (!btemp && idgt2) * dcount;
@@ -546,7 +541,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    write_bit(0, ((btemp && !(v2_3 && izero)) || extracond) * fillwidth, 0, 0);
+                    write_bit(0, ((btemp && !(idcogt3 && version == 2 && izero)) || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
                         write_bit(0, (!extracond) * bcount, 0, 0);

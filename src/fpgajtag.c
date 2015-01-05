@@ -269,7 +269,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         write_int32(ftdi, pre+1, pre[0]);
     if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (idcode_count > 2)
+    if (above2)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - 
             (above2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
@@ -541,8 +541,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && adj;
-            int bitstar = (!btemp && idcode_count > 2 && !extracond) * dcount;
-            int bitex   = (!btemp && idcode_count > 2 && !adj) * dcount;
+            int bitstar = (!btemp && above2 && !extracond) * dcount;
+            int bitex   = (!btemp && above2 && !adj) * dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -587,20 +587,18 @@ static void readout_status0(struct ftdi_context *ftdi)
     int i, j;
     uint32_t ret;
     int idindex = idcode_count - 1;
-    int upperbound = dcount;
 
-    for (j = 0; j < 1 + upperbound; j++) {
+    for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int bitlen = (j != 0) * above2;
         int i3j1 = idcode_count > 3 && j == 1;
         int nj2cor = j || fcor2;
         int extra = !nj2cor || j == 2;
-        int bnum = (idcode_count > 3 && j == 2)
-             || (!extra && ( (idcode_count > 2 && !j) || idco3));
-        int oneformat = !nj2cor ? 1 : -(idco3);
+        int bnum = (idcode_count > 3 && j == 2) || (!extra && (bitlen || idco3));
+        int oneformat = !nj2cor ? 1 : -idco3;
 
-DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
-        if (j == upperbound) {
+DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
+        if (j == dcount) {
             idindex = 0;
             if (found_cortex)
                 write_bypass(ftdi);
@@ -616,7 +614,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bnum);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bnum * dcount, extra, 2 * i3j1, (j != upperbound) * (j+1));
+            idindex, bnum * dcount, extra, 2 * i3j1, (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -782,7 +780,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     idco3 = idcode_count == 3;
     jnmult = !dcount || jtag_index;
     idmult2 = !found_cortex && idcode_count == 2;
-    fcor2 = found_cortex && idcode_count == 2;
+    fcor2 = !dcount && not_last_id;
 printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, scount);
     return ftdi;
 }

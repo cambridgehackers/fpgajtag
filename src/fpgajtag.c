@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, dcount, scount;
-static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2, nfcormult2, above2;
+static int not_last_id, id3_extra, idco3, jnmult, idmult2, skip_idcode, fcor2, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -596,9 +596,8 @@ static void readout_status0(struct ftdi_context *ftdi)
         int nj2cor = j || fcor2;
         int extra = !nj2cor || j == 2;
         int bnum = (idcode_count > 3 && j == 2)
-             || (!extra && ( (idcode_count > 2 && !j)
-                           || idcode_count == 3));
-        int oneformat = !nj2cor ? 1 : -(idcode_count == 3);
+             || (!extra && ( (idcode_count > 2 && !j) || idco3));
+        int oneformat = !nj2cor ? 1 : -(idco3);
 
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         if (j == upperbound) {
@@ -779,14 +778,12 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;
-    scount = (jtag_index != 0) + id3_extra;
-    id2 = (found_cortex && !not_last_id);
-    ncorid2 = idcode_count > 1 && !not_last_id;
+    scount = (jtag_index != 0) * (idcode_count - jtag_index);
+    idco3 = idcode_count == 3;
     jnmult = !dcount || jtag_index;
     idmult2 = !found_cortex && idcode_count == 2;
     fcor2 = found_cortex && idcode_count == 2;
-    nfcormult2 = !not_last_id;
-printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d ncorid2 %d id2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, ncorid2, id2, scount);
+printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, scount);
     return ftdi;
 }
 
@@ -859,9 +856,9 @@ DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
         0, 0, 0);
 
     if (jnmult)
-        reset_mark_clock(ftdi, idcode_count != 3);
+        reset_mark_clock(ftdi, !idco3);
     marker_for_reset(ftdi, 0);
-    if (idcode_count != 3) {
+    if (!idco3) {
         write_tms_transition("RR1");
         marker_for_reset(ftdi, 0);
     }
@@ -944,14 +941,14 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_bypass(ftdi);
-    if (idcode_count != 3)
+    if (!idco3)
         readout_status1(ftdi, 0);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
 
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        nfcormult2, jtag_index, 0, ncorid2, id3_extra * scount, scount);
+        !not_last_id, jtag_index, 0, idcode_count > 1 && !not_last_id, id3_extra * scount, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

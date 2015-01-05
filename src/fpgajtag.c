@@ -613,7 +613,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         ENTER_TMS_STATE('R');
         int i2n = idcode_count > 2 && !j;
         int nfj = !found_cortex && !j;
-        int extra = multiple_fpga * nfj || j == 2 || i2n;
+        int extra = (multiple_fpga && nfj) || j == 2 || i2n;
         bitlen = (idcode_count > 3 && j == 2) || (!extra && (i2n || idcode_count == 3));
         int oneformat = (i2n || nfj) ? 1 : -(idcode_count == 3);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
@@ -641,7 +641,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version, int upperbou
 
     ENTER_TMS_STATE('R');
     for (j = 1; j < upperbound; j++) {
-DPRINT("[%s:%d] j %d upperbound %d multiple %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound, multiple_fpga);
+DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
         access_user2_loop(ftdi, 0, 1, 1,
             idcode_count > 3 && (j != 1 || !version), j,
             j != 1, j != 1, j == 2);
@@ -846,7 +846,7 @@ usage:
         goto exit_label;
     }
 
-DPRINT("[%s:%d] bef user2 multiple %d jtagindex %d\n", __FUNCTION__, __LINE__, multiple_fpga, jtag_index);
+DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
         (device_type != DEVICE_ZC702
          && (jnmult))
@@ -960,7 +960,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * through the JTAG Interface" and Table 6-3.
      */
     int id2 = idcode_count > 2 && !id3_extra;
-    int extra = multiple_fpga * (!found_cortex && jtag_index) || id2;
+    int extra = (!found_cortex && jtag_index) || id2;
     int bitlen = (!extra && id2)*dcount;
     int oneopt = (!found_cortex && jnmult) || id2;
 DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);

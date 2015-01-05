@@ -269,7 +269,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         write_int32(ftdi, pre+1, pre[0]);
     if (id3_extra)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (above2)
+    if (idcode_count > 2)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - 
             (above2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
@@ -539,8 +539,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int mod3 = v0_3 * izero * (!address_last) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && address_last;
-            int bitstar = (!btemp && above2 && !extracond) * dcount;
-            int bitex   = (!btemp && above2 && !address_last) * dcount;
+            int bitstar = (!btemp && idcode_count > 2 && !extracond) * dcount;
+            int bitex   = (!btemp && idcode_count > 2 && !address_last) * dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -592,7 +592,7 @@ static void readout_status0(struct ftdi_context *ftdi)
         int i3j1 = idcode_count > 3 && j == 1;
         int nj2cor = j || fcor2;
         int extra = !nj2cor || j == 2;
-        int bnum = (idcode_count > 3 && j == 2) || (!extra && (bitlen || idco3));
+        int bnum = (idcode_count > 3 && j == 2) || (!extra && ((idcode_count > 2 && !j) || idco3));
         int oneformat = !nj2cor ? 1 : -idco3;
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);

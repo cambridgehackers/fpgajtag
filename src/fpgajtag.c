@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, dcount, scount;
-static int not_last_id, id3_extra, idco3, jnmult, idmult2, skip_idcode, fcor2, above2;
+static int not_last_id, id3_extra, idco3, idmult2, skip_idcode, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -518,7 +518,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_c
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
         if (!ignore_idcode) {
             ENTER_TMS_STATE('R');
-            if (version == 1 && !jnmult && toploop != pre)
+            if (version == 1 && dcount && !jtag_index && toploop != pre)
                 reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
@@ -590,7 +590,7 @@ static void readout_status0(struct ftdi_context *ftdi)
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int bitlen = (j != 0) * above2;
         int i3j1 = idcode_count > 3 && j == 1;
-        int nj2cor = j || fcor2;
+        int nj2cor = j || (!dcount && not_last_id);
         int extra = !nj2cor || j == 2;
         int bnum = (idcode_count > 3 && j == 2) || (!extra && ((idcode_count > 2 && !j) || idco3));
         int oneformat = !nj2cor ? 1 : -idco3;
@@ -776,10 +776,8 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) * (idcode_count - jtag_index);
     idco3 = idcode_count == 3;
-    jnmult = !dcount || jtag_index;
     idmult2 = 1 + (!found_cortex && idcode_count == 2);
-    fcor2 = !dcount && not_last_id;
-printf("[%s:%d] count %d cortex %d jtag %d fcor2 %d idmult2 %d jnmult %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, fcor2, idmult2, jnmult, scount);
+printf("[%s:%d] count %d cortex %d jtag %d idmult2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, idmult2, scount);
     return ftdi;
 }
 
@@ -848,10 +846,10 @@ usage:
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702 && jnmult) + 10 * (idcode_count > 3),
+        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcode_count > 3),
         0, 0, 0);
 
-    if (jnmult)
+    if (!dcount || jtag_index)
         reset_mark_clock(ftdi, !idco3);
     marker_for_reset(ftdi, 0);
     if (!idco3) {
@@ -909,7 +907,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * Step 6: Load Configuration Data Frames
      */
     printf("fpgajtag: Starting to send file\n");
-    send_data_file(ftdi, DREAD, fcor2, input_fileptr, input_filesize,
+    send_data_file(ftdi, DREAD, !dcount && not_last_id, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), (scount == 1) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 

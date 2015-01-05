@@ -589,8 +589,6 @@ static void readout_status0(struct ftdi_context *ftdi)
     int idindex = idcode_count - 1;
     int upperbound = (idcode_count > 3) + multiple_fpga;
 
-    if (fcor2)
-        write_bypass(ftdi);
     for (j = 0; j < 1 + upperbound; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int bitlen = (j != 0) * (idcode_count - 2);
@@ -605,7 +603,7 @@ static void readout_status0(struct ftdi_context *ftdi)
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         if (j == upperbound) {
             idindex = 0;
-            if (idcode_count > 2 && found_cortex)
+            if (found_cortex)
                 write_bypass(ftdi);
         }
         write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && multiple_fpga);
@@ -916,7 +914,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     /*
      * Step 6: Load Configuration Data Frames
      */
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, fcor2, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), (scount == 1) || !multiple_fpga, 1);

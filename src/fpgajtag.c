@@ -587,12 +587,9 @@ static void readout_status0(struct ftdi_context *ftdi)
 
     for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int bitlen = (j != 0) * above2;
-        int i3j1 = idcogt3 && j == 1;
-        int nj2cor = j || (!dcount && not_last_id);
-        int extra = !nj2cor || j == 2;
-        int bnum = (idcogt3 && j == 2) || (!extra && ((idgt2 && !j) || idco3));
-        int oneformat = !nj2cor ? 1 : -idco3;
+        int extra = (j || (!dcount && not_last_id)) && j != 2;
+        int bnum = (idcogt3 && j == dcount) || (extra && ((idgt2 && !j) || idco3));
+        int oneformat = (j || (!dcount && not_last_id)) ? -idco3 : 1;
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (j == dcount) {
@@ -601,8 +598,8 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
                 write_bypass(ftdi);
         }
         write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && dcount);
-        write_bit(0, i3j1 * bitlen, 0, 0);
-        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (!i3j1) * bitlen);
+        write_bit(0, (j && j != dcount) * above2, 0, 0);
+        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (j == dcount) * above2);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
@@ -611,7 +608,7 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bnum);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bnum * dcount, extra, 2 * i3j1, (j != dcount) * (j+1));
+            idindex, bnum * dcount, !extra, 2 * (j && j != dcount), (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

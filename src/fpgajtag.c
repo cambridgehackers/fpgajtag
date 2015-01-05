@@ -542,7 +542,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && adj;
             int bitstar = (!btemp && idcode_count > 2 && !extracond) * dcount;
-            int bitex   = (!btemp && idcode_count > 2 && !adj)*dcount;
+            int bitex   = (!btemp && idcode_count > 2 && !adj) * dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -587,7 +587,8 @@ static void readout_status0(struct ftdi_context *ftdi)
     int i, j;
     uint32_t ret;
     int idindex = idcode_count - 1;
-    int upperbound = (idcode_count > 3) + (dcount != 0);
+    int upperbound = dcount;
+//(idcode_count > 3) + (dcount != 0);
 
     for (j = 0; j < 1 + upperbound; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
@@ -606,7 +607,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
             if (found_cortex)
                 write_bypass(ftdi);
         }
-        write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && dcount != 0);
+        write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && dcount);
         write_bit(0, i3j1 * bitlen, 0, 0);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (!i3j1) * bitlen);
         if (ret != 0xffffffff)
@@ -783,7 +784,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     id2 = idcode_count == 3 || (idcode_count > 2 && 
 !not_last_id);
     ncorid2 = (!found_cortex && jtag_index) || id2;
-    jnmult = dcount == 0 || jtag_index;
+    jnmult = !dcount || jtag_index;
     idmult2 = !found_cortex && idcode_count == 2;
     fcor2 = found_cortex && idcode_count == 2;
     nfcormult2 = (!found_cortex && jnmult) || id2;

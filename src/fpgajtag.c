@@ -584,12 +584,12 @@ static void readout_status0(struct ftdi_context *ftdi)
     int i, j;
     uint32_t ret;
     int idindex = idcode_count - 1;
+    int oneformat = dcount || !not_last_id;
 
     for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int extra = (j || (!dcount && not_last_id)) && j != 2;
         int bnum = (idcogt3 && j == dcount) || (extra && ((idgt2 && !j) || idco3));
-        int oneformat = (j || (!dcount && not_last_id)) ? -idco3 : 1;
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (j == dcount) {
@@ -616,6 +616,7 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         ENTER_TMS_STATE('R');
         idindex--;
+        oneformat = -idco3;
     }
 }
 static void readout_status1(struct ftdi_context *ftdi, int version)

@@ -489,6 +489,11 @@ static uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd, in
     return ret;
 }
 
+/*
+ * Read Xilinx configuration status register
+ * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
+ * through the JTAG Interface" and Table 6-3.
+ */
 static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_len,
      int fd, int oneformat, int idindex, int bititem, int extra, int addfill, int shiftdr)
 {
@@ -619,11 +624,6 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bnum);
-        /*
-         * Read Xilinx configuration status register
-         * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
-         * through the JTAG Interface" and Table 6-3.
-         */
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
             idindex, bnum * dcount, extra, 2 * i3j1, (j != upperbound) * (j+1));
         uint32_t status = ret >> 8;
@@ -635,16 +635,24 @@ DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
         idindex--;
     }
 }
-static void readout_status1(struct ftdi_context *ftdi, int version, int upperbound)
+static void readout_status1(struct ftdi_context *ftdi, int version)
 {
     int j;
 
+    int upperbound = 1 + (idcode_count > 3) + (idcode_count >= 3) + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+              || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
     ENTER_TMS_STATE('R');
+    if (!version && idcode_count < 3)
+        access_user2_loop(ftdi, 0, 1, 1,
+            1, 0,
+            0, multiple_fpga, 0);
+    else {
     for (j = 1; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
         access_user2_loop(ftdi, 0, 1, 1,
             idcode_count > 3 && (j != 1 || !version), j,
             j != 1, j != 1, j == 2);
+    }
     }
 }
 
@@ -949,19 +957,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_bypass(ftdi);
-    if (idcode_count < 3)
-        access_user2_loop(ftdi, 0, 1, 1, 1, 0, 0, multiple_fpga, 0);
-    else if (idcode_count > 3)
-        readout_status1(ftdi, 0, 1 + 2 * (idcode_count > 3)
-            + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-              || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
+    if (idcode_count != 3)
+        readout_status1(ftdi, 0);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
-    /*
-     * Read Xilinx configuration status register
-     * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
-     * through the JTAG Interface" and Table 6-3.
-     */
     int oneopt = (!found_cortex && jnmult) || id2;
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
@@ -971,9 +970,7 @@ DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    readout_status1(ftdi, 1, 1 + (idcode_count > 3) + (idcode_count >= 3)
-        + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-          || (not_last_id && (device_type != DEVICE_ZEDBOARD))));
+    readout_status1(ftdi, 1);
     rescan = 1;
 
     /*

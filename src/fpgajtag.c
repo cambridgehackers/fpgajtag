@@ -380,10 +380,6 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
         write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
         width -= 8 * bytes;
     }
-    if (width > 7) {
-        write_bit(read, 2, 0xff, 0);
-        width -= 2;
-    }
     if (width)
         write_bit(read, width, 0xff, tail);
 }
@@ -586,11 +582,12 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
     }
 }
 
-static void readout_status0(struct ftdi_context *ftdi, int upperbound)
+static void readout_status0(struct ftdi_context *ftdi)
 {
     int i, j;
     uint32_t ret;
     int idindex = idcode_count - 1;
+    int upperbound = 1 + (idcode_count > 3) + multiple_fpga;
 
     if (found_cortex && idcode_count <= 2)
         write_bypass(ftdi);
@@ -618,7 +615,7 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         int nfj = !found_cortex && !j;
         int extra = multiple_fpga * nfj || j == 2 || i2n;
         bitlen = (idcode_count > 3 && j == 2) || (!extra && (i2n || idcode_count == 3));
-        int oneformat = nfj ? 1 : (idcode_count > 2) * (j ? -(idcode_count <= 3) : 1);
+        int oneformat = (i2n || nfj) ? 1 : -(idcode_count == 3);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*
@@ -883,7 +880,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-    readout_status0(ftdi, 1 + (idcode_count > 3) + multiple_fpga);
+    readout_status0(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     int bypass_tc = 4;
     if (device_type == DEVICE_AC701)

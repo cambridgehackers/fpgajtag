@@ -49,7 +49,8 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount, not_last_id, id3_extra, jnmult, idmult2, skip_idcode;
+static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount;
+static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -589,7 +590,7 @@ static void readout_status0(struct ftdi_context *ftdi)
     int idindex = idcode_count - 1;
     int upperbound = (idcode_count > 3) + multiple_fpga;
 
-    if (found_cortex && idcode_count == 2)
+    if (fcor2)
         write_bypass(ftdi);
     for (j = 0; j < 1 + upperbound; j++) {
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
@@ -613,9 +614,11 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
         ENTER_TMS_STATE('R');
         int i2n = idcode_count > 2 && !j;
         int nfj = !found_cortex && !j;
-        int extra = (multiple_fpga && nfj) || j == 2 || i2n;
+        int extra = (//multiple_fpga && 
+nfj) || j == 2 || i2n;
         bitlen = (idcode_count > 3 && j == 2) || (!extra && (i2n || idcode_count == 3));
-        int oneformat = (i2n || nfj) ? 1 : -(idcode_count == 3);
+        int oneformat = //(i2n || nfj) 
+(!j && (idcode_count > 2 || !found_cortex)) ? 1 : -(idcode_count == 3);
 DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
  __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
         /*
@@ -777,9 +780,12 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;
     scount = (jtag_index != 0) + id3_extra;
-    multiple_fpga = (idcode_count  - (found_cortex > 0)) > 1;
+    id2 = idcode_count > 2 && !id3_extra;
+    ncorid2 = (!found_cortex && jtag_index) || id2;
+    multiple_fpga = dcount != 0;
     jnmult = !multiple_fpga || jtag_index;
     idmult2 = multiple_fpga && idcode_count == 2;
+    fcor2 = found_cortex && idcode_count == 2;
     return ftdi;
 }
 
@@ -915,7 +921,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     printf("fpgajtag: Starting to send file\n");
-    send_data_file(ftdi, DREAD, found_cortex && (idcode_count <= 2), input_fileptr, input_filesize,
+    send_data_file(ftdi, DREAD, fcor2, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), (scount == 1) || !multiple_fpga, 1);
     printf("fpgajtag: Done sending file\n");
 
@@ -959,13 +965,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
      * through the JTAG Interface" and Table 6-3.
      */
-    int id2 = idcode_count > 2 && !id3_extra;
-    int extra = (!found_cortex && jtag_index) || id2;
-    int bitlen = (!extra && id2)*dcount;
     int oneopt = (!found_cortex && jnmult) || id2;
-DPRINT("[%s:%d] before readoutseq bitlen %d jtag_index %d\n", __FUNCTION__, __LINE__, bitlen, jtag_index);
+DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        oneopt, jtag_index, bitlen, extra, id3_extra * scount, scount);
+        oneopt, jtag_index, 0, ncorid2, id3_extra * scount, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

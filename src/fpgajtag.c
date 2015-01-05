@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, multiple_fpga, dcount, scount;
-static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2, nfcormult2;
+static int not_last_id, id3_extra, id2, ncorid2, jnmult, idmult2, skip_idcode, fcor2, nfcormult2, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -271,7 +271,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (idcode_count > 2)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - 
-            (idcode_count > 2) * (idcode_count - 2 - id3_extra)), 0, 0);
+            (above2 - id3_extra)), 0, 0);
     else if (idcode_count > 1)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
     if (post)
@@ -499,7 +499,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
     write_dirreg(ftdi, IRREG_CFG_IN, idindex, shiftdr); /* Select CFG_IN for sending our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
 DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __LINE__, oneformat, extra, addfill, bititem);
-    write_bit(0, (resp_len && !oneformat && extra)*(idcode_count - 2), 0, 0);
+    write_bit(0, (resp_len && !oneformat && extra) * above2, 0, 0);
     ENTER_TMS_STATE('I');
     if (resp_len) {
         if (!oneformat && idcode_count > 3)
@@ -514,7 +514,7 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
 static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
 {
     int toploop;
-    int inmax = 1 + (version && idcode_count > 2) * (idcode_count - 2);
+    int inmax = 1 + (version != 0) * above2;
     int mult = 1 + idmult2;
     for (toploop = 0; toploop < loop_count; toploop++) {
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
@@ -541,8 +541,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int mod3 = v0_3 * izero * (!adj) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && adj;
-            int bitstar = ((!btemp && idcode_count > 2) && !extracond) * dcount;
-            int bitex = (!adj && (!btemp) && idcode_count > 2)*dcount;
+            int bitstar = (!btemp && idcode_count > 2 && !extracond) * dcount;
+            int bitex   = (!btemp && idcode_count > 2 && !adj)*dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
@@ -591,14 +591,14 @@ static void readout_status0(struct ftdi_context *ftdi)
 
     for (j = 0; j < 1 + upperbound; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int bitlen = (j != 0) * (idcode_count - 2);
+        int bitlen = (j != 0) * above2;
         int i3j1 = idcode_count > 3 && j == 1;
-        int nj2cor = !j && !fcor2;
-        int extra = nj2cor || j == 2;
+        int nj2cor = j || fcor2;
+        int extra = !nj2cor || j == 2;
         int bnum = (idcode_count > 3 && j == 2)
              || (!extra && ( (idcode_count > 2 && !j)
                            || idcode_count == 3));
-        int oneformat = nj2cor ? 1 : -(idcode_count == 3);
+        int oneformat = !nj2cor ? 1 : -(idcode_count == 3);
 
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         if (j == upperbound) {
@@ -633,7 +633,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
     int shift_enable = 0;
     int enab = !version && idcode_count < 3;
 
-    int upperbound = (idcode_count > 2) * (idcode_count - 2)
+    int upperbound = above2
             + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
               || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
     ENTER_TMS_STATE('R');
@@ -775,6 +775,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         //exit(1);
     }
 
+    above2 = (idcode_count > 2) * (idcode_count - 2);
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcode_count > 3 && not_last_id;

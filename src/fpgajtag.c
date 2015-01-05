@@ -532,7 +532,8 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int nonfirst = flip != 0;
             int address_last = (idcode_count - 1) == idindex;
             int bcond4 = ione || (intwo && btemp);
-            int mod3 = v0_3 * izero * (!address_last) + (version == 1) * intwo + (version == 2) * ione;
+            int mod3 = v0_3 * izero * (!address_last)
+                + (version == 1) * intwo + (version == 2) * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && address_last;
             int bcount = (!btemp && idgt2) * dcount;
@@ -541,12 +542,14 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    write_bit(0, ((btemp && !(idcogt3 && version == 2 && izero)) || extracond) * fillwidth, 0, 0);
+                    write_bit(0,((btemp && !(idcogt3 && version == 2 && izero))
+                             || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
                         write_bit(0, (!extracond) * bcount, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
-                        write_bit(0, (btemp || extracond) * fillwidth, 0, 0);
+                        write_bit(0, (btemp
+                                     || extracond) * fillwidth, 0, 0);
                     }
                     if (testi) {
                         write_one_byte(ftdi, 0, 0x69);

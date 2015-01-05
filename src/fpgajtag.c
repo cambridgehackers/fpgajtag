@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
 static int verbose, jtag_index = -1, device_type, dcount, scount;
-static int not_last_id, id3_extra, idco3, idmult2, skip_idcode, above2;
+static int not_last_id, id3_extra, idco3, idcogt3, idmult2, skip_idcode, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -502,7 +502,7 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
     write_bit(0, (resp_len && !oneformat && extra) * above2, 0, 0);
     ENTER_TMS_STATE('I');
     if (resp_len) {
-        if (!oneformat && idcode_count > 3)
+        if (!oneformat && idcogt3)
             extra = 0;
         write_dirreg(ftdi, IRREG_CFG_OUT, idindex, extra);
         write_bit(0, addfill, 0, 0);
@@ -530,26 +530,25 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int izero = innerl/idmult2 == 0;
             int ione = innerl/idmult2 == 1;
             int itwo = innerl/idmult2 == 2;
-            int v0_3 = idcode_count > 3 && version == 0;
-            int v1_3 = idcode_count > 3 && version == 1;
-            int v2_3 = idcode_count > 3 && version == 2;
+            int v0_3 = idcogt3 && version == 0;
+            int v1_3 = idcogt3 && version == 1;
+            int v2_3 = idcogt3 && version == 2;
             int nonfirst = flip != 0;
             int address_last = (idcode_count - 1) == idindex;
-            int bcond4 = idcode_count > 3 && (ione || (!itwo && btemp));
+            int bcond4 = idcogt3 && (ione || (!itwo && btemp));
             int mod3 = v0_3 * izero * (!address_last) + v1_3 * (!itwo) + v2_3 * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && address_last;
-            int bitstar = (!btemp && idcode_count > 2 && !extracond) * dcount;
-            int bitex   = (!btemp && idcode_count > 2 && !address_last) * dcount;
+            int bcount = (!btemp && idcode_count > 2) * dcount;
             int j = 3 + !top_wait;
             while (j-- > 0) {
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    write_bit(0, ((btemp && (!v2_3 || !izero || mod3)) || extracond) * fillwidth, 0, 0);
+                    write_bit(0, ((btemp && !(v2_3 && izero)) || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
-                        write_bit(0, bitstar, 0, 0);
+                        write_bit(0, (!extracond) * bcount, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
                         write_bit(0, (btemp || extracond) * fillwidth, 0, 0);
                     }
@@ -559,7 +558,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                         write_bit(0, bcond4, 0, 0);
                         write_bit(0, idcode_count - 1 - bcond4, 0, 0);
                     }
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, address_last, bitex);
+                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1, address_last, (!address_last) * bcount);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
                 }
@@ -573,7 +572,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 }
                 if (!izero && toploop == match)
                     reset_mark_clock(ftdi, !cortex_nowait);
-                btemp |= idcode_count > 3 || version;
+                btemp |= idcogt3 || version;
             }
             idindex++;
         }
@@ -589,10 +588,10 @@ static void readout_status0(struct ftdi_context *ftdi)
     for (j = 0; j < 1 + dcount; j++) {
         int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
         int bitlen = (j != 0) * above2;
-        int i3j1 = idcode_count > 3 && j == 1;
+        int i3j1 = idcogt3 && j == 1;
         int nj2cor = j || (!dcount && not_last_id);
         int extra = !nj2cor || j == 2;
-        int bnum = (idcode_count > 3 && j == 2) || (!extra && ((idcode_count > 2 && !j) || idco3));
+        int bnum = (idcogt3 && j == 2) || (!extra && ((idcode_count > 2 && !j) || idco3));
         int oneformat = !nj2cor ? 1 : -idco3;
 
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
@@ -639,7 +638,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
         access_user2_loop(ftdi, 0, 1, 1,
-            (idcode_count > 3 && j != 0) || !version, (!enab) * (j+1),
+            (idcogt3 && j != 0) || !version, (!enab) * (j+1),
             j != 0, shift_enable, j == 1);
         shift_enable = 1;
     }
@@ -770,12 +769,13 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         //exit(1);
     }
 
+    idco3 = idcode_count == 3;
+    idcogt3 = idcode_count > 3;
     above2 = (idcode_count > 1) * (idcode_count - 2);
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
-    id3_extra = idcode_count > 3 && not_last_id;
+    id3_extra = idcogt3 && not_last_id;
     scount = (jtag_index != 0) * (idcode_count - jtag_index);
-    idco3 = idcode_count == 3;
     idmult2 = 1 + (!found_cortex && idcode_count == 2);
 printf("[%s:%d] count %d cortex %d jtag %d idmult2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, idmult2, scount);
     return ftdi;
@@ -846,7 +846,7 @@ usage:
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
     access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcode_count > 3),
+        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3),
         0, 0, 0);
 
     if (!dcount || jtag_index)

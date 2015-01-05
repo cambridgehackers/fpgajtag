@@ -593,6 +593,16 @@ static void readout_status0(struct ftdi_context *ftdi)
     if (fcor2)
         write_bypass(ftdi);
     for (j = 0; j < 1 + upperbound; j++) {
+        int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
+        int bitlen = (j != 0) * (idcode_count - 2);
+        int i3j1 = idcode_count > 3 && j == 1;
+        int nj2cor = !j && !fcor2;
+        int extra = nj2cor || j == 2;
+        int bnum = (idcode_count > 3 && j == 2)
+             || (!extra && ( (idcode_count > 2 && !j)
+                           || idcode_count == 3));
+        int oneformat = nj2cor ? 1 : -(idcode_count == 3);
+
 DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperbound);
         if (j == upperbound) {
             idindex = 0;
@@ -600,33 +610,22 @@ DPRINT("[%s:%d] 0 %d j %d upperbound %d\n", __FUNCTION__, __LINE__, 0, j, upperb
                 write_bypass(ftdi);
         }
         write_dirreg(ftdi, IRREG_USERCODE, idindex, !j && multiple_fpga);
-        int readitem = (j == 0) && device_type != DEVICE_ZEDBOARD;
-        int bitlen = (j != 0) * (idcode_count - 2);
-        if (idcode_count > 3 && j == 1) {
-            write_bit(0, bitlen, 0, 0);
-            bitlen = 0;
-        }
-        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, bitlen);
+        write_bit(0, i3j1 * bitlen, 0, 0);
+        ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem, (!i3j1) * bitlen);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
-        int nj2cor = !j && !fcor2;
-        int i2n = idcode_count > 2 && !j;
-        int extra = nj2cor || j == 2;
-        bitlen = (idcode_count > 3 && j == 2) || (!extra && (i2n || idcode_count == 3));
-        int oneformat = nj2cor ? 1 : -(idcode_count == 3);
-DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bitlen %d\n",
- __FUNCTION__, __LINE__, j, extra, idindex, bitlen);
+DPRINT("[%s:%d] before readout_seq j %d extra %d idindex %d bnum %d\n",
+ __FUNCTION__, __LINE__, j, extra, idindex, bnum);
         /*
          * Read Xilinx configuration status register
          * In ug470_7Series_Config.pdf, see "Accessing Configuration Registers
          * through the JTAG Interface" and Table 6-3.
          */
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, bitlen * dcount, extra, 2 * (idcode_count > 3) * (j == 1),
-            (j != upperbound) * (j + 1));
+            idindex, bnum * dcount, extra, 2 * i3j1, (j != upperbound) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

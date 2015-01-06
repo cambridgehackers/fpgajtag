@@ -561,9 +561,8 @@ DPRINT("[%s:%d] version %d loop_count %d pre %d match %d toploop %d shift_enable
             int nonfirst = flip != 0;
             int address_last = (idcode_count - 1) == idindex;
             int bcond4 = ione || (intwo && btemp);
-            int mod3 = v0_3 * izero * (!address_last)
-                + (version == 2) * intwo + (version == 1) * ione;
-            int fillwidth = dcount + 1 - mod3;
+            int fillwidth = dcount + 1 - v0_3 * izero * (!address_last)
+                - (version == 2) * intwo - (version == 1) * ione;
             int extracond = v0_3 && address_last;
             int bcount = (!btemp && idgt2) * dcount;
             int j = 3 + !top_wait;
@@ -648,12 +647,12 @@ DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         ENTER_TMS_STATE('R');
-        idindex--;
         oneformat = -idco3;
         if (j == 1)
             oneformat = 1;
         ben = 1;
         readitem = 0;
+        idindex--;
     }
 }
 

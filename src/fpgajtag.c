@@ -509,23 +509,28 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
         bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int ignore_idcode, int shift_enable, int addrtemp, int pre, int match)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int shift_enable, int pre, int amatch)
 {
-    int toploop;
+    int toploop, match = amatch;
     for (toploop = 0; toploop < loop_count; toploop++) {
-DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
-        if (!ignore_idcode) {
+        if (!version) {
+            shift_enable |= toploop;
+            pre |= idcogt3 && toploop;
+            match = amatch * (toploop+1);
+        }
+DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, toploop, shift_enable);
+        if (version || !toploop) {
             ENTER_TMS_STATE('R');
             if (version == 2 && dcount && !jtag_index && toploop != pre)
                 reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
-        int idindex = (!version && ignore_idcode) * match; // this is 2nd time calling w/ version == 0!
+        int idindex = (!version && toploop) * match; // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
-        int btemp = addrtemp;
+        int btemp = !version && toploop == 1;
         int top_wait = toploop || cortex_nowait;
+        int izero = 1;
         for (innerl = 0; innerl < (1 + (version != 0) * above2) * idmult2; innerl++) {
-            int izero = innerl/idmult2 == 0;
             int ione = idcogt3 && innerl/idmult2 == 1;
             int intwo = idcogt3 && innerl/idmult2 != 2;
             int v0_3 = idcogt3 && version == 0;
@@ -573,6 +578,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 if (!izero && toploop == match)
                     reset_mark_clock(ftdi, !cortex_nowait);
                 btemp |= idcogt3 || version;
+                izero = 0;
             }
             idindex++;
         }
@@ -622,7 +628,6 @@ DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j
 }
 static void readout_status1(struct ftdi_context *ftdi, int version)
 {
-    int j;
     int shift_enable = 0;
     int enab = version || idgt2;
 
@@ -634,12 +639,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
         shift_enable = dcount != 0;
         upperbound = 1;
     }
-    for (j = 0; j < upperbound; j++) {
-DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
-        access_user2_loop(ftdi, 0, 1, 1, j != 0, shift_enable, j == 1,
-            (idcogt3 && j != 0) || !version, enab * (j+1));
-        shift_enable = 1;
-    }
+    access_user2_loop(ftdi, 0, upperbound, 1, shift_enable, !version, enab);
 }
 
 /*
@@ -844,8 +844,8 @@ usage:
     }
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
-    access_user2_loop(ftdi, 2, 2, 0, 0, 0, 0,
-        0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
+    access_user2_loop(ftdi, 2, 2, 0, 0, 0,
+        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
 
     if (!dcount || jtag_index)
         reset_mark_clock(ftdi, !idco3);
@@ -885,7 +885,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (idmult2 > 1 && !jtag_index)
         bypass_tc += 8;
-    access_user2_loop(ftdi, 1, bypass_tc, 1, 0, 0, 0, 0, 99999);
+    access_user2_loop(ftdi, 1, bypass_tc, 1, 0, 0, 99999);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
@@ -916,7 +916,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (not_last_id ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);

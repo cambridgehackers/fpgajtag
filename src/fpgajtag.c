@@ -640,7 +640,7 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j, idindex);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat, idindex,
             ((idcogt3 && j == dcount) || (oneformat <= 0 && ben)) * dcount,
-            oneformat > 0, 2 * midmask, (j != dcount) * (j+1));
+            oneformat > 0 || j == 2, 2 * midmask, (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -648,9 +648,7 @@ DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         ENTER_TMS_STATE('R');
         oneformat = -idco3;
-        if (j == 1)
-            oneformat = 1;
-        ben = 1;
+        ben = idco3 && j != 1;
         readitem = 0;
         idindex--;
     }

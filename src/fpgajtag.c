@@ -509,7 +509,7 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
         bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int shift_enable, int pre, int amatch)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int shift_enable, int pre, int amatch)
 {
     int toploop, match = amatch;
     for (toploop = 0; toploop < loop_count; toploop++) {
@@ -521,14 +521,14 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_c
         int idindex = (!version && toploop) * amatch * (toploop+1); // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
         int btemp = !version && toploop == 1;
-        int top_wait = toploop || cortex_nowait;
+        int top_wait = toploop || version != 2;
         int izero = 1;
-DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, toploop, shift_enable);
+DPRINT("[%s:%d] version %d loop_count %d pre %d match %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, pre, match, toploop, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
             if (version == 2 && dcount && !jtag_index && toploop != pre)
                 reset_mark_clock(ftdi, 1);
-            read_idcode(ftdi, cortex_nowait && toploop == pre);
+            read_idcode(ftdi, version != 2 && toploop == pre);
         }
         for (innerl = 0; innerl < (1 + (version != 0) * above2) * idmult2; innerl++) {
             int ione = idcogt3 && innerl/idmult2 == 1;
@@ -576,7 +576,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d toploo
                     idindex++;
                 }
                 if (!izero && toploop == match)
-                    reset_mark_clock(ftdi, !cortex_nowait);
+                    reset_mark_clock(ftdi, version == 2);
                 btemp |= idcogt3 || version;
                 izero = 0;
             }
@@ -639,7 +639,7 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
         shift_enable = dcount != 0;
         upperbound = 1;
     }
-    access_user2_loop(ftdi, 0, upperbound, 1, shift_enable, !version, enab);
+    access_user2_loop(ftdi, 0, upperbound, shift_enable, !version, enab);
 }
 
 /*
@@ -844,8 +844,7 @@ usage:
     }
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
-    access_user2_loop(ftdi, 2, 2, 0, 0, 0,
-        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
+    access_user2_loop(ftdi, 2, 2, 0, 0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
 
     if (!dcount || jtag_index)
         reset_mark_clock(ftdi, !idco3);
@@ -885,7 +884,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (idmult2 > 1 && !jtag_index)
         bypass_tc += 8;
-    access_user2_loop(ftdi, 1, bypass_tc, 1, 0, 0, 99999);
+    access_user2_loop(ftdi, 1, bypass_tc, 0, 0, 99999);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 

@@ -626,9 +626,11 @@ static void readout_status0(struct ftdi_context *ftdi)
     for (j = 0; j < 1 + dcount; j++) {
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         if (j == dcount) {
-            idindex = 0;
-            if (found_cortex)
+            //idindex = 0;
+            if (found_cortex) {
                 write_bypass(ftdi);
+                idindex--; // skip Cortex element
+            }
         }
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem,
             (j == dcount) * above2, IRREG_USERCODE, idindex, !j && dcount,
@@ -639,9 +641,9 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j, idindex);
-        ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat,
-            idindex, ((idcogt3 && j == dcount) || (oneformat <= 0 && ben))
-            * dcount, oneformat > 0 || j == 2, 2 * (j && j != dcount),
+        ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat, idindex,
+            ((idcogt3 && j == dcount) || (oneformat <= 0 && ben)) * dcount,
+             oneformat > 0 || j == 2, 2 * (j && j != dcount),
             (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -940,7 +942,8 @@ DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
-        !not_last_id, jtag_index, 0, idcode_count > 1 && !not_last_id, id3_extra * scount, scount);
+        !not_last_id, jtag_index, 0, idcode_count > 1 && !not_last_id,
+        id3_extra * scount, scount);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

@@ -49,7 +49,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 
-static int verbose, jtag_index = -1, device_type, dcount, scount;
+static int verbose, jtag_index = -1, device_type, dcount, trailing_count;
 static int not_last_id, id3_extra, idco3, idgt2, idcogt3, idmult2, skip_idcode, above2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
@@ -264,7 +264,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
      uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
     write_cirreg(ftdi, read, IRREG_CFG_IN);
-    idle_to_shift_dr(scount, 0xff);
+    idle_to_shift_dr(trailing_count, 0xff);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
     if (id3_extra)
@@ -625,8 +625,8 @@ static void readout_status0(struct ftdi_context *ftdi)
 
     for (j = 0; j < 1 + dcount; j++) {
 DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
+        int midmask = j && j != dcount;
         if (j == dcount) {
-            //idindex = 0;
             if (found_cortex) {
                 write_bypass(ftdi);
                 idindex--; // skip Cortex element
@@ -634,7 +634,7 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
         }
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem,
             (j == dcount) * above2, IRREG_USERCODE, idindex, !j && dcount,
-            (j && j != dcount) * above2);
+            midmask * above2);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
@@ -643,8 +643,9 @@ DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
 DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j, idindex);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat, idindex,
             ((idcogt3 && j == dcount) || (oneformat <= 0 && ben)) * dcount,
-             oneformat > 0 || j == 2, 2 * (j && j != dcount),
-            (j != dcount) * (j+1));
+            oneformat > 0, 2 * midmask,
+ (j != dcount) * (j+1)
+);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -653,7 +654,9 @@ DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j
         ENTER_TMS_STATE('R');
         idindex--;
         oneformat = -idco3;
-        ben = idco3 && j != 1;
+        if (j == 1)
+            oneformat = 1;
+        ben = 1;
         readitem = 0;
     }
 }
@@ -676,7 +679,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 
     send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(scount, 0xff);
+    idle_to_shift_dr(trailing_count, 0xff);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, not_last_id, 1);
@@ -790,9 +793,9 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     id3_extra = idcogt3 && not_last_id;
-    scount = (jtag_index != 0) * (idcode_count - jtag_index);
+    trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
     idmult2 = 1 + (!found_cortex && idcode_count == 2);
-printf("[%s:%d] count %d cortex %d jtag %d idmult2 %d scount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, idmult2, scount);
+printf("[%s:%d] count %d cortex %d jtag %d idmult2 %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, idmult2, trailing_count);
     return ftdi;
 }
 
@@ -910,7 +913,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, !dcount && not_last_id, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), (scount == 1) || dcount == 0, 1);
+        NULL, DITEM(INT32(0)), (trailing_count == 1) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*
@@ -943,7 +946,7 @@ DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag
     flush_write(ftdi, NULL);
     uint32_t sret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1,
         !not_last_id, jtag_index, 0, idcode_count > 1 && !not_last_id,
-        id3_extra * scount, scount);
+        id3_extra * trailing_count, trailing_count);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

@@ -509,15 +509,39 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
         bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int shift_enable, int pre, int amatch)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int pre, int amatch)
 {
-    int toploop, match = amatch;
-    for (toploop = 0; toploop < loop_count; toploop++) {
-        if (!version) {
-            shift_enable |= toploop;
-            pre |= idcogt3 && toploop;
-            match = amatch * (toploop+1);
+    int toploop, loop_count, match = amatch;
+    int shift_enable = 0;
+    switch (version) {
+    case 0:
+        ENTER_TMS_STATE('R');
+        loop_count = above2
+            + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
+              || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
+        if (!amatch) {
+            shift_enable = dcount != 0;
+            loop_count = 1;
         }
+        break;
+    case 1:
+        loop_count = 4;
+        if (device_type == DEVICE_AC701)
+            loop_count = 3;
+        if (device_type == DEVICE_VC707 && idcode_count == 1)
+            loop_count = 6;
+        if (device_type == DEVICE_ZEDBOARD)
+            loop_count = 2;
+        if (device_type == DEVICE_ZC702)
+            loop_count = 1;
+        if (idmult2 > 1 && !jtag_index)
+            loop_count += 8;
+        break;
+    case 2:
+        loop_count = 2; 
+        break;
+    }
+    for (toploop = 0; toploop < loop_count; toploop++) {
         int idindex = (!version && toploop) * amatch * (toploop+1); // this is 2nd time calling w/ version == 0!
         int innerl, testi, flip = 0;
         int btemp = !version && toploop == 1;
@@ -582,6 +606,11 @@ DPRINT("[%s:%d] version %d loop_count %d pre %d match %d toploop %d shift_enable
             }
             idindex++;
         }
+        if (!version) {
+            shift_enable |= 1;
+            pre |= idcogt3;
+            match += amatch;
+        }
     }
 }
 
@@ -625,21 +654,6 @@ DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j
         ben = idco3 && j != 1;
         readitem = 0;
     }
-}
-static void readout_status1(struct ftdi_context *ftdi, int version)
-{
-    int shift_enable = 0;
-    int enab = version || idgt2;
-
-    int upperbound = above2
-            + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-              || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
-    ENTER_TMS_STATE('R');
-    if (!enab) {
-        shift_enable = dcount != 0;
-        upperbound = 1;
-    }
-    access_user2_loop(ftdi, 0, upperbound, shift_enable, !version, enab);
 }
 
 /*
@@ -844,7 +858,7 @@ usage:
     }
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
-    access_user2_loop(ftdi, 2, 2, 0, 0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
+    access_user2_loop(ftdi, 2, 0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
 
     if (!dcount || jtag_index)
         reset_mark_clock(ftdi, !idco3);
@@ -873,18 +887,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     readout_status0(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    int bypass_tc = 4;
-    if (device_type == DEVICE_AC701)
-        bypass_tc = 3;
-    if (device_type == DEVICE_VC707 && idcode_count == 1)
-        bypass_tc = 6;
-    if (device_type == DEVICE_ZEDBOARD)
-        bypass_tc = 2;
-    if (device_type == DEVICE_ZC702)
-        bypass_tc = 1;
-    if (idmult2 > 1 && !jtag_index)
-        bypass_tc += 8;
-    access_user2_loop(ftdi, 1, bypass_tc, 0, 0, 99999);
+    access_user2_loop(ftdi, 1, 0, 99999);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
@@ -931,7 +934,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     write_bypass(ftdi);
     if (!idco3)
-        readout_status1(ftdi, 0);
+        access_user2_loop(ftdi, 0, 1, idgt2);
 
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     reset_mark_clock(ftdi, 0);
@@ -943,7 +946,7 @@ DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    readout_status1(ftdi, 1);
+    access_user2_loop(ftdi, 0, 0, 1);
     rescan = 1;
 
     /*

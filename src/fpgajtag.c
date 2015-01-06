@@ -509,14 +509,14 @@ DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __
         bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int pre, int match, int ignore_idcode, int shift_enable, int addrtemp)
+static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_count, int cortex_nowait, int ignore_idcode, int shift_enable, int addrtemp, int pre, int match)
 {
     int toploop;
     for (toploop = 0; toploop < loop_count; toploop++) {
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore_idcode %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, ignore_idcode, toploop, shift_enable);
         if (!ignore_idcode) {
             ENTER_TMS_STATE('R');
-            if (version == 1 && dcount && !jtag_index && toploop != pre)
+            if (version == 2 && dcount && !jtag_index && toploop != pre)
                 reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
@@ -533,7 +533,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
             int address_last = (idcode_count - 1) == idindex;
             int bcond4 = ione || (intwo && btemp);
             int mod3 = v0_3 * izero * (!address_last)
-                + (version == 1) * intwo + (version == 2) * ione;
+                + (version == 2) * intwo + (version == 1) * ione;
             int fillwidth = dcount + 1 - mod3;
             int extracond = v0_3 && address_last;
             int bcount = (!btemp && idgt2) * dcount;
@@ -542,7 +542,7 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d ignore
                 for (testi = 0; testi < 4; testi++) {
                     write_cbypass(ftdi, 0, idindex);
                     write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
-                    write_bit(0,((btemp && !(idcogt3 && version == 2 && izero))
+                    write_bit(0,((btemp && !(idcogt3 && version == 1 && izero))
                              || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
                         write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
@@ -636,9 +636,8 @@ static void readout_status1(struct ftdi_context *ftdi, int version)
     }
     for (j = 0; j < upperbound; j++) {
 DPRINT("[%s:%d] j %d upperbound %d ZZZZZZ\n", __FUNCTION__, __LINE__, j, upperbound);
-        access_user2_loop(ftdi, 0, 1, 1,
-            (idcogt3 && j != 0) || !version, enab * (j+1),
-            j != 0, shift_enable, j == 1);
+        access_user2_loop(ftdi, 0, 1, 1, j != 0, shift_enable, j == 1,
+            (idcogt3 && j != 0) || !version, enab * (j+1));
         shift_enable = 1;
     }
 }
@@ -845,9 +844,8 @@ usage:
     }
 
 DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
-    access_user2_loop(ftdi, 1, 2, 0, 0,
-        (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3),
-        0, 0, 0);
+    access_user2_loop(ftdi, 2, 2, 0, 0, 0, 0,
+        0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
 
     if (!dcount || jtag_index)
         reset_mark_clock(ftdi, !idco3);
@@ -887,7 +885,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bypass_tc = 1;
     if (idmult2 > 1 && !jtag_index)
         bypass_tc += 8;
-    access_user2_loop(ftdi, 2, bypass_tc, 1, 0, 99999, 0, 0, 0);
+    access_user2_loop(ftdi, 1, bypass_tc, 1, 0, 0, 0, 0, 99999);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 

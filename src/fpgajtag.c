@@ -518,6 +518,11 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int loop_c
             pre |= idcogt3 && toploop;
             match = amatch * (toploop+1);
         }
+        int idindex = (!version && toploop) * amatch * (toploop+1); // this is 2nd time calling w/ version == 0!
+        int innerl, testi, flip = 0;
+        int btemp = !version && toploop == 1;
+        int top_wait = toploop || cortex_nowait;
+        int izero = 1;
 DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d toploop %d shift_enable %d\n", __FUNCTION__, __LINE__, version, loop_count, cortex_nowait, pre, match, toploop, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
@@ -525,11 +530,6 @@ DPRINT("[%s:%d] version %d loop_count %d cortex_nowait %d pre %d match %d toploo
                 reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, cortex_nowait && toploop == pre);
         }
-        int idindex = (!version && toploop) * match; // this is 2nd time calling w/ version == 0!
-        int innerl, testi, flip = 0;
-        int btemp = !version && toploop == 1;
-        int top_wait = toploop || cortex_nowait;
-        int izero = 1;
         for (innerl = 0; innerl < (1 + (version != 0) * above2) * idmult2; innerl++) {
             int ione = idcogt3 && innerl/idmult2 == 1;
             int intwo = idcogt3 && innerl/idmult2 != 2;

@@ -530,9 +530,12 @@ static void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amat
         break;
     case 1:
         loop_count = 4;
+printf("[%s:%d] device %x idcode_count %d jtag_index %d\n", __FUNCTION__, __LINE__, device_type, idcode_count, jtag_index);
         if (device_type == DEVICE_AC701)
             loop_count = 3;
         if (device_type == DEVICE_VC707 && idcode_count == 1)
+            loop_count = 6;
+        if (device_type == DEVICE_VC707 && idcode_count == 2 && jtag_index == 0)
             loop_count = 6;
         if (device_type == DEVICE_VC707 && idcode_count == 3)
             loop_count = 5;
@@ -540,8 +543,6 @@ static void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amat
             loop_count = 2;
         if (device_type == DEVICE_ZC702)
             loop_count = 1;
-        if (idmult2 > 1 && !jtag_index)
-            loop_count += 8;
         break;
     case 2:
         loop_count = 2; 
@@ -555,7 +556,7 @@ static void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amat
         int top_wait = toploop || version != 2;
         int izero = 1;
 flush_write(ftdi, NULL);
-DPRINT("[%s:%d] version %d toploop %d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, pre, match, loop_count, shift_enable);
+DPRINT("[%s:%d] version %d toploop %d/%d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, loop_count, pre, match, loop_count, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
             read_idcode(ftdi, version != 2 && toploop == pre);

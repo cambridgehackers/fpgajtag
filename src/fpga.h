@@ -217,6 +217,13 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 #define SEND_SINGLE_FRAME     99999
 
+/*
+ * MicroBlaze Debug Module support
+ * PG115 MDM v3.1
+ */
+#define MDM_SYNC_CONST 0x69 /* 01101001 */
+#define MDM_READ_CONFIG 0x0c /* 00001100 */
+
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail);
 void write_creg(struct ftdi_context *ftdi, int regname);
 void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);

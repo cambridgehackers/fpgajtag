@@ -513,7 +513,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         bititem, IRREG_CFG_OUT, idindex, extra, addfill);
 }
 
-static void access_user2_loop(struct ftdi_context *ftdi, int version, int pre, int amatch)
+static void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
 {
     int toploop, loop_count, match = amatch;
     int shift_enable = 0;
@@ -582,7 +582,7 @@ DPRINT("[%s:%d] btemp %d flip %d izero %d extracond %d fillwidth %d\n", __FUNCTI
                     write_bit(0,((btemp && !(idcogt3 && version == 1 && izero))
                              || extracond) * fillwidth, 0, 0);
                     if (testi > 1) {
-                        write_bit(0, idcode_len[0] - address_last, IRREG_JSTART, 0); /* DR data */
+                        write_bit(0, idcode_len[0] - address_last, MDM_READ_CONFIG, 0);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                         write_bit(0, (!extracond) * bcount, 0, 0);
                         idle_to_shift_dr(nonfirst, 0);
@@ -592,7 +592,7 @@ DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                     }
                     if (testi) {
                         int bcond4 = ione || (intwo && btemp);
-                        write_one_byte(ftdi, 0, 0x69);
+                        write_one_byte(ftdi, 0, MDM_SYNC_CONST);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                         write_bit(0, 2, 0, 0);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
@@ -873,7 +873,7 @@ usage:
         goto exit_label;
     }
 
-    access_user2_loop(ftdi, 2, 0, 1);
+    access_mdm(ftdi, 2, 0, 1);
 flush_write(ftdi, NULL);
 printf("[%s:%d] bef user2 jtagindex %d not_last_id %d idco3 %d dcount %d not_last_id %d above2 %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, idco3, dcount, not_last_id, above2);
     reset_mark_clock(ftdi, 1);
@@ -900,7 +900,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     readout_status0(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    access_user2_loop(ftdi, 1, 0, 99999);
+    access_mdm(ftdi, 1, 0, 99999);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
@@ -951,7 +951,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bypass(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (!idco3)
-        access_user2_loop(ftdi, 0, 1, idgt2);
+        access_mdm(ftdi, 0, 1, idgt2);
 
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     reset_mark_clock(ftdi, 0);
@@ -964,7 +964,7 @@ DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    access_user2_loop(ftdi, 0, 0, 1);
+    access_mdm(ftdi, 0, 0, 1);
     rescan = 1;
 
     /*

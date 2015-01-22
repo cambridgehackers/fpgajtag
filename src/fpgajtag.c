@@ -63,6 +63,13 @@ static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command);
 
+#ifndef USE_MDM
+void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
+{
+    flush_write(ftdi, DITEM(TMSW, 2, 0xe7)); /* strange pattern, so we can find in trace log */
+}
+#endif
+
 /*
  * Support for GPIOs from Digilent JTAG module to h/w design.
  *

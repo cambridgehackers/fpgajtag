@@ -14,7 +14,7 @@ endif
 
 BINDIR=/usr/local/bin
 
-OBJS = fpgajtag.o process.o cortex.o mdm.o util.o
+OBJS = fpgajtag.o process.o cortex.o util.o
 
 HEADERS = dumpdata.h fpga.h util.h
 

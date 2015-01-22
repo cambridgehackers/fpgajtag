@@ -545,6 +545,7 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int pre, i
         break;
     case 2:
         loop_count = 2; 
+        match = (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3);
         break;
     }
     for (toploop = 0; toploop < loop_count; toploop++) {
@@ -554,11 +555,9 @@ static void access_user2_loop(struct ftdi_context *ftdi, int version, int pre, i
         int top_wait = toploop || version != 2;
         int izero = 1;
 flush_write(ftdi, NULL);
-printf("[%s:%d] version %d toploop %d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, pre, match, loop_count, shift_enable);
+DPRINT("[%s:%d] version %d toploop %d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, pre, match, loop_count, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
-            if (version == 2 && dcount && !jtag_index && toploop != pre)
-                reset_mark_clock(ftdi, 1);
             read_idcode(ftdi, version != 2 && toploop == pre);
         }
 int inmax = (1 + (version != 0) * above2) * idmult2;
@@ -571,7 +570,7 @@ int inmax = (1 + (version != 0) * above2) * idmult2;
             int fillwidth = dcount + 1 - v0_3 * izero * (!address_last)
                 - (version == 2) * intwo - (version == 1) * ione;
             int extracond = v0_3 && address_last;
-            int bcount = (!btemp && idgt2) * dcount;
+            int bcount = (!btemp && idgt2) * above2;
             int indl;
             for (indl = 0; indl < 3 + !top_wait; indl++) {
                 for (testi = 0; testi < 4; testi++) {
@@ -616,14 +615,13 @@ DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d f
                         cortex_bypass(ftdi, top_wait);
                     idindex++;
                 }
-                if (!izero && toploop == match)
-                    reset_mark_clock(ftdi, version == 2);
                 btemp |= idcogt3 || version;
                 izero = 0;
             }
             idindex++;
         }
-DPRINT("[%s:%d] bottomt toploop %d/%d match %d version %d\n", __FUNCTION__, __LINE__, toploop, loop_count, match, version);
+flush_write(ftdi, NULL);
+DPRINT("[%s:%d] bottomt toploop %d/%d match %d version %d pre %d dcount %d\n", __FUNCTION__, __LINE__, toploop, loop_count, match, version, pre, dcount);
         if (!version) {
             shift_enable |= 1;
             pre |= idcogt3;
@@ -875,16 +873,13 @@ usage:
         goto exit_label;
     }
 
-DPRINT("[%s:%d] bef user2 jtagindex %d\n", __FUNCTION__, __LINE__, jtag_index);
-    access_user2_loop(ftdi, 2, 0, (device_type != DEVICE_ZC702 && (!dcount || jtag_index)) + 10 * (idcogt3));
-
-    if (!dcount || jtag_index)
-        reset_mark_clock(ftdi, !idco3);
+    access_user2_loop(ftdi, 2, 0, 1);
+flush_write(ftdi, NULL);
+printf("[%s:%d] bef user2 jtagindex %d not_last_id %d idco3 %d dcount %d not_last_id %d above2 %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, idco3, dcount, not_last_id, above2);
+    reset_mark_clock(ftdi, 1);
     marker_for_reset(ftdi, 0);
-    if (!idco3) {
-        write_tms_transition("RR1");
-        marker_for_reset(ftdi, 0);
-    }
+    write_tms_transition("RR1");
+    marker_for_reset(ftdi, 0);
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the

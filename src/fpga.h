@@ -217,12 +217,9 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 #define SEND_SINGLE_FRAME     99999
 
-/*
- * MicroBlaze Debug Module support
- * PG115 MDM v3.1
- */
-#define MDM_SYNC_CONST 0x69 /* 01101001 */
-#define MDM_READ_CONFIG 0x0c /* 00001100 */
+#define DPRINT \
+    flush_write(ftdi, NULL); \
+    if (tracep) printf
 
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail);
 void write_creg(struct ftdi_context *ftdi, int regname);
@@ -231,7 +228,13 @@ void process_command_list(struct ftdi_context *ftdi);
 void write_bit(int read, int bits, int data, char target_state);
 void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
-int found_cortex;
-int idcode_count;
 void write_tms_transition(char *tail);
 void ENTER_TMS_STATE(char required);
+void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch);
+uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
+     int readitem, int bitlen, int command, int idindex, int extra, int extrabitlen);
+int write_cbypass(struct ftdi_context *ftdi, int read, int idindex);
+void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra);
+void read_idcode(struct ftdi_context *ftdi, int prereset);
+extern int not_last_id, idgt2, idcogt3, idmult2, above2, jtag_index, device_type, dcount, tracep, found_cortex, idcode_count;
+

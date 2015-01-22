@@ -14,7 +14,7 @@ endif
 
 BINDIR=/usr/local/bin
 
-OBJS = fpgajtag.o process.o cortex.o util.o
+OBJS = fpgajtag.o process.o cortex.o mdm.o util.o
 
 HEADERS = dumpdata.h fpga.h util.h
 
@@ -31,6 +31,7 @@ fpgajtag: $(OBJS) Makefile
 fpgajtag.o: $(HEADERS) Makefile
 process.o: $(HEADERS) Makefile
 cortex.o: $(HEADERS) Makefile
+mdm.o: $(HEADERS) Makefile
 util.o: $(HEADERS) Makefile
 
 install: fpgajtag

@@ -115,7 +115,8 @@ DPRINT("[%s:%d] btemp %d flip %d izero %d extracond %d fillwidth %d\n", __FUNCTI
                         write_bit(0, MDM_ID_LENGTH - address_last, MDM_READ_CONFIG, 0);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                         write_bit(0, (!extracond) * bcount, 0, 0);
-                        idle_to_shift_dr(nonfirst, 0);
+                        idle_to_shift_dr(0);
+                        write_bit(0, (nonfirst != 0) * (idcode_count - nonfirst), 0, 0);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                         write_bit(0, (btemp
                                      || extracond) * fillwidth, 0, 0);

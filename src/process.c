@@ -93,7 +93,7 @@ void process_command_list(struct ftdi_context *ftdi)
             flush_write(ftdi, NULL);
         }
         else {
-            idle_to_shift_dr(0, 0);
+            idle_to_shift_dr(0);
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
             write_bytes(ftdi, DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);

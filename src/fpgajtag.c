@@ -251,18 +251,19 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
     }
 }
 
-void idle_to_shift_dr(int extra, int val)
+void idle_to_shift_dr(int extra)
 {
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('D');
-    write_bit(0, (extra != 0) * (idcode_count - extra), val, 0);
+    if (extra && trailing_count)
+        write_bit(0, idcode_count - trailing_count, 0xff, 0);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
      uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
     write_cirreg(ftdi, read, IRREG_CFG_IN);
-    idle_to_shift_dr(trailing_count, 0xff);
+    idle_to_shift_dr(1);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
 int tmp = 0 ? (dcount > 1 && not_last_id) : id3_extra;
@@ -430,7 +431,7 @@ int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
 void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra)
 {
     write_irreg(ftdi, 0, EXTEND_EXTRA | command, idindex, 'I');
-    idle_to_shift_dr(0, 0);
+    idle_to_shift_dr(0);
     write_bit(0, (extra != 0) * (idcode_count - extra), 0, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
@@ -577,7 +578,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 
     send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(trailing_count, 0xff);
+    idle_to_shift_dr(1);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi, not_last_id, 1);
@@ -778,7 +779,7 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d idco3 %d dcount %d not_las
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    idle_to_shift_dr(0, 0);
+    idle_to_shift_dr(0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bytes(ftdi, DREAD, 'P', idcode_vpattern, sizeof(idcode_vpattern), SEND_SINGLE_FRAME, 1, 0, 1);
     uint8_t *rdata = read_data(ftdi);

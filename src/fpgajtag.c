@@ -49,12 +49,12 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
 int not_last_id, idgt2, idcogt3, idmult2, above2, jtag_index = -1, device_type, dcount, idcode_count;
+int tracep ;//= 1;
 
 static int verbose, trailing_count, id3_extra, idco3, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
-int tracep ;//= 1;
 static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
@@ -500,7 +500,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, uint8_t *req, int resp_le
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex, shiftdr); /* Select CFG_IN for sending our request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] oneformat %d extra %d addfill %d bititem %d\n", __FUNCTION__, __LINE__, oneformat, extra, addfill, bititem);
+DPRINT("[%s:%d] resp_len %d oneformat %d extra %d addfill %d bititem %d above2 %d\n", __FUNCTION__, __LINE__, resp_len, oneformat, extra, addfill, bititem, above2);
     write_bit(0, (resp_len && !oneformat && extra) * above2, 0, 0);
     ENTER_TMS_STATE('I');
     if (!oneformat && idcogt3)
@@ -520,13 +520,13 @@ static void readout_status0(struct ftdi_context *ftdi)
     int readitem = device_type != DEVICE_ZEDBOARD;
 
     for (j = 0; j < 1 + dcount; j++) {
-DPRINT("[%s:%d] 0 %d j %d\n", __FUNCTION__, __LINE__, 0, j);
+DPRINT("[%s:%d] j %d/%d\n", __FUNCTION__, __LINE__, j, 1+dcount);
         int midmask = j && j != dcount;
         if (found_cortex && idindex == found_cortex) {
             write_bypass(ftdi);
             idindex--; // skip Cortex element
         }
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, midmask, trailing_count, above2);
         ret = fetch_result(ftdi, sizeof(uint32_t), -1, readitem,
             (j == dcount) * above2, IRREG_USERCODE, idindex, !j && dcount,
             midmask * above2);
@@ -536,9 +536,11 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
             write_bypass(ftdi);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] before readout_seq j %d idindex %d\n", __FUNCTION__, __LINE__, j, idindex);
+DPRINT("[%s:%d] j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
         ret = readout_seq(ftdi, rstatus, sizeof(uint32_t), -1, oneformat, idindex,
-            ((idcogt3 && j == dcount) || (oneformat <= 0 && ben)) * dcount,
-            oneformat > 0 || j == 2, 2 * midmask, (j != dcount) * (j+1));
+            ((idcogt3 && j == dcount) || (oneformat <= 0 && ben)) * dcount, //above2,
+            oneformat > 0 || j == 2, 2//above2
+                * midmask, (j != dcount) * (j+1));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -678,8 +680,10 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     }
 
     idco3 = idcode_count == 3;
-    idgt2 = idcode_count > 2;
     idcogt3 = idcode_count > 3;
+    //idco3 = dcount == 1;
+    //idcogt3 = dcount > 1;
+    idgt2 = idcode_count > 2;
     above2 = (idcode_count > 1) * (idcode_count - 2);
     dcount = idcode_count - (found_cortex != 0) - 1;
     not_last_id = jtag_index != idcode_count - 1;

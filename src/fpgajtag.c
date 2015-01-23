@@ -258,13 +258,10 @@ void idle_to_shift_dr(int extra, int val)
     write_bit(0, (extra != 0) * (idcode_count - extra), val, 0);
 }
 
-int fillhack;
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
      uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
-fillhack = bogusv;
     write_cirreg(ftdi, read, IRREG_CFG_IN);
-fillhack = 0;
     idle_to_shift_dr(trailing_count, 0xff);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
@@ -386,25 +383,28 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
 /*
  * Functions for setting Instruction Register(IR)
  */
+static int befbits, afterbits;
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, char tail)
 {
-    int i, bef = 0, aft = 0;
+    int i;
+    befbits = 0;
+    afterbits = 0;
     for (i = 0; i < idcode_count; i++) {
         if (i > idindex)
-            aft += idcode_len[i];
+            afterbits += idcode_len[i];
         else if (i < idindex)
-            bef += idcode_len[i];
+            befbits += idcode_len[i];
     }
 if(tracep)
-printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, read, command, idindex, bef, aft);
+printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, read, command, idindex, befbits, afterbits);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
-    write_fill(ftdi, 0, bef, 0);
+    write_fill(ftdi, 0, befbits, 0);
     int trim = (read && idindex != -1);
-    if (aft && !trim) {
+    if (afterbits && !trim) {
         if (idindex != -1)
             write_bit(0, idcode_len[idindex], command, 0);
-        write_fill(ftdi, read, aft - 1, tail);
+        write_fill(ftdi, read, afterbits - 1, tail);
     }
     else
         write_bit(read, idcode_len[idindex] - 1, command, tail);
@@ -414,7 +414,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
     int ret = 0, target_state = (not_last_id && read ? 'P' : 'E');
     write_irreg(ftdi, read, command, jtag_index, target_state);
     if (read)
-        ret = read_data_int(ftdi, target_state == 'P', fillhack ? 12 : idcode_len[idcode_count - 1]);
+        ret = read_data_int(ftdi, target_state == 'P', afterbits);
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -430,7 +430,8 @@ int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
 void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra)
 {
     write_irreg(ftdi, 0, EXTEND_EXTRA | command, idindex, 'I');
-    idle_to_shift_dr(extra, 0);
+    idle_to_shift_dr(0, 0);
+    write_bit(0, (extra != 0) * (idcode_count - extra), 0, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
@@ -804,10 +805,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-fillhack = bogusv;
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
-fillhack = 0;
 
     /*
      * Step 6: Load Configuration Data Frames
@@ -832,10 +831,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-fillhack = bogusv;
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-fillhack = 0;
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))

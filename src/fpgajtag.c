@@ -256,7 +256,7 @@ void idle_to_shift_dr(int extra)
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('D');
     if (extra && trailing_count)
-        write_bit(0, idcode_count - trailing_count, 0xff, 0);
+        write_bit(0, jtag_index, 0xff, 0);
 }
 
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
@@ -267,11 +267,9 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
     int tmp = trailing_count > 1;
-//(jtag_index != 0) && (idcode_count - jtag_index) > 1;
-    //trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
     if (tmp)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (idcode_count > 2)
+    if (trailing_count > 0)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - 
             (above2 - tmp)), 0, 0);
     else if (idcode_count > 1)
@@ -524,7 +522,7 @@ static void readout_status0(struct ftdi_context *ftdi)
         int midmask = j && j != dcount;
         int oneformat = (dcount || !not_last_id) && j == 0;
         if (found_cortex && idindex == found_cortex) {
-            write_bypass(ftdi);
+            write_cbypass(ftdi, DREAD, -1); //write_bypass(ftdi);
             idindex--; // skip Cortex element
         }
 DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, midmask, trailing_count, above2);
@@ -535,7 +533,7 @@ DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTIO
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
-            write_bypass(ftdi);
+            write_cbypass(ftdi, DREAD, -1); //write_bypass(ftdi);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, j, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
         int extra = oneformat || j == 2;

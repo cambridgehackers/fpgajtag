@@ -284,7 +284,7 @@ uint8_t *read_data(struct ftdi_context *ftdi)
                  */
                 if (i > 0 && read_size[i-1] < 0) {
                     *(p-1) = *p >> (8-validbits);    /* put result into LSBs */
-                    /* Note: union datatypes work correctly, but read_data_int needs the data as MSBs! */
+                    /* Note: union datatypes work correctly, but int needs the data as MSBs! */
                     for (j = 0; j < expected_len; j++)  /* copies too much, but... */
                         *(p+j) = *(p+j+1);  /* move the data down in the buffer 1 byte */
                 }

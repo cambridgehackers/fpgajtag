@@ -197,15 +197,13 @@ void write_bit(int read, int bits, int data, char target_state)
     }
 }
 
-static uint64_t read_data_int(struct ftdi_context *ftdi, int extra, int len)
+static uint64_t read_data_int(struct ftdi_context *ftdi)
 {
     uint64_t ret = 0;
     uint8_t *bufp = read_data(ftdi);
     uint8_t *backp = bufp + last_read_data_length;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
-    if (extra)
-        write_fill(ftdi, 0, len - 1, 'E');
     return ret;
 }
 
@@ -414,8 +412,11 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
     int ret = 0, target_state = (not_last_id && read ? 'P' : 'E');
     write_irreg(ftdi, read, command, jtag_index, target_state);
-    if (read)
-        ret = read_data_int(ftdi, target_state == 'P', afterbits);
+    if (read) {
+        ret = read_data_int(ftdi);
+        if (target_state == 'P')
+            write_fill(ftdi, 0, afterbits - 1, 'E');
+    }
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -424,7 +425,7 @@ int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
     int ret = 0;
     write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, idindex, 'I');
     if (read)
-        ret = read_data_int(ftdi, 0, idcode_len[idcode_count - 1]);
+        ret = read_data_int(ftdi);
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -575,7 +576,9 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     idle_to_shift_dr(1);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
-    uint64_t ret = read_data_int(ftdi, not_last_id, 1);
+    uint64_t ret = read_data_int(ftdi);
+    if (not_last_id)
+        write_fill(ftdi, 0, 0, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }
@@ -831,17 +834,16 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_bypass(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    access_mdm(ftdi, 0, 1, idcode_count > 2);
+    access_mdm(ftdi, 0, 1, 0);
 
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
     uint32_t sret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1,
-        !not_last_id, 0,
-        idcode_count > 1 && !not_last_id,
+        !not_last_id, 0, !not_last_id,
         (idcode_count > 3 && not_last_id) * trailing_count,
         trailing_count,
-        idcode_count > 1 && !not_last_id);
+        !not_last_id);
     int status = sret >> 8;
     if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);

@@ -440,18 +440,6 @@ void write_creg(struct ftdi_context *ftdi, int regname)
     write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
-static void write_bypass(struct ftdi_context *ftdi)
-{
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    uint32_t ret = write_cbypass(ftdi, DREAD, -1) & 0xff;
-    if (ret == FIRST_TIME)
-        printf("fpgajtag: bypass first time %x\n", ret);
-    else if (ret == PROGRAMMED)
-        printf("fpgajtag: bypass already programmed %x\n", ret);
-    else
-        printf("fpgajtag: bypass unknown %x\n", ret);
-}
-
 uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
      int readitem, int bitlen, int command, int idindex, int extra, int addfill)
 {
@@ -523,7 +511,7 @@ static void readout_status0(struct ftdi_context *ftdi)
         int midmask = j && j != dcount;
         int oneformat = (dcount || !not_last_id) && j == 0;
         if (found_cortex && idindex == found_cortex) {
-            write_cbypass(ftdi, DREAD, -1); //write_bypass(ftdi);
+            write_cbypass(ftdi, DREAD, -1);
             idindex--; // skip Cortex element
         }
 DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, midmask, trailing_count, above2);
@@ -534,7 +522,7 @@ DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTIO
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         for (i = 0; i < 3; i++)
-            write_cbypass(ftdi, DREAD, -1); //write_bypass(ftdi);
+            write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, j, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
         int extra = oneformat || j == 2;
@@ -684,12 +672,6 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         printf("[%s:%d]unknown device %x\n", __FUNCTION__, __LINE__, thisid);
         //exit(1);
     }
-
-    above2 = (idcode_count > 1) * (idcode_count - 2);
-    dcount = idcode_count - (found_cortex != 0) - 1;
-    not_last_id = jtag_index != idcode_count - 1;
-    trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
-printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
     return ftdi;
 }
 
@@ -731,6 +713,12 @@ usage:
     }
 
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
+
+    above2 = (idcode_count > 1) * (idcode_count - 2);
+    dcount = idcode_count - (found_cortex != 0) - 1;
+    not_last_id = jtag_index != idcode_count - 1;
+    trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
+printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
 
     /*
      * See if we are reading out data
@@ -832,21 +820,25 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_bypass(ftdi);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
+    ret = write_cbypass(ftdi, DREAD, -1) & 0xff;
+    if (ret == FIRST_TIME)
+        printf("fpgajtag: bypass first time %x\n", ret);
+    else if (ret == PROGRAMMED)
+        printf("fpgajtag: bypass already programmed %x\n", ret);
+    else
+        printf("fpgajtag: bypass unknown %x\n", ret);
     access_mdm(ftdi, 0, 1, 0);
 
-DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
-    uint32_t sret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1,
+DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
+    ret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1,
         !not_last_id, 0, !not_last_id,
         (idcode_count > 3 && not_last_id) * trailing_count,
-        trailing_count,
-        !not_last_id);
-    int status = sret >> 8;
-    if (verbose && (bitswap[M(sret)] != 2 || status != 0xf07910))
-        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, sret);
+        trailing_count, !not_last_id);
+    int status = ret >> 8;
+    if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))
+        printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
     access_mdm(ftdi, 0, 0, 1);

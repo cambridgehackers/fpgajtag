@@ -510,13 +510,14 @@ static void readout_status0(struct ftdi_context *ftdi)
     for (j = 0; j < 1 + dcount; j++) {
         int midmask = j && j != dcount;
         int oneformat = (dcount || !not_last_id) && j == 0;
+        int extra = oneformat || j == 2;
+        int bititem = ((dcount > 1 && j == dcount) || !extra) * above2;
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             idindex--; // skip Cortex element
         }
 DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, midmask, trailing_count, above2);
-        int ret = fetch_result(ftdi, sizeof(uint32_t), -1,
-            j == 0 && (!not_last_id || dcount),
+        int ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
             (j == dcount) * above2, IRREG_USERCODE, idindex, !j && dcount,
             midmask * above2);
         if (ret != 0xffffffff)
@@ -525,8 +526,6 @@ DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTIO
             write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, j, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
-        int extra = oneformat || j == 2;
-int bititem = ((dcount > 1 && j == dcount) || !extra) * above2;
         ret = readout_seq(ftdi, idindex, rstatus,
             (j == dcount) * above2,
             sizeof(uint32_t), -1, oneformat, bititem, extra,

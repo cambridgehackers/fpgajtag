@@ -505,9 +505,9 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 static void readout_status0(struct ftdi_context *ftdi)
 {
-    int ret, idindex = idcode_count - 1;
+    int ret, idindex;
 
-    while (idindex >= 0) {
+    for (idindex = idcode_count - 1; idindex >= 0; idindex--) {
         int firstitem = idindex == idcode_count - 1;
         int lastitem = idindex == 0;
         int midmask = !firstitem && !lastitem;
@@ -517,15 +517,14 @@ static void readout_status0(struct ftdi_context *ftdi)
         int extra = oneformat;
         int fetchextra = oneformat;
         int reqfill = lastitem * above2;
-        int bititem = ((dcount > 1 && lastitem) || !extra) * above2;
+        int bititem = (lastitem || !extra) * above2;
         int extfra = firstitem && dcount;
         int shiftdr = (!lastitem) * (idcode_count - idindex);
 
 DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, midmask, trailing_count, above2);
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
-            idindex--; // skip Cortex element
-continue;
+            continue; // skip Cortex element
         }
         if ((ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
             reqfill, IRREG_USERCODE, idindex, extfra, addffill)) != 0xffffffff)
@@ -543,7 +542,6 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d midmask %d trailing %d abov
         printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
             status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
         ENTER_TMS_STATE('R');
-        idindex--;
     }
 }
 

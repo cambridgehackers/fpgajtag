@@ -513,12 +513,10 @@ static void readout_status0(struct ftdi_context *ftdi)
         int midmask = !firstitem && !lastitem;
         int addfill = 2 * midmask;
         int addffill = above2 * midmask;
-        int oneformat = (dcount || !not_last_id) && firstitem;
-        int extra = oneformat;
-        int fetchextra = oneformat;
+        int oneformat = (idindex || !not_last_id) && firstitem;
         int reqfill = lastitem * above2;
-        int bititem = (lastitem || !extra) * above2;
-        int extfra = firstitem && dcount;
+        int bititem = (lastitem || !oneformat) * above2;
+        int extfra = firstitem && idindex;
         int shiftdr = (!lastitem) * (idcode_count - idindex);
 
 DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, midmask, trailing_count, above2);
@@ -535,7 +533,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __F
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, oneformat, midmask, trailing_count, above2);
         ret = readout_seq(ftdi, idindex, rstatus, reqfill, sizeof(uint32_t), -1,
-            oneformat, bititem, extra, addfill, shiftdr, fetchextra);
+            oneformat, bititem, oneformat, addfill, shiftdr, oneformat);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

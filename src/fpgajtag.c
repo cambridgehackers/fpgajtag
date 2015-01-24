@@ -508,17 +508,19 @@ static void readout_status0(struct ftdi_context *ftdi)
     int i, j, idindex = idcode_count - 1;
 
     for (j = 0; j < 1 + dcount; j++) {
-        int midmask = j && j != dcount;
-        int oneformat = (dcount || !not_last_id) && j == 0;
+        int firstitem = j == 0;
+        int lastitem = j == dcount;
+        int midmask = j && !lastitem;
+        int oneformat = (dcount || !not_last_id) && firstitem;
         int extra = oneformat || j == 2;
-        int bititem = ((dcount > 1 && j == dcount) || !extra) * above2;
+        int bititem = ((dcount > 1 && lastitem) || !extra) * above2;
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             idindex--; // skip Cortex element
         }
 DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, j, 1+dcount, dcount, midmask, trailing_count, above2);
         int ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
-            (j == dcount) * above2, IRREG_USERCODE, idindex, !j && dcount,
+            lastitem * above2, IRREG_USERCODE, idindex, firstitem && dcount,
             midmask * above2);
         if (ret != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
@@ -527,10 +529,10 @@ DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTIO
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, j, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
         ret = readout_seq(ftdi, idindex, rstatus,
-            (j == dcount) * above2,
+            lastitem * above2,
             sizeof(uint32_t), -1, oneformat, bititem, extra,
             2 * midmask,
-            (j != dcount) * (j+1),
+            (!lastitem) * (j+1),
             oneformat || (dcount < 2 && j == 2));
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))

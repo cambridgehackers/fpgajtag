@@ -505,26 +505,27 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 
 static void readout_status0(struct ftdi_context *ftdi)
 {
-    int thisj, ret, idindex = idcode_count - 1;
+    int ret, idindex = idcode_count - 1;
 
-    for (thisj = 0; thisj < 1 + dcount; thisj++) {
-        int firstitem = thisj == 0;
-        int lastitem = thisj == dcount;
+    while (idindex >= 0) {
+        int firstitem = idindex == idcode_count - 1;
+        int lastitem = idindex == 0;
         int midmask = !firstitem && !lastitem;
         int addfill = 2 * midmask;
         int addffill = above2 * midmask;
         int oneformat = (dcount || !not_last_id) && firstitem;
-        int extra = oneformat || thisj == 2;
-        int shiftdr = (!lastitem) * (thisj+1);
-        int fetchextra = oneformat || (dcount < 2 && thisj == 2);
+        int extra = oneformat;
+        int fetchextra = oneformat;
         int reqfill = lastitem * above2;
         int bititem = ((dcount > 1 && lastitem) || !extra) * above2;
         int extfra = firstitem && dcount;
+        int shiftdr = (!lastitem) * (idcode_count - idindex);
 
-DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, thisj, 1+dcount, dcount, midmask, trailing_count, above2);
+DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, midmask, trailing_count, above2);
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             idindex--; // skip Cortex element
+continue;
         }
         if ((ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
             reqfill, IRREG_USERCODE, idindex, extfra, addffill)) != 0xffffffff)
@@ -533,7 +534,7 @@ DPRINT("[%s:%d] j %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTIO
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] idindex %d j %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, thisj, 1+dcount, dcount, oneformat, midmask, trailing_count, above2);
+DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, oneformat, midmask, trailing_count, above2);
         ret = readout_seq(ftdi, idindex, rstatus, reqfill, sizeof(uint32_t), -1,
             oneformat, bititem, extra, addfill, shiftdr, fetchextra);
         uint32_t status = ret >> 8;

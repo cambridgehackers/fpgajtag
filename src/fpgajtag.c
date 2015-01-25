@@ -51,7 +51,7 @@ int input_filesize, found_cortex;
 int not_last_id, above2, jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, trailing_count, skip_idcode, fill2;
+static int verbose, trailing_count, skip_idcode;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -61,8 +61,6 @@ static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
             CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
-static int write_cirreg(struct ftdi_context *ftdi, int read, int command);
-static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail);
 
 #ifndef USE_MDM
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
@@ -257,41 +255,6 @@ void idle_to_shift_dr(int extra)
         write_bit(0, jtag_index, 0xff, 0);
 }
 
-static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
-     uint8_t *pre, uint8_t *post, int opttail, int swapbits)
-{
-    flush_write(ftdi, NULL);
-    write_cirreg(ftdi, read, IRREG_CFG_IN);
-    idle_to_shift_dr(1);
-    if (pre)
-        write_int32(ftdi, pre+1, pre[0]);
-    int tmp = trailing_count > 1;
-    if (tmp)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (trailing_count > 0)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(8 - jtag_index), 0, 0);
-    else if (idcode_count > 1)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, (dcount == 2) ? -6 : -7, 0, 0);
-    if (post)
-        write_int32(ftdi, post+1, post[0]);
-    int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
-    while(psize) {
-        int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
-        if (final)
-            size = psize;
-        write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', pdata,
-            size, limit_len, !final || opttail, swapbits, 1);
-        flush_write(ftdi, NULL);
-        limit_len = MAX_SINGLE_USB_DATA;
-        psize -= size;
-        pdata += size;
-    };
-    if (extra_shift)
-        write_fill(ftdi, 0, 0, 'E');
-    ENTER_TMS_STATE('I');
-    flush_write(ftdi, NULL);
-}
-
 /*
  * Read/validate IDCODE from device to be programmed
  */
@@ -440,18 +403,50 @@ void write_creg(struct ftdi_context *ftdi, int regname)
     write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
+static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
+     uint8_t *pre, uint8_t *post, int opttail, int swapbits)
+{
+    flush_write(ftdi, NULL);
+    write_cirreg(ftdi, read, IRREG_CFG_IN);
+    idle_to_shift_dr(1);
+    if (pre)
+        write_int32(ftdi, pre+1, pre[0]);
+    int tmp = trailing_count > 1;
+    if (tmp)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
+    if (trailing_count > 0)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(8 - jtag_index), 0, 0);
+    else if (idcode_count > 1)
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, (dcount == 2) ? -6 : -7, 0, 0);
+    if (post)
+        write_int32(ftdi, post+1, post[0]);
+    int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
+    while(psize) {
+        int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
+        if (final)
+            size = psize;
+        write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', pdata,
+            size, limit_len, !final || opttail, swapbits, 1);
+        flush_write(ftdi, NULL);
+        limit_len = MAX_SINGLE_USB_DATA;
+        psize -= size;
+        pdata += size;
+    };
+    if (extra_shift)
+        write_fill(ftdi, 0, 0, 'E');
+    ENTER_TMS_STATE('I');
+    flush_write(ftdi, NULL);
+}
+
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int readitem = (idindex == idcode_count - 1) && (idindex || !not_last_id);
-    int bitlen = (idindex == 0) * above2;
-    int addfill = fill2 * (idindex != 0 && idindex != idcode_count - 1);
-    int j;
+    int j, readitem = (idindex == idcode_count - 1) && (idindex || !not_last_id);
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex, readitem);
-DPRINT("[%s:%d] idindex %d readitem %d addfill %x\n", __FUNCTION__, __LINE__, idindex, readitem, addfill);
-        write_bit(0, addfill, 0, 0);
+DPRINT("[%s:%d] idindex %d readitem %x\n", __FUNCTION__, __LINE__, idindex, readitem);
+        write_bit(0, (dcount - 1) * (idindex != 0 && idindex != idcode_count - 1), 0, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     while (resp_len > 0) {
@@ -464,9 +459,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         else
             write_item(DITEM(DATAR(size)));
         if (resp_len <= 0)
-            write_bit((readitem != 0) * DREAD, bitlen, 0, 'I');
+            write_bit((readitem != 0) * DREAD, (idindex == 0) * above2, 0, 'I');
         uint8_t *rdata = read_data(ftdi);
-DPRINT("[%s:%d] bitlen %d\n", __FUNCTION__, __LINE__, bitlen);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
         for (j = 0; j < size; j++)
@@ -496,12 +490,12 @@ DPRINT("[%s:%d] bitlen %d\n", __FUNCTION__, __LINE__, bitlen);
  */
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
-    int oneformat = (idindex == idcode_count - 1) && (idindex || !not_last_id);
-    int bititem = (idindex == 0) * above2;
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex!=0) * (idcode_count-idindex)); /* Select CFG_IN for request */
-    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] idindex %d bititem %d\n", __FUNCTION__, __LINE__, idindex, bititem);
-    write_bit(0, bititem, 0, 'I');
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex!=0) * (idcode_count-idindex));
+    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
+        (idindex == idcode_count - 1) && (idindex || !not_last_id),
+        0, 0/*weird!*/);
+DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
+    write_bit(0, (idindex == 0) * above2, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     return fetch_result(ftdi, idindex, IRREG_CFG_OUT, resp_len, fd);
 }
@@ -706,7 +700,6 @@ usage:
 
     dcount = idcode_count - (found_cortex != 0) - 1;
     above2 = (idcode_count > 1) * (idcode_count - 2);
-    fill2 = dcount * (dcount - 1);
     not_last_id = jtag_index != idcode_count - 1;
     trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
 printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);

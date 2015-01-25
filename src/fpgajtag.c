@@ -499,7 +499,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 DPRINT("[%s:%d] idindex %d reqfill %d oneformat %d addfill %d\n", __FUNCTION__, __LINE__, idindex, reqfill, oneformat, addfill);
     write_bit(0, reqfill, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    return fetch_result(ftdi, idindex, resp_len, fd, idcode_count == 1 || oneformat,
+    return fetch_result(ftdi, idindex, resp_len, fd, oneformat,
         reqfill, IRREG_CFG_OUT, oneformat, addfill);
 }
 

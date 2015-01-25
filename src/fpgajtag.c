@@ -520,8 +520,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __F
             write_cbypass(ftdi, DREAD, -1);
             continue; // skip Cortex element
         }
-        if ((ret = fetch_result(ftdi, idindex, sizeof(uint32_t), -1, oneformat,
-            bititem, IRREG_USERCODE, addffill)) != 0xffffffff)
+        if ((ret = fetch_result(ftdi, idindex, sizeof(uint32_t), -1, oneformat, bititem, IRREG_USERCODE, addffill)) != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);

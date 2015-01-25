@@ -51,7 +51,7 @@ int input_filesize, found_cortex;
 int not_last_id, above2, jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, trailing_count, skip_idcode;
+static int verbose, trailing_count, skip_idcode, fill2;
 static uint8_t zerodata[8];
 static USB_INFO *uinfo;
 
@@ -269,10 +269,9 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     if (tmp)
         write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -7, 0, 0);
     if (trailing_count > 0)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(7 - 
-            (above2 - tmp)), 0, 0);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, -(6 - jtag_index), 0, 0);
     else if (idcode_count > 1)
-        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata), SEND_SINGLE_FRAME, 1, 0, 1);
+        write_bytes(ftdi, 0, 0, zerodata, sizeof(zerodata) - 1, SEND_SINGLE_FRAME, (dcount == 2) ? -6 : -7, 0, 0);
     if (post)
         write_int32(ftdi, post+1, post[0]);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
@@ -510,7 +509,8 @@ static void readout_status0(struct ftdi_context *ftdi)
     for (idindex = idcode_count - 1; idindex >= 0; idindex--) {
         int firstitem = idindex == idcode_count - 1;
         int lastitem = idindex == 0;
-        int addfill = 2 * (!firstitem && !lastitem);
+        //int addfill = 2 * (!firstitem && !lastitem);
+        int addfill = fill2 * (!firstitem && !lastitem);
         int bititem = lastitem * above2;
         int oneformat = firstitem && (idindex || !not_last_id);
 
@@ -707,8 +707,9 @@ usage:
 
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
-    above2 = (idcode_count > 1) * (idcode_count - 2);
     dcount = idcode_count - (found_cortex != 0) - 1;
+    above2 = (idcode_count > 1) * (idcode_count - 2);
+    fill2 = dcount * (dcount - 1);
     not_last_id = jtag_index != idcode_count - 1;
     trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
 printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
@@ -821,7 +822,12 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
-    ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1, !not_last_id, 0, not_last_id * trailing_count);
+        int zoneformat = (jtag_index == idcode_count - 1) && (jtag_index || !not_last_id);
+        int zbititem = (jtag_index == 0) * above2;
+    ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1, 
+zoneformat, zbititem,
+fill2 * (jtag_index != 0 && jtag_index != idcode_count - 1)
+);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, ret);

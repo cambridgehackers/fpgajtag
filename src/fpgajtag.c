@@ -440,11 +440,14 @@ void write_creg(struct ftdi_context *ftdi, int regname)
     write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
-uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd,
-     int readitem, int bitlen, int addfill)
+uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
+    int readitem = (idindex == idcode_count - 1) && (idindex || !not_last_id);
+    int bitlen = (idindex == 0) * above2;
+    int addfill = fill2 * (idindex != 0 && idindex != idcode_count - 1);
     int j;
     uint32_t ret = 0;
+
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex, readitem);
 DPRINT("[%s:%d] idindex %d readitem %d addfill %x\n", __FUNCTION__, __LINE__, idindex, readitem, addfill);
@@ -493,15 +496,14 @@ DPRINT("[%s:%d] bitlen %d\n", __FUNCTION__, __LINE__, bitlen);
  */
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
-int oneformat = (idindex == idcode_count - 1) && (idindex || !not_last_id);
-int bititem = (idindex == 0) * above2;
-int addfill = fill2 * (idindex != 0 && idindex != idcode_count - 1);
+    int oneformat = (idindex == idcode_count - 1) && (idindex || !not_last_id);
+    int bititem = (idindex == 0) * above2;
     write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex!=0) * (idcode_count-idindex)); /* Select CFG_IN for request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] idindex %d bititem %d oneformat %d addfill %d\n", __FUNCTION__, __LINE__, idindex, bititem, oneformat, addfill);
+DPRINT("[%s:%d] idindex %d bititem %d\n", __FUNCTION__, __LINE__, idindex, bititem);
     write_bit(0, bititem, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    return fetch_result(ftdi, idindex, IRREG_CFG_OUT, resp_len, fd, oneformat, bititem, addfill);
+    return fetch_result(ftdi, idindex, IRREG_CFG_OUT, resp_len, fd);
 }
 
 static void readout_status0(struct ftdi_context *ftdi)
@@ -509,25 +511,18 @@ static void readout_status0(struct ftdi_context *ftdi)
     int ret, idindex;
 
     for (idindex = idcode_count - 1; idindex >= 0; idindex--) {
-        int firstitem = idindex == idcode_count - 1;
-        int lastitem = idindex == 0;
-        //int addfill = 2 * (!firstitem && !lastitem);
-        int addfill = fill2 * (!firstitem && !lastitem);
-        int bititem = lastitem * above2;
-        int oneformat = firstitem && (idindex || !not_last_id);
-
 DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count, above2);
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             continue; // skip Cortex element
         }
-        if ((ret = fetch_result(ftdi, idindex, IRREG_USERCODE, sizeof(uint32_t), -1, oneformat, bititem, addfill)) != 0xffffffff)
+        if ((ret = fetch_result(ftdi, idindex, IRREG_USERCODE, sizeof(uint32_t), -1)) != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, oneformat, trailing_count, above2);
+DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count, above2);
         ret = readout_seq(ftdi, idindex, rstatus, sizeof(uint32_t), -1);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))

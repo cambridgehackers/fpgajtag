@@ -231,8 +231,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
 void write_tms_transition(char *tail);
 void ENTER_TMS_STATE(char required);
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch);
-uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
-     int readitem, int bitlen, int command, int idindex, int extrabitlen);
+uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd);
 int write_cbypass(struct ftdi_context *ftdi, int read, int idindex);
 void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra);
 void read_idcode(struct ftdi_context *ftdi, int prereset);

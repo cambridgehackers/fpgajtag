@@ -513,11 +513,9 @@ static void readout_status0(struct ftdi_context *ftdi)
         int midmask = !firstitem && !lastitem;
         int addfill = 2 * midmask;
         int addffill = above2 * midmask;
-        int oneformat = (idindex || !not_last_id) && firstitem;
-        int reqfill = lastitem * above2;
-        int bititem = (lastitem || !oneformat) * above2;
+        int bititem = lastitem * above2;
         int extfra = firstitem && idindex;
-        int shiftdr = (!lastitem) * (idcode_count - idindex);
+        int oneformat = extfra || (!not_last_id && firstitem);
 
 DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, midmask, trailing_count, above2);
         if (found_cortex && idindex == found_cortex) {
@@ -525,15 +523,16 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __F
             continue; // skip Cortex element
         }
         if ((ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
-            reqfill, IRREG_USERCODE, idindex, extfra, addffill)) != 0xffffffff)
+            bititem, IRREG_USERCODE, idindex, extfra, addffill)) != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, oneformat, midmask, trailing_count, above2);
-        ret = readout_seq(ftdi, idindex, rstatus, reqfill, sizeof(uint32_t), -1,
-            oneformat, bititem, oneformat, addfill, shiftdr, oneformat);
+        ret = readout_seq(ftdi, idindex, rstatus, bititem, sizeof(uint32_t), -1,
+            oneformat, bititem, oneformat, addfill,
+            (!lastitem) * (idcode_count - idindex), oneformat);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);

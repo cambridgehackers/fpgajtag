@@ -260,6 +260,7 @@ void idle_to_shift_dr(int extra)
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift, uint8_t *pdata, int psize,
      uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
+    flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
     idle_to_shift_dr(1);
     if (pre)
@@ -766,7 +767,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     readout_status0(ftdi);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     access_mdm(ftdi, 1, 0, 99999);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
 
     /*
@@ -774,7 +774,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      */
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -784,7 +783,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     /*
      * Step 6: Load Configuration Data Frames
      */
-    flush_write(ftdi, NULL);
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, !dcount && not_last_id, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), (trailing_count == 1) || dcount == 0, 1);
@@ -801,7 +799,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JSTART);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     tmsw_delay(ftdi, 14, 1);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
@@ -827,7 +824,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     flush_write(ftdi, NULL);
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     ret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1, !not_last_id,
-        (idcode_count > 3 && not_last_id) * trailing_count);
+        not_last_id * trailing_count);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, ret);

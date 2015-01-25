@@ -492,15 +492,15 @@ DPRINT("[%s:%d] bitlen %d\n", __FUNCTION__, __LINE__, bitlen);
  * through the JTAG Interface" and Table 6-3.
  */
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int reqfill, int resp_len,
-     int fd, int oneformat, int bitlen, int addfill)
+     int fd, int oneformat, int addfill)
 {
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex != 0) * (idcode_count - idindex)); /* Select CFG_IN for sending our request */
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex!=0) * (idcode_count-idindex)); /* Select CFG_IN for request */
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, oneformat, 0, 0/*weird!*/);
-DPRINT("[%s:%d] idindex %d reqfill %d oneformat %d addfill %d bitlen %d\n", __FUNCTION__, __LINE__, idindex, reqfill, oneformat, addfill, bitlen);
+DPRINT("[%s:%d] idindex %d reqfill %d oneformat %d addfill %d\n", __FUNCTION__, __LINE__, idindex, reqfill, oneformat, addfill);
     write_bit(0, reqfill, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     return fetch_result(ftdi, resp_len, fd, idcode_count == 1 || oneformat,
-        bitlen, IRREG_CFG_OUT, idindex, oneformat, addfill);
+        reqfill, IRREG_CFG_OUT, idindex, oneformat, addfill);
 }
 
 static void readout_status0(struct ftdi_context *ftdi)
@@ -530,8 +530,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __F
         write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
 DPRINT("[%s:%d] idindex %d/%d dcount %d oneformat %d midmask %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, oneformat, midmask, trailing_count, above2);
-        ret = readout_seq(ftdi, idindex, rstatus, bititem, sizeof(uint32_t), -1,
-            oneformat, bititem, addfill);
+        ret = readout_seq(ftdi, idindex, rstatus, bititem, sizeof(uint32_t), -1, oneformat, addfill);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
             printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0x301900, ret);
@@ -577,13 +576,13 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        0, sizeof(uint32_t), -1, 1, 1, 0);
+        0, sizeof(uint32_t), -1, 1, 0);
     readout_seq(ftdi, 0, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        0, 0, -1, 1, 1, 0);
+        0, 0, -1, 1, 0);
 #endif
     write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(ftdi, 6, 0);
@@ -595,7 +594,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        0, size, fd, 1, 1, 0);
+        0, size, fd, 1, 0);
 }
 
 struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
@@ -830,8 +829,8 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     reset_mark_clock(ftdi, 0);
     flush_write(ftdi, NULL);
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
-    ret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1,
-        !not_last_id, 0, (idcode_count > 3 && not_last_id) * trailing_count);
+    ret = readout_seq(ftdi, jtag_index, rstatus, 0, sizeof(uint32_t), -1, !not_last_id,
+        (idcode_count > 3 && not_last_id) * trailing_count);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, ret);

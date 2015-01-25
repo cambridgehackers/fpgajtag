@@ -133,8 +133,8 @@ DPRINT("[%s:%d] ione %d intwo %d btemp %d bcond4 %d\n", __FUNCTION__, __LINE__, 
                         write_bit(0, idcode_count - 1 - bcond4, 0, 0);
                     }
 DPRINT("[%s:%d] idindex %d j %d testi %d bcount %d dcount %d address_last %d\n", __FUNCTION__, __LINE__, idindex, indl, testi, bcount, dcount, address_last);
-                    uint32_t ret = fetch_result(ftdi, sizeof(uint32_t), -1,
-                         address_last, (!address_last) * bcount, 0, -1, 0, 0);
+                    uint32_t ret = fetch_result(ftdi, -1, sizeof(uint32_t), -1,
+                         address_last, (!address_last) * bcount, 0, 0, 0);
 DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d flip %d/%d j %d testi %d\n", __FUNCTION__, __LINE__, toploop, loop_count, match, izero, version, innerl, inmax, flip, idmult2, indl, testi);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);

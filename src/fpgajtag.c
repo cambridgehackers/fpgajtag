@@ -440,8 +440,8 @@ void write_creg(struct ftdi_context *ftdi, int regname)
     write_irreg(ftdi, 0, regname, found_cortex, 'U');
 }
 
-uint32_t fetch_result(struct ftdi_context *ftdi, int resp_len, int fd,
-     int readitem, int bitlen, int command, int idindex, int extra, int addfill)
+uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int resp_len, int fd,
+     int readitem, int bitlen, int command, int extra, int addfill)
 {
     int j;
     uint32_t ret = 0;
@@ -499,8 +499,8 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 DPRINT("[%s:%d] idindex %d reqfill %d oneformat %d addfill %d\n", __FUNCTION__, __LINE__, idindex, reqfill, oneformat, addfill);
     write_bit(0, reqfill, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    return fetch_result(ftdi, resp_len, fd, idcode_count == 1 || oneformat,
-        reqfill, IRREG_CFG_OUT, idindex, oneformat, addfill);
+    return fetch_result(ftdi, idindex, resp_len, fd, idcode_count == 1 || oneformat,
+        reqfill, IRREG_CFG_OUT, oneformat, addfill);
 }
 
 static void readout_status0(struct ftdi_context *ftdi)
@@ -522,8 +522,8 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d midmask %d trailing %d above2 %d\n", __F
             write_cbypass(ftdi, DREAD, -1);
             continue; // skip Cortex element
         }
-        if ((ret = fetch_result(ftdi, sizeof(uint32_t), -1, oneformat,
-            bititem, IRREG_USERCODE, idindex, extfra, addffill)) != 0xffffffff)
+        if ((ret = fetch_result(ftdi, idindex, sizeof(uint32_t), -1, oneformat,
+            bititem, IRREG_USERCODE, extfra, addffill)) != 0xffffffff)
             printf("fpgajtag: USERCODE value %x\n", ret);
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);

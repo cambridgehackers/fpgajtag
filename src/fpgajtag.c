@@ -397,7 +397,7 @@ void write_dirreg(struct ftdi_context *ftdi, int command, int idindex)
 {
     write_irreg(ftdi, 0, EXTEND_EXTRA | command, idindex, 'I');
     idle_to_shift_dr(0);
-    write_bit(0, idindex - 1, 0, 0);
+    write_bit(0, idindex, 0, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
@@ -451,7 +451,7 @@ uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int r
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex);
 DPRINT("[%s:%d] idindex %d readitem %x\n", __FUNCTION__, __LINE__, idindex, readitem);
-        write_bit(0, (dcount - 1) * (idindex != 0 && idindex != idcode_count - 1), 0, 0);
+        write_bit(0, (dcount - 2) * (idindex != 0 && idindex != idcode_count - 1), 0, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     while (resp_len > 0) {

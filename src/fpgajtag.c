@@ -240,6 +240,10 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
             flush_write(ftdi, NULL);
     }
 }
+static void write_pattern(struct ftdi_context *ftdi, uint8_t *req, int target_state)
+{
+    write_bytes(ftdi, DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 1);
+}
 
 static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 {
@@ -267,9 +271,9 @@ void idle_to_shift_dr(int idindex)
 #define IDCODE_VPAT INT32(0xffffffff), REPEAT10(0xffffffff), REPEAT10(0xffffffff), \
             REPEAT10(0xffffffff), INT32(0xffffffff)
 
-static uint8_t idcode_ppattern[] =     {IDCODE_PPAT};
+static uint8_t idcode_ppattern[] = DITEM(IDCODE_PPAT);
 static uint8_t idcode_presult[] = DITEM(IDCODE_PPAT); // filled in with idcode
-static uint8_t idcode_vpattern[] =     {IDCODE_VPAT};
+static uint8_t idcode_vpattern[] = DITEM(IDCODE_VPAT);
 static uint8_t idcode_vresult[] = DITEM(IDCODE_VPAT); // filled in with idcode
 void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
@@ -280,12 +284,12 @@ DPRINT("[%s:%d] prereset %d\n", __FUNCTION__, __LINE__, prereset);
         write_tms_transition("RR1");
     marker_for_reset(ftdi, 4);
     ENTER_TMS_STATE('D');
-    write_bytes(ftdi, DREAD, 'I', idcode_ppattern, sizeof(idcode_ppattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_pattern(ftdi, idcode_ppattern, 'I');
     uint8_t *rdata = read_data(ftdi);
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
-        memcpy(&idcode_presult[1], idcode_ppattern, sizeof(idcode_ppattern));
-        memcpy(&idcode_vresult[1], idcode_vpattern, sizeof(idcode_vpattern));
+        memcpy(&idcode_presult[1], idcode_ppattern+1, idcode_ppattern[0]);
+        memcpy(&idcode_vresult[1], idcode_vpattern+1, idcode_vpattern[0]);
         while (memcmp(idcode_presult+1, rdata, idcode_presult[0]) && offset < sizeof(uint32_t) * (IDCODE_ARRAY_SIZE-1)) {
             memcpy(&idcode_array[idcode_count++], rdata+offset, sizeof(uint32_t));
             memcpy(idcode_presult+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
@@ -555,8 +559,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     idle_to_shift_dr(jtag_index);
-    write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
-          sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_pattern(ftdi, DITEM(INT32(0)), not_last_id ? 'P' : 'E');
     uint64_t ret = read_data_int(ftdi);
     if (not_last_id)
         write_fill(ftdi, 0, dcount == 2 && trailing_count == 0, 'E');
@@ -748,7 +751,7 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
      */
     idle_to_shift_dr(0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_bytes(ftdi, DREAD, 'P', idcode_vpattern, sizeof(idcode_vpattern), SEND_SINGLE_FRAME, 1, 0, 1);
+    write_pattern(ftdi, idcode_vpattern, 'P');
     uint8_t *rdata = read_data(ftdi);
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {

@@ -61,6 +61,7 @@ static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
             CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
+static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail);
 
 #ifndef USE_MDM
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
@@ -231,6 +232,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
                     exchar = bitswap[exchar];
                 opttail = -7;
             }
+            write_fill(ftdi, 0, target_state == 'E' && dcount == 2 && trailing_count == 0, 0);
             write_bit(read, -opttail, exchar, target_state);
         }
         size -= max_frame_size;
@@ -554,7 +556,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi);
     if (not_last_id)
-        write_fill(ftdi, 0, 0, 'E');
+        write_fill(ftdi, 0, dcount == 2 && trailing_count == 0, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }

@@ -493,7 +493,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (idcode_count - 1 == idindex) && idindex, 0, 0/*weird!*/);
+        !not_last_id || (idcode_count - 1 == idindex && idindex), 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_bit(0, (idindex == 0) * above2, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

@@ -177,6 +177,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (clock)
         set_clock_divisor(ftdi);
     write_tms_transition("RR1");
+    flush_write(ftdi, NULL);
 }
 void write_bit(int read, int bits, int data, char target_state)
 {
@@ -490,10 +491,10 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
  */
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex!=0) * (idcode_count-idindex));
+    int diff = idcode_count - idindex;
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex != 0) * diff);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (idindex == idcode_count - 1) && (idindex || !not_last_id),
-        0, 0/*weird!*/);
+        (diff == 1) && (idindex || !not_last_id), 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_bit(0, (idindex == 0) * above2, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -562,14 +563,12 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_STAT,1),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        sizeof(uint32_t), -1);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), sizeof(uint32_t), -1);
     readout_seq(ftdi, 0, DITEM(CONFIG_DUMMY, CONFIG_SYNC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
         CONFIG_TYPE1(CONFIG_OP_WRITE,CONFIG_REG_CMD,1), CONFIG_CMD_RCRC,
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        0, -1);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), 0, -1);
 #endif
     write_cirreg(ftdi, 0, IRREG_JSHUTDOWN);
     tmsw_delay(ftdi, 6, 0);
@@ -580,8 +579,7 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_READ,CONFIG_REG_FDRO,0),
         CONFIG_TYPE2(size),
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0),
-        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)),
-        size, fd);
+        CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
 struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
@@ -810,7 +808,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     access_mdm(ftdi, 0, 1, 0);
 
     reset_mark_clock(ftdi, 0);
-    flush_write(ftdi, NULL);
 DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1);
     int status = ret >> 8;

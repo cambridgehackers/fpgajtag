@@ -254,7 +254,7 @@ void idle_to_shift_dr(int extra)
 {
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('D');
-    if (extra && trailing_count)
+    if (extra)
         write_bit(0, jtag_index, 0xff, 0);
 }
 

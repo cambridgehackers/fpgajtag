@@ -197,10 +197,9 @@ void write_bit(int read, int bits, int data, char target_state)
     }
 }
 
-static uint64_t read_data_int(struct ftdi_context *ftdi)
+static uint64_t read_data_int(uint8_t *bufp)
 {
     uint64_t ret = 0;
-    uint8_t *bufp = read_data(ftdi);
     uint8_t *backp = bufp + last_read_data_length;
     while (backp > bufp)
         ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
@@ -240,9 +239,16 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
             flush_write(ftdi, NULL);
     }
 }
-static void write_pattern(struct ftdi_context *ftdi, uint8_t *req, int target_state)
+void idle_to_shift_dr(int idindex)
 {
+    ENTER_TMS_STATE('D');
+    write_bit(0, idindex, 0xff, 0);
+}
+static uint8_t *write_pattern(struct ftdi_context *ftdi, int idindex, uint8_t *req, int target_state)
+{
+    idle_to_shift_dr(idindex);
     write_bytes(ftdi, DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 1);
+    return read_data(ftdi);
 }
 
 static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
@@ -252,13 +258,6 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
         data += sizeof(uint32_t);
         size -= sizeof(uint32_t);
     }
-}
-
-void idle_to_shift_dr(int idindex)
-{
-    ENTER_TMS_STATE('I');
-    ENTER_TMS_STATE('D');
-    write_bit(0, idindex, 0xff, 0);
 }
 
 /*
@@ -279,13 +278,10 @@ void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
     int i, offset = 0;
 
-DPRINT("[%s:%d] prereset %d\n", __FUNCTION__, __LINE__, prereset);
     if (prereset)
         write_tms_transition("RR1");
     marker_for_reset(ftdi, 4);
-    ENTER_TMS_STATE('D');
-    write_pattern(ftdi, idcode_ppattern, 'I');
-    uint8_t *rdata = read_data(ftdi);
+    uint8_t *rdata = write_pattern(ftdi, 0, idcode_ppattern, 'I');
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
         memcpy(&idcode_presult[1], idcode_ppattern+1, idcode_ppattern[0]);
@@ -382,7 +378,7 @@ static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
     int ret = 0, target_state = (not_last_id && read ? 'P' : 'E');
     write_irreg(ftdi, read, command, jtag_index, target_state);
     if (read) {
-        ret = read_data_int(ftdi);
+        ret = read_data_int(read_data(ftdi));
         if (target_state == 'P')
             write_fill(ftdi, 0, afterbits - 1, 'E');
     }
@@ -394,7 +390,7 @@ int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
     int ret = 0;
     write_irreg(ftdi, read, IRREG_BYPASS_EXTEND, idindex, 'I');
     if (read)
-        ret = read_data_int(ftdi);
+        ret = read_data_int(read_data(ftdi));
     ENTER_TMS_STATE('I');
     return ret;
 }
@@ -558,9 +554,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 
     send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(jtag_index);
-    write_pattern(ftdi, DITEM(INT32(0)), not_last_id ? 'P' : 'E');
-    uint64_t ret = read_data_int(ftdi);
+    uint64_t ret = read_data_int(
+        write_pattern(ftdi, jtag_index, DITEM(INT32(0)), not_last_id ? 'P' : 'E'));
     if (not_last_id)
         write_fill(ftdi, 0, dcount == 2 && trailing_count == 0, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
@@ -711,6 +706,7 @@ usage:
     not_last_id = jtag_index != idcode_count - 1;
     trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
 printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
+printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, dcount, not_last_id);
 
     /*
      * See if we are reading out data
@@ -737,43 +733,35 @@ printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, _
     }
 
     access_mdm(ftdi, 2, 0, 1);
-flush_write(ftdi, NULL);
-printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, dcount, not_last_id);
     reset_mark_clock(ftdi, 1);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
     marker_for_reset(ftdi, 0);
+    ENTER_TMS_STATE('I');
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    idle_to_shift_dr(0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
-    write_pattern(ftdi, idcode_vpattern, 'P');
-    uint8_t *rdata = read_data(ftdi);
+    uint8_t *rdata = write_pattern(ftdi, 0, idcode_vpattern, 'P');
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
         memdump(idcode_vresult+1, idcode_vresult[0], "IDCODE_VALIDATE: EXPECT");
         memdump(rdata, last_read_data_length, "IDCODE_VALIDATE: ACTUAL");
     }
 
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     readout_status0(ftdi);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     access_mdm(ftdi, 1, 0, 99999);
     marker_for_reset(ftdi, 0);
 
     /*
      * Step 2: Initialization
      */
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JPROGRAM);
     write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
     pulse_gpio(ftdi, 12500 /*msec*/);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
@@ -789,25 +777,18 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (not_last_id ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     write_cirreg(ftdi, 0, IRREG_JSTART);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     tmsw_delay(ftdi, 14, 1);
     flush_write(ftdi, NULL);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
             (found_cortex ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     ret = write_cbypass(ftdi, DREAD, -1) & 0xff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
@@ -818,7 +799,6 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     access_mdm(ftdi, 0, 1, 0);
 
     reset_mark_clock(ftdi, 0);
-DPRINT("[%s:%d] before readoutseq jtag_index %d\n", __FUNCTION__, __LINE__, jtag_index);
     ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))

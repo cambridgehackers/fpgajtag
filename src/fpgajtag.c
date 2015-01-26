@@ -48,7 +48,7 @@
 
 uint8_t *input_fileptr;
 int input_filesize, found_cortex;
-int not_last_id, above2, jtag_index = -1, device_type, dcount, idcode_count;
+int not_last_id, jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
 static int verbose, trailing_count, skip_idcode;
@@ -439,9 +439,13 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     flush_write(ftdi, NULL);
 }
 
+static void write_above2(int read, int idindex)
+{
+    write_bit(read, (!idindex && idcode_count > 1) * (idcode_count - 2), 0, 'I');
+}
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int j, readitem = (idindex == idcode_count - 1) && (idindex || !not_last_id);
+    int j, readitem = ((idindex == idcode_count - 1) && (idindex || !not_last_id)) * DREAD;
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
@@ -460,7 +464,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         else
             write_item(DITEM(DATAR(size)));
         if (resp_len <= 0)
-            write_bit((readitem != 0) * DREAD, (idindex == 0) * above2, 0, 'I');
+            write_above2(readitem, idindex);
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
@@ -493,9 +497,9 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        !not_last_id || (idcode_count - 1 == idindex && idindex), 0, 0/*weird!*/);
+        (idcode_count == 1) || (idcode_count - 1 == idindex && idindex), 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
-    write_bit(0, (idindex == 0) * above2, 0, 'I');
+    write_above2(0, idindex);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     return fetch_result(ftdi, idindex, IRREG_CFG_OUT, resp_len, fd);
 }
@@ -505,7 +509,7 @@ static void readout_status0(struct ftdi_context *ftdi)
     int ret, idindex;
 
     for (idindex = idcode_count - 1; idindex >= 0; idindex--) {
-DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count, above2);
+DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
         if (found_cortex && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             continue; // skip Cortex element
@@ -516,7 +520,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d above2 %d\n", __FUNCTION__, 
         write_cbypass(ftdi, DREAD, -1);
         write_cbypass(ftdi, DREAD, -1);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d above2 %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count, above2);
+DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
         ret = readout_seq(ftdi, idindex, rstatus, sizeof(uint32_t), -1);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -696,7 +700,6 @@ usage:
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != 0) - 1;
-    above2 = (idcode_count > 1) * (idcode_count - 2);
     not_last_id = jtag_index != idcode_count - 1;
     trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
 printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
@@ -727,7 +730,7 @@ printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, _
 
     access_mdm(ftdi, 2, 0, 1);
 flush_write(ftdi, NULL);
-printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d above2 %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, dcount, not_last_id, above2);
+printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, dcount, not_last_id);
     reset_mark_clock(ftdi, 1);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");

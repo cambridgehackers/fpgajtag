@@ -52,7 +52,6 @@ int not_last_id, jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
 static int verbose, trailing_count, skip_idcode;
-static uint8_t zerodata[7];
 static USB_INFO *uinfo;
 
 static int first_time_idcode_read = 1;
@@ -408,6 +407,7 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     uint8_t *pdata, int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
+    static uint8_t zerodata[7];
     flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
     idle_to_shift_dr(jtag_index);
@@ -415,10 +415,8 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         write_int32(ftdi, pre+1, pre[0]);
     int tremain = trailing_count;
     while (idcode_count > 1) {
-        int temp = (dcount == 2) ? -6 : -7;
-        if (tremain > 1)
-           temp = -7;
-        else if (tremain == 1)
+        int temp = (dcount == 2 && !tremain) ? -6 : -7;
+        if (tremain == 1)
            temp = -(8 - jtag_index);
         write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, temp, 0, 0);
         if (tremain-- <= 1)

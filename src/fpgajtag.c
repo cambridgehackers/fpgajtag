@@ -250,12 +250,11 @@ static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
     }
 }
 
-void idle_to_shift_dr(int extra)
+void idle_to_shift_dr(int idindex)
 {
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('D');
-    if (extra)
-        write_bit(0, jtag_index, 0xff, 0);
+    write_bit(0, idindex, 0xff, 0);
 }
 
 /*
@@ -411,7 +410,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
 {
     flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
-    idle_to_shift_dr(1);
+    idle_to_shift_dr(jtag_index);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
     int tmp = trailing_count > 1;
@@ -551,7 +550,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
 
     send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
-    idle_to_shift_dr(1);
+    idle_to_shift_dr(jtag_index);
     write_bytes(ftdi, DREAD, not_last_id ? 'P' : 'E', zerodata,
           sizeof(uint32_t), SEND_SINGLE_FRAME, 1, 0, 1);
     uint64_t ret = read_data_int(ftdi);

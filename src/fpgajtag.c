@@ -393,11 +393,11 @@ int write_cbypass(struct ftdi_context *ftdi, int read, int idindex)
     ENTER_TMS_STATE('I');
     return ret;
 }
-void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra)
+void write_dirreg(struct ftdi_context *ftdi, int command, int idindex)
 {
     write_irreg(ftdi, 0, EXTEND_EXTRA | command, idindex, 'I');
     idle_to_shift_dr(0);
-    write_bit(0, (extra != 0) * (idcode_count - extra), 0, 0);
+    write_bit(0, idindex - 1, 0, 0);
 }
 void write_creg(struct ftdi_context *ftdi, int regname)
 {
@@ -445,7 +445,7 @@ uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int r
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
-        write_dirreg(ftdi, command, idindex, readitem);
+        write_dirreg(ftdi, command, idindex);
 DPRINT("[%s:%d] idindex %d readitem %x\n", __FUNCTION__, __LINE__, idindex, readitem);
         write_bit(0, (dcount - 1) * (idindex != 0 && idindex != idcode_count - 1), 0, 0);
     }
@@ -491,10 +491,9 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
  */
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
-    int diff = idcode_count - idindex;
-    write_dirreg(ftdi, IRREG_CFG_IN, idindex, (idindex != 0) * diff);
+    write_dirreg(ftdi, IRREG_CFG_IN, idindex);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (diff == 1) && (idindex || !not_last_id), 0, 0/*weird!*/);
+        (idcode_count - 1 == idindex) && idindex, 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_bit(0, (idindex == 0) * above2, 0, 'I');
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

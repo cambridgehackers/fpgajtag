@@ -107,7 +107,7 @@ int inmax = (1 + (version != 0) * above2) * idmult2;
 DPRINT("[%s:%d] version %d innerl %d inmax %d j %d/%d testi %d idindex %d address_last %d\n", __FUNCTION__, __LINE__, version, innerl, inmax, indl, 3 + !top_wait, testi, idindex, address_last);
                     write_cbypass(ftdi, 0, idindex);
 DPRINT("[%s:%d] idindex %d j %d testi %d\n", __FUNCTION__, __LINE__, idindex, indl, testi);
-                    write_dirreg(ftdi, IRREG_USER2, idindex, nonfirst);
+                    write_dirreg(ftdi, IRREG_USER2, idindex);
 DPRINT("[%s:%d] btemp %d flip %d izero %d extracond %d fillwidth %d\n", __FUNCTION__, __LINE__, btemp, flip, izero, extracond, fillwidth);
                     write_bit(0,((btemp && !(idcogt3 && version == 1 && izero))
                              || extracond) * fillwidth, 0, 0);

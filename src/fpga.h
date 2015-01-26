@@ -233,7 +233,7 @@ void ENTER_TMS_STATE(char required);
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch);
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd);
 int write_cbypass(struct ftdi_context *ftdi, int read, int idindex);
-void write_dirreg(struct ftdi_context *ftdi, int command, int idindex, int extra);
+void write_dirreg(struct ftdi_context *ftdi, int command, int idindex);
 void read_idcode(struct ftdi_context *ftdi, int prereset);
 extern int not_last_id, idgt2, idcogt3, idmult2, above2, jtag_index, device_type, dcount, tracep, found_cortex, idcode_count;
 

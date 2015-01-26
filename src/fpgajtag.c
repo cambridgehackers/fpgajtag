@@ -413,13 +413,17 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     idle_to_shift_dr(jtag_index);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
-    int tmp = trailing_count > 1;
-    if (tmp)
-        write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, -7, 0, 0);
-    if (trailing_count > 0)
-        write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, -(8 - jtag_index), 0, 0);
-    else if (idcode_count > 1)
-        write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, (dcount == 2) ? -6 : -7, 0, 0);
+    int tremain = trailing_count;
+    while (idcode_count > 1) {
+        int temp = (dcount == 2) ? -6 : -7;
+        if (tremain > 1)
+           temp = -7;
+        else if (tremain == 1)
+           temp = -(8 - jtag_index);
+        write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, temp, 0, 0);
+        if (tremain-- <= 1)
+            break;
+    }
     if (post)
         write_int32(ftdi, post+1, post[0]);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();

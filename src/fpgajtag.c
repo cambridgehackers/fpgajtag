@@ -172,6 +172,10 @@ static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
 }
 static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
 {
+    if (clock)
+        access_mdm(ftdi, 2, 0, 1);
+    else
+        access_mdm(ftdi, 0, 1, 0);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     marker_for_reset(ftdi, 0);
     if (clock)
@@ -730,7 +734,6 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
         goto exit_label;
     }
 
-    access_mdm(ftdi, 2, 0, 1);
     reset_mark_clock(ftdi, 1);
     marker_for_reset(ftdi, 0);
     write_tms_transition("RR1");
@@ -794,9 +797,8 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
         printf("fpgajtag: bypass already programmed %x\n", ret);
     else
         printf("fpgajtag: bypass unknown %x\n", ret);
-    access_mdm(ftdi, 0, 1, 0);
-
     reset_mark_clock(ftdi, 0);
+
     ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))

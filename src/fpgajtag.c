@@ -364,6 +364,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, 
     }
 if(tracep)
 printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, read, command, idindex, befbits, afterbits);
+    flush_write(ftdi, NULL);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
     write_fill(ftdi, 0, befbits, 0);
@@ -412,7 +413,6 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     uint8_t *pdata, int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
     static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
-    flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
     idle_to_shift_dr(trailing_len);
     if (pre)
@@ -760,7 +760,6 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);
-    flush_write(ftdi, NULL);
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=

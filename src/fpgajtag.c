@@ -769,7 +769,7 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), ((jtag_index != idcode_count - 1) && (jtag_index == 0)) || dcount == 0, 1);
+        NULL, DITEM(INT32(0)), (idcode_count != 1 && jtag_index == 0) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

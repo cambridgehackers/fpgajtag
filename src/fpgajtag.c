@@ -47,18 +47,14 @@
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
-int input_filesize, found_cortex = -1;
-int jtag_index = -1, dcount, idcode_count;
+int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, skip_idcode, trailing_len;
+static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1;
 static USB_INFO *uinfo;
-
-static int first_time_idcode_read = 1;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
 static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
-static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
-            CONFIG_SYNC, CONFIG_TYPE2(0),
+static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
 
 #ifndef USE_MDM
@@ -559,8 +555,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     uint64_t ret = read_data_int(
         write_pattern(ftdi, trailing_len, DITEM(INT32(0)), jtag_index ? 'P' : 'E'));
-    if (jtag_index)
-        write_fill(ftdi, 0, dcount == 2 && !trailing_len, 'E');
+    write_fill(ftdi, 0, dcount == 2 && !jtag_index && !trailing_len, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }

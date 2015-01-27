@@ -420,7 +420,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
         write_req(ftdi, zerod, tremain == 1 ? -(8 - trailing_len)
-            : ((dcount == 2 && !trailing_len) ? -6 : -7));
+            : -7 + (dcount == 2 && !trailing_len));
         if (tremain-- <= 1)
             break;
     }

@@ -419,10 +419,8 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         write_int32(ftdi, pre+1, pre[0]);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
-        int temp = (dcount == 2 && !tremain) ? -6 : -7;
-        if (tremain == 1)
-           temp = -(8 - trailing_len);
-        write_req(ftdi, zerod, temp);
+        write_req(ftdi, zerod, tremain == 1 ? -(8 - trailing_len)
+            : ((dcount == 2 && !trailing_len) ? -6 : -7));
         if (tremain-- <= 1)
             break;
     }

@@ -280,6 +280,7 @@ static uint8_t idcode_vresult[] = DITEM(IDCODE_VPAT); // filled in with idcode
 void read_idcode(struct ftdi_context *ftdi, int prereset)
 {
     int i, offset = 0;
+    uint32_t temp[IDCODE_ARRAY_SIZE];
 
     if (prereset)
         write_tms_transition("RR1");
@@ -290,7 +291,7 @@ void read_idcode(struct ftdi_context *ftdi, int prereset)
         memcpy(&idcode_presult[1], idcode_ppattern+1, idcode_ppattern[0]);
         memcpy(&idcode_vresult[1], idcode_vpattern+1, idcode_vpattern[0]);
         while (memcmp(idcode_presult+1, rdata, idcode_presult[0]) && offset < sizeof(uint32_t) * (IDCODE_ARRAY_SIZE-1)) {
-            memcpy(&idcode_array[idcode_count++], rdata+offset, sizeof(uint32_t));
+            memcpy(&temp[idcode_count++], rdata+offset, sizeof(uint32_t));
             memcpy(idcode_presult+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
             memcpy(idcode_vresult+offset+1, rdata+offset, sizeof(uint32_t));   // copy 2nd idcode
             offset += sizeof(uint32_t);
@@ -301,6 +302,7 @@ void read_idcode(struct ftdi_context *ftdi, int prereset)
         memdump(rdata, idcode_presult[0], "READ_IDCODE: ACTUAL");
     }
     for (i = 0; i < idcode_count; i++) {
+        idcode_array[i] = temp[i];
         if (idcode_array[i] == CORTEX_IDCODE) {
             found_cortex = i;
             idcode_len[i] = CORTEX_IR_LENGTH;

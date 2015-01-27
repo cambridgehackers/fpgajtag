@@ -51,7 +51,7 @@ void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
         ENTER_TMS_STATE('R');
         loop_count = above2
             + (device_type == DEVICE_VC707 || device_type == DEVICE_AC701
-              || (not_last_id && (device_type != DEVICE_ZEDBOARD)));
+              || (jtag_index && (device_type != DEVICE_ZEDBOARD)));
         if (!amatch) {
             shift_enable = dcount != 0;
             loop_count = 1;

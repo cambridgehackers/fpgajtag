@@ -48,7 +48,7 @@
 
 uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1;
-int not_last_id, jtag_index = -1, device_type, dcount, idcode_count;
+int jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
 static int verbose, trailing_count, skip_idcode;
@@ -380,7 +380,7 @@ printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __
 }
 static int write_cirreg(struct ftdi_context *ftdi, int read, int command)
 {
-    int ret = 0, target_state = (not_last_id && read ? 'P' : 'E');
+    int ret = 0, target_state = (jtag_index && read ? 'P' : 'E');
     write_irreg(ftdi, read, command, jtag_index, target_state);
     if (read) {
         ret = read_data_int(read_data(ftdi));
@@ -454,7 +454,7 @@ static void write_above2(int read, int idindex)
 }
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int j, readitem = ((idindex == 0) && (idindex != idcode_count - 1 || !not_last_id)) * DREAD;
+    int j, readitem = (idindex == 0 && (idcode_count > 1 || !jtag_index)) * DREAD;
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
@@ -506,7 +506,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (idcode_count == 1) || (0 == idindex && idindex != idcode_count - 1), 0, 0/*weird!*/);
+        (idcode_count == 1) || (0 == idindex && idcode_count > 1), 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_above2(0, idindex);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -519,7 +519,7 @@ static void readout_status0(struct ftdi_context *ftdi)
 
     for (idindex = 0; idindex < idcode_count; idindex++) {
 DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
-        if (found_cortex != -1 && idindex == found_cortex) {
+        if (idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, idcode_count);
             continue; // skip Cortex element
         }
@@ -556,11 +556,11 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0,0));
     uint8_t constant4[] = {INT32(4)};
 
-    send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !not_last_id, 0);
+    send_data_file(ftdi, 0, 0, constant4, sizeof(constant4), DITEM(CONFIG_DUMMY), req, !jtag_index, 0);
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     uint64_t ret = read_data_int(
-        write_pattern(ftdi, idcode_count - 1 - jtag_index, DITEM(INT32(0)), not_last_id ? 'P' : 'E'));
-    if (not_last_id)
+        write_pattern(ftdi, idcode_count - 1 - jtag_index, DITEM(INT32(0)), jtag_index ? 'P' : 'E'));
+    if (jtag_index)
         write_fill(ftdi, 0, dcount == 2 && trailing_count == 0, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
@@ -707,10 +707,8 @@ usage:
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
-    not_last_id = jtag_index != 0;
     trailing_count = (jtag_index != idcode_count - 1) * (jtag_index + 1);
-printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
-printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n", __FUNCTION__, __LINE__, jtag_index, not_last_id, dcount, not_last_id);
+printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count, dcount);
 
     /*
      * See if we are reading out data
@@ -772,7 +770,7 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
      * Step 6: Load Configuration Data Frames
      */
     printf("fpgajtag: Starting to send file\n");
-    send_data_file(ftdi, DREAD, !dcount && not_last_id, input_fileptr, input_filesize,
+    send_data_file(ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), (trailing_count == 1) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 
@@ -780,7 +778,7 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
      * Step 8: Startup
      */
     pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (not_last_id ? 0x03000000 : 0x01000000))
+    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (jtag_index ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(ftdi, 0, IRREG_JSTART);
     tmsw_delay(ftdi, 14, 1);

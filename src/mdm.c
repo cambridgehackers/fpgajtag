@@ -43,7 +43,7 @@
 #define MDM_READ_CONFIG 0x0c /* 00001100 */
 static int device_type, idgt2, idcogt3, idmult2;
 
-void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
+void access_mdm(int version, int pre, int amatch)
 {
     int toploop, loop_count, match = amatch;
     int shift_enable = 0;
@@ -89,7 +89,7 @@ flush_write(NULL);
 DPRINT("[%s:%d] version %d toploop %d/%d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, loop_count, pre, match, loop_count, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
-            read_idcode(ftdi, version != 2 && toploop == pre);
+            read_idcode(version != 2 && toploop == pre);
         }
 int inmax = (1 + (version != 0) * above2) * idmult2;
         for (innerl = 0; innerl < inmax; innerl++) {
@@ -106,9 +106,9 @@ int inmax = (1 + (version != 0) * above2) * idmult2;
             for (indl = 0; indl < 3 + !top_wait; indl++) {
                 for (testi = 0; testi < 4; testi++) {
 DPRINT("[%s:%d] version %d innerl %d inmax %d j %d/%d testi %d idindex %d address_last %d\n", __FUNCTION__, __LINE__, version, innerl, inmax, indl, 3 + !top_wait, testi, idindex, address_last);
-                    write_cbypass(ftdi, 0, idindex);
+                    write_cbypass(0, idindex);
 DPRINT("[%s:%d] idindex %d j %d testi %d\n", __FUNCTION__, __LINE__, idindex, indl, testi);
-                    write_dirreg(ftdi, IRREG_USER2, idindex);
+                    write_dirreg(IRREG_USER2, idindex);
 DPRINT("[%s:%d] btemp %d flip %d izero %d extracond %d fillwidth %d\n", __FUNCTION__, __LINE__, btemp, flip, izero, extracond, fillwidth);
                     write_bit(0,((btemp && !(idcogt3 && version == 1 && izero))
                              || extracond) * fillwidth, 0, 0);
@@ -125,7 +125,7 @@ DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                     if (testi) {
                         int bcond4 = ione || (intwo && btemp);
                         static uint8_t data = MDM_SYNC_CONST;
-                        write_bytes(ftdi, 0, 0, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
+                        write_bytes(0, 0, &data, 1, SEND_SINGLE_FRAME, 0, 0, 1);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
                         write_bit(0, 2, 0, 0);
 DPRINT("[%s:%d] j %d testi %d\n", __FUNCTION__, __LINE__, indl, testi);
@@ -134,7 +134,7 @@ DPRINT("[%s:%d] ione %d intwo %d btemp %d bcond4 %d\n", __FUNCTION__, __LINE__, 
                         write_bit(0, idcode_count - 1 - bcond4, 0, 0);
                     }
 DPRINT("[%s:%d] idindex %d j %d testi %d bcount %d dcount %d address_last %d\n", __FUNCTION__, __LINE__, idindex, indl, testi, bcount, dcount, address_last);
-                    uint32_t ret = fetch_result(ftdi, -1, 0, sizeof(uint32_t), -1);
+                    uint32_t ret = fetch_result(-1, 0, sizeof(uint32_t), -1);
 DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d flip %d/%d j %d testi %d\n", __FUNCTION__, __LINE__, toploop, loop_count, match, izero, version, innerl, inmax, flip, idmult2, indl, testi);
                     if (ret != 0)
                         printf("[%s:%d] nonzero USER2 %x\n", __FUNCTION__, __LINE__, ret);
@@ -144,7 +144,7 @@ DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d f
                 flip = 0;
                 if (izero && found_cortex != -1) {
                     if (!shift_enable)
-                        cortex_bypass(ftdi, top_wait);
+                        cortex_bypass(top_wait);
                     idindex++;
                 }
                 btemp |= idcogt3 || version;

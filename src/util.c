@@ -236,7 +236,7 @@ void flush_write(uint8_t *req)
 /*
  * Read utility functions
  */
-uint8_t *read_data(struct ftdi_context *zzftdi)
+uint8_t *read_data(void)
 {
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
@@ -403,7 +403,7 @@ error:
     exit(-1);
 }
 
-void fpgausb_close(struct ftdi_context *zzftdi)
+void fpgausb_close(void)
 {
     flush_write(NULL);
 #ifdef USE_LIBFTDI
@@ -427,7 +427,7 @@ void fpgausb_release(void)
 #endif
 }
 
-void sync_ftdi(struct ftdi_context *zzftdi, int val)
+void sync_ftdi(int val)
 {
     uint8_t illegal_command[] = { val, SEND_IMMEDIATE };
     uint8_t errorcode_ret[] = { 0xfa, val };
@@ -443,26 +443,25 @@ void sync_ftdi(struct ftdi_context *zzftdi, int val)
 /*
  * FTDI generic initialization
  */
-struct ftdi_context *init_ftdi(int device_index)
+void init_ftdi(int device_index)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
-    struct ftdi_context *ftdi = (struct ftdi_context *)illegal_command;
+    global_ftdi = (struct ftdi_context *)illegal_command;
     int i;
 
     fpgausb_open(device_index);            /*** Open selected USB interface ***/
 #ifdef USE_LIBFTDI
-    ftdi = ftdi_new();
-    ftdi_set_usbdev(ftdi, usbhandle);
-    ftdi->usb_ctx = usb_context;
-    ftdi->max_packet_size = 512; //5000;
+    global_ftdi = ftdi_new();
+    global_ftdi_set_usbdev(ftdi, usbhandle);
+    global_ftdi->usb_ctx = usb_context;
+    global_ftdi->max_packet_size = 512; //5000;
 #endif
     /*
      * Generic command synchronization with ftdi chip
      */
     for (i = 0; i < 4; i++)
-        sync_ftdi(ftdi, 0xaa);
-    sync_ftdi(ftdi, 0xab);
-    return ftdi;
+        sync_ftdi(0xaa);
+    sync_ftdi(0xab);
 }
 
 /*

@@ -63,9 +63,9 @@ typedef struct {
 } USB_INFO;
 USB_INFO *fpgausb_init(void);
 void fpgausb_open(int device_index);
-void fpgausb_close(struct ftdi_context *ftdi);
+void fpgausb_close(void);
 void fpgausb_release(void);
-struct ftdi_context *init_ftdi(int device_index);
+void init_ftdi(int device_index);
 
 void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);
@@ -73,8 +73,8 @@ void flush_write(uint8_t *req);
 int buffer_current_size(void);
 uint8_t *buffer_current_ptr(void);
 
-uint8_t *read_data(struct ftdi_context *ftdi);
-void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra);
+uint8_t *read_data(void);
+void tmsw_delay(int delay_time, int extra);
 void idle_to_shift_dr(int extra);
 uint32_t read_inputfile(const char *filename);
-void sync_ftdi(struct ftdi_context *ftdi, int val);
+void sync_ftdi(int val);

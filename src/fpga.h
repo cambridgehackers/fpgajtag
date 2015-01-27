@@ -221,19 +221,19 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
     flush_write(NULL); \
     if (tracep) printf
 
-void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail);
-void write_creg(struct ftdi_context *ftdi, int regname);
-void cortex_bypass(struct ftdi_context *ftdi, int cortex_nowait);
-void process_command_list(struct ftdi_context *ftdi);
+void write_irreg(int read, int command, int flip, char tail);
+void write_creg(int regname);
+void cortex_bypass(int cortex_nowait);
+void process_command_list(void);
 void write_bit(int read, int bits, int data, char target_state);
-void write_bytes(struct ftdi_context *ftdi, uint8_t read_param,
+void write_bytes(uint8_t read_param,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
 void write_tms_transition(char *tail);
 void ENTER_TMS_STATE(char required);
-void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch);
-uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd);
-int write_cbypass(struct ftdi_context *ftdi, int read, int idindex);
-void write_dirreg(struct ftdi_context *ftdi, int command, int idindex);
-void read_idcode(struct ftdi_context *ftdi, int prereset);
+void access_mdm(int version, int pre, int amatch);
+uint32_t fetch_result(int idindex, int command, int resp_len, int fd);
+int write_cbypass(int read, int idindex);
+void write_dirreg(int command, int idindex);
+void read_idcode(int prereset);
 extern int above2, jtag_index, dcount, tracep, found_cortex, idcode_count;
 

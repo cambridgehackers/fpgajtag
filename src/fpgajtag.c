@@ -454,7 +454,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
 
 static void write_above2(int read, int idindex)
 {
-    write_bit(read, (idindex == idcode_count - 1) * (idindex - 1), 0, 'I');
+    write_bit(read, (0 == idcode_count - 1 - idindex) * (idindex - 1), 0, 'I');
 }
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
@@ -464,7 +464,7 @@ uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int r
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
-        write_bit(0, (dcount - 2) * (idindex && idindex != idcode_count - 1), 0, 0);
+        write_bit(0, (dcount - 2) * (idindex && 0 != idcode_count - 1 - idindex), 0, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     while (resp_len > 0) {
@@ -757,7 +757,7 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), jtag_index == 0 || dcount == 0, 1);
+        NULL, DITEM(INT32(0)), !jtag_index || !dcount, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

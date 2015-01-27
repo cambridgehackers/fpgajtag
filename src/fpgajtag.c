@@ -454,13 +454,13 @@ static void write_above2(int read, int idindex)
 }
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int j, readitem = (idindex == 0 && (idcode_count > 1 || !jtag_index)) * DREAD;
+    int j, readitem = ((!idindex && idcode_count > 1) || (!idindex && !jtag_index)) * DREAD;
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex);
 DPRINT("[%s:%d] idindex %d readitem %x\n", __FUNCTION__, __LINE__, idindex, readitem);
-        write_bit(0, (dcount - 2) * (idindex != 0 && idindex != idcode_count - 1), 0, 0);
+        write_bit(0, (dcount - 2) * (idindex && idindex != idcode_count - 1), 0, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     while (resp_len > 0) {
@@ -506,7 +506,7 @@ static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
     write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (idcode_count == 1) || (0 == idindex && idcode_count > 1), 0, 0/*weird!*/);
+        (idcode_count == 1) || (!idindex && idcode_count > 1), 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_above2(0, idindex);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

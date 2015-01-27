@@ -60,7 +60,6 @@ static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY,
             CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
-static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail);
 
 #ifndef USE_MDM
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
@@ -198,6 +197,16 @@ void write_bit(int read, int bits, int data, char target_state)
         cptr[0] |= read; // this is a TMS instruction to shift state
         cptr[2] |= extrabit; // insert 1 bit of data here
     }
+}
+static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
+{
+    static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
+    if (width > 7) {
+        int bytes = width/8;
+        write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
+        width -= 8 * bytes;
+    }
+    write_bit(read, width, 0xff, tail);
 }
 
 static uint64_t read_data_int(uint8_t *bufp)
@@ -341,17 +350,6 @@ static struct ftdi_context *get_deviceid(int device_index)
         read_idcode(ftdi, 1);
     }
     return ftdi;
-}
-
-static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
-{
-    static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
-    if (width > 7) {
-        int bytes = width/8;
-        write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
-        width -= 8 * bytes;
-    }
-    write_bit(read, width, 0xff, tail);
 }
 /*
  * Functions for setting Instruction Register(IR)

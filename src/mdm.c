@@ -41,6 +41,7 @@
 #define MDM_ID_LENGTH      6
 #define MDM_SYNC_CONST  0x69 /* 01101001 */
 #define MDM_READ_CONFIG 0x0c /* 00001100 */
+static int device_type, idgt2, idcogt3, idmult2;
 
 void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
 {

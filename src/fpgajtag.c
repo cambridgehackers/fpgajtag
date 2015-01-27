@@ -48,7 +48,7 @@
 
 uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1;
-int jtag_index = -1, device_type, dcount, idcode_count;
+int jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
 static int verbose, skip_idcode;
@@ -420,14 +420,15 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
     flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
-    idle_to_shift_dr(idcode_count - 1 - jtag_index);
+    int shiftval = idcode_count - 1 - jtag_index;
+    idle_to_shift_dr(shiftval);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
-    int tremain = (jtag_index != idcode_count - 1) * (jtag_index + 1);
+    int tremain = (shiftval != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
         int temp = (dcount == 2 && !tremain) ? -6 : -7;
         if (tremain == 1)
-           temp = -(8 - (idcode_count - 1 - jtag_index));
+           temp = -(8 - shiftval);
         write_req(ftdi, zerod, temp);
         if (tremain-- <= 1)
             break;
@@ -650,21 +651,6 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     if (jtag_index == -1) {
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
         exit(-1);
-    }
-    uint32_t thisid = idcode_array[jtag_index];
-    device_type = DEVICE_OTHER;
-    if (thisid == DEVICE_AC701 || thisid == DEVICE_ZC706
-     || thisid == DEVICE_VC707 || thisid == DEVICE_KC705)
-        device_type = thisid;
-    else if (thisid == DEVICE_ZC702) {       // zc702 and zedboard
-        if (uinfo[usb_index].bcdDevice == 0x700)
-            device_type = DEVICE_ZC702;
-        else
-            device_type = DEVICE_ZEDBOARD;
-    }
-    else {
-        printf("[%s:%d]unknown device %x\n", __FUNCTION__, __LINE__, thisid);
-        //exit(1);
     }
     return ftdi;
 }

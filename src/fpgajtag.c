@@ -454,7 +454,7 @@ static void write_above2(int read, int idindex)
 }
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int j, readitem = ((!idindex && idcode_count > 1) || (!idindex && !jtag_index)) * DREAD;
+    int j, readitem = (!idindex) * DREAD;
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {

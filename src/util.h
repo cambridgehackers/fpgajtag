@@ -50,6 +50,7 @@ extern int last_read_data_length;
 extern int trace;
 extern uint8_t *input_fileptr;
 extern int input_filesize;
+extern struct ftdi_context *global_ftdi;
 
 void memdump(const uint8_t *p, int len, char *title);
 
@@ -68,7 +69,7 @@ struct ftdi_context *init_ftdi(int device_index);
 
 void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);
-void flush_write(struct ftdi_context *ftdi, uint8_t *req);
+void flush_write(uint8_t *req);
 int buffer_current_size(void);
 uint8_t *buffer_current_ptr(void);
 

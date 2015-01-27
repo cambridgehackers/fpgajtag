@@ -90,7 +90,7 @@ void process_command_list(struct ftdi_context *ftdi)
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
             write_irreg(ftdi, 0, t, 0, 'I');
-            flush_write(ftdi, NULL);
+            flush_write(NULL);
         }
         else {
             idle_to_shift_dr(0);
@@ -113,5 +113,5 @@ void process_command_list(struct ftdi_context *ftdi)
         }
         str = NULL;
     }
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
 }

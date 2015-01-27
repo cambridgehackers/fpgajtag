@@ -85,7 +85,7 @@ printf("[%s:%d] device %x idcode_count %d jtag_index %d\n", __FUNCTION__, __LINE
         int btemp = !version && toploop == 1;
         int top_wait = toploop || version != 2;
         int izero = 1;
-flush_write(ftdi, NULL);
+flush_write(NULL);
 DPRINT("[%s:%d] version %d toploop %d/%d pre %d match %d loop_count %d shift_enable %d\n", __FUNCTION__, __LINE__, version, toploop, loop_count, pre, match, loop_count, shift_enable);
         if (version || !toploop) {
             ENTER_TMS_STATE('R');
@@ -152,7 +152,7 @@ DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d f
             }
             idindex++;
         }
-flush_write(ftdi, NULL);
+flush_write(NULL);
 DPRINT("[%s:%d] bottomt toploop %d/%d match %d version %d pre %d dcount %d\n", __FUNCTION__, __LINE__, toploop, loop_count, match, version, pre, dcount);
         if (!version) {
             shift_enable |= 1;

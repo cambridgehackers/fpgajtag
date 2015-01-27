@@ -218,7 +218,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 #define SEND_SINGLE_FRAME     99999
 
 #define DPRINT \
-    flush_write(ftdi, NULL); \
+    flush_write(NULL); \
     if (tracep) printf
 
 void write_irreg(struct ftdi_context *ftdi, int read, int command, int flip, char tail);

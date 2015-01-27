@@ -61,6 +61,7 @@ FILE *logfile;
 int usb_bcddevice;
 uint8_t bitswap[256];
 int last_read_data_length;
+struct ftdi_context *global_ftdi;
 #if defined(USE_TRACING)
 int trace = 1;
 #else
@@ -180,7 +181,7 @@ uint8_t *buffer_current_ptr(void)
     return usbreadbuffer_ptr;
 }
 
-void flush_write(struct ftdi_context *ftdi, uint8_t *req)
+void flush_write(uint8_t *req)
 {
     if (req)
         write_item(req);
@@ -188,7 +189,7 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
     usbreadbuffer_ptr = usbreadbuffer;
     if (!write_length)
         return;
-    ftdi_write_data(ftdi, usbreadbuffer, write_length);
+    ftdi_write_data(global_ftdi, usbreadbuffer, write_length);
     read_size_ptr = 0;
 
     const uint8_t *p = usbreadbuffer;
@@ -235,7 +236,7 @@ void flush_write(struct ftdi_context *ftdi, uint8_t *req)
 /*
  * Read utility functions
  */
-uint8_t *read_data(struct ftdi_context *ftdi)
+uint8_t *read_data(struct ftdi_context *zzftdi)
 {
     static uint8_t last_read_data[10000];
     int i, j, expected_len = 0, extra_bytes = 0;
@@ -244,7 +245,7 @@ uint8_t *read_data(struct ftdi_context *ftdi)
         printf("[%s]\n", __FUNCTION__);
     if (buffer_current_size())
         *usbreadbuffer_ptr++ = SEND_IMMEDIATE; /* tell the FTDI that we are waiting... */
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
     last_read_data_length = 0;
     for (i = 0; i < read_size_ptr; i++) {
         if (read_size[i] > 0)
@@ -263,7 +264,7 @@ uint8_t *read_data(struct ftdi_context *ftdi)
         }
     }
     if (expected_len + extra_bytes)
-        ftdi_read_data(ftdi, last_read_data, expected_len + extra_bytes);
+        ftdi_read_data(global_ftdi, last_read_data, expected_len + extra_bytes);
     last_read_data_length = expected_len;
     if (expected_len) {
         uint8_t *p = last_read_data;
@@ -402,13 +403,13 @@ error:
     exit(-1);
 }
 
-void fpgausb_close(struct ftdi_context *ftdi)
+void fpgausb_close(struct ftdi_context *zzftdi)
 {
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
 #ifdef USE_LIBFTDI
 int i;
 for (i = 0; i < 100; i++)
-    ftdi_deinit(ftdi); /* flush out logfile */
+    ftdi_deinit(global_ftdi); /* flush out logfile */
 #else
     if (usbhandle)
         libusb_close (usbhandle);
@@ -426,14 +427,14 @@ void fpgausb_release(void)
 #endif
 }
 
-void sync_ftdi(struct ftdi_context *ftdi, int val)
+void sync_ftdi(struct ftdi_context *zzftdi, int val)
 {
     uint8_t illegal_command[] = { val, SEND_IMMEDIATE };
     uint8_t errorcode_ret[] = { 0xfa, val };
     uint8_t retcode[2];
 
-    ftdi_write_data(ftdi, illegal_command, sizeof(illegal_command));
-    if (ftdi_read_data(ftdi, retcode, sizeof(retcode)) != sizeof(retcode)
+    ftdi_write_data(global_ftdi, illegal_command, sizeof(illegal_command));
+    if (ftdi_read_data(global_ftdi, retcode, sizeof(retcode)) != sizeof(retcode)
      || memcmp(retcode, errorcode_ret, sizeof(errorcode_ret))) {
         printf("%s: error in sync %x\n", __FUNCTION__, val);
         memdump(retcode, sizeof(retcode), "ACTUAL");

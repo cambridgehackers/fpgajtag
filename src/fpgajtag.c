@@ -52,15 +52,14 @@ int tracep ;//= 1;
 
 static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1;
 static USB_INFO *uinfo;
-static uint32_t idcode_array[IDCODE_ARRAY_SIZE];
-static uint32_t idcode_len[IDCODE_ARRAY_SIZE];
+static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
 
 #ifndef USE_MDM
-void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
+void access_mdm(struct ftdi_context *zzftdi, int version, int pre, int amatch)
 {
-    flush_write(ftdi, DITEM(TMSW, 2, 0xe7)); /* strange pattern, so we can find in trace log */
+    flush_write(DITEM(TMSW, 2, 0xe7)); /* strange pattern, so we can find in trace log */
 }
 #endif
 
@@ -73,7 +72,7 @@ void access_mdm(struct ftdi_context *ftdi, int version, int pre, int amatch)
  * the SMT2, it has an example connecting GPIO2 -> PS_SRST_B
  * on the Zynq-7000. (but the zedboard uses SMT1)
  */
-static void pulse_gpio(struct ftdi_context *ftdi, int adelay)
+static void pulse_gpio(struct ftdi_context *zzftdi, int adelay)
 {
     int delay;
 #define GPIO_DONE            0x10
@@ -95,12 +94,12 @@ static void pulse_gpio(struct ftdi_context *ftdi, int adelay)
         delay -= 65536;
     }
     write_item(DITEM(CLK_BYTES, INT16(delay-1)));
-    flush_write(ftdi, DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
+    flush_write(DITEM(SET_LSB_DIRECTION(GPIO_DONE | GPIO_01),
                      SET_LSB_DIRECTION(GPIO_01)));
 }
-static void set_clock_divisor(struct ftdi_context *ftdi)
+static void set_clock_divisor(struct ftdi_context *zzftdi)
 {
-    flush_write(ftdi, DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
+    flush_write(DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
 }
 
 static char current_state, *lasttail;
@@ -147,7 +146,7 @@ void ENTER_TMS_STATE(char required)
     if (!match_state(required))
         printf("[%s:%d] %c should be %c\n", __FUNCTION__, __LINE__, current_state, required);
 }
-void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
+void tmsw_delay(struct ftdi_context *zzftdi, int delay_time, int extra)
 {
 #define SEND_IDLE(A) write_item(DITEM(TMSW, (A), 0))
     int i;
@@ -159,10 +158,10 @@ void tmsw_delay(struct ftdi_context *ftdi, int delay_time, int extra)
     if (extra)
         SEND_IDLE(extra);
 }
-static void marker_for_reset(struct ftdi_context *ftdi, int stay_reset)
+static void marker_for_reset(struct ftdi_context *zzftdi, int stay_reset)
 {
     ENTER_TMS_STATE('R');
-    flush_write(ftdi, DITEM(TMSW, stay_reset, 0x7f));
+    flush_write(DITEM(TMSW, stay_reset, 0x7f));
 }
 static void reset_mark_clock(struct ftdi_context *ftdi, int clock)
 {
@@ -175,7 +174,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     if (clock)
         set_clock_divisor(ftdi);
     write_tms_transition("RR1");
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
 }
 void write_bit(int read, int bits, int data, char target_state)
 {
@@ -243,7 +242,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
         }
         size -= max_frame_size;
         if (size > 0)
-            flush_write(ftdi, NULL);
+            flush_write(NULL);
     }
 }
 static void write_req(struct ftdi_context *ftdi, uint8_t *req, int opttail)
@@ -331,20 +330,19 @@ static void init_device(struct ftdi_context *ftdi, int extra)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
 }
-static struct ftdi_context *get_deviceid(int device_index)
+static void get_deviceid(int device_index)
 {
-    struct ftdi_context *ftdi = init_ftdi(device_index);
+    global_ftdi = init_ftdi(device_index);
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     idcode_count = 0;
-    if (ftdi) {
-        init_device(ftdi, uinfo[device_index].bcdDevice == 0x700); /* not a zedboard */
+    if (global_ftdi) {
+        init_device(global_ftdi, uinfo[device_index].bcdDevice == 0x700); /* not a zedboard */
         first_time_idcode_read = 1;
         ENTER_TMS_STATE('R');
-        read_idcode(ftdi, 1);
+        read_idcode(global_ftdi, 1);
     }
-    return ftdi;
 }
 /*
  * Functions for setting Instruction Register(IR)
@@ -363,7 +361,7 @@ void write_irreg(struct ftdi_context *ftdi, int read, int command, int idindex, 
     }
 if(tracep)
 printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __LINE__, read, command, idindex, befbits, afterbits);
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
     ENTER_TMS_STATE('I');
     ENTER_TMS_STATE('S');
     write_fill(ftdi, 0, befbits, 0);
@@ -432,7 +430,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
             size = psize;
         write_bytes(ftdi, 0, (final && !extra_shift) ? 'E' : 'P', pdata,
             size, limit_len, !final || opttail, swapbits, 1);
-        flush_write(ftdi, NULL);
+        flush_write(NULL);
         limit_len = MAX_SINGLE_USB_DATA;
         psize -= size;
         pdata += size;
@@ -440,7 +438,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     if (extra_shift)
         write_fill(ftdi, 0, 0, 'E');
     ENTER_TMS_STATE('I');
-    flush_write(ftdi, NULL);
+    flush_write(NULL);
 }
 
 static void write_above2(int read, int idindex)
@@ -584,9 +582,8 @@ static void read_config_memory(struct ftdi_context *ftdi, int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
+static void init_fpgajtag(const char *serialno, const char *filename)
 {
-    struct ftdi_context *ftdi;
     int i, j;
 
     /*
@@ -601,8 +598,8 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
         if (!filename) {
             idcode_count = 0;
-            ftdi = get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
-            fpgausb_close(ftdi);
+            get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
+            fpgausb_close(global_ftdi);
             if (idcode_count)
                 fprintf(stderr, "; IDCODE:");
             for (j = 0; j < idcode_count; j++)
@@ -630,7 +627,7 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    ftdi = get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
+    get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
         if (idcode_array[i] == file_idcode) {
             jtag_index = i;
@@ -641,7 +638,6 @@ struct ftdi_context *init_fpgajtag(const char *serialno, const char *filename)
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
         exit(-1);
     }
-    return ftdi;
 }
 
 int main(int argc, char **argv)
@@ -681,7 +677,7 @@ usage:
         exit(1);
     }
 
-    struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
+    init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;
@@ -699,7 +695,7 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
         uint32_t header = {CONFIG_TYPE2_RAW(0x000f6c78)};
         header = htonl(header);
         write(fd, &header, sizeof(header));
-        read_config_memory(ftdi, fd, 0x000f6c78 * sizeof(uint32_t));
+        read_config_memory(global_ftdi, fd, 0x000f6c78 * sizeof(uint32_t));
         close(fd);
         return 0;
     }
@@ -707,14 +703,14 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
      * See if we are in 'command' mode with IR/DR info on command line
      */
     if (cflag) {
-        process_command_list(ftdi);
+        process_command_list(global_ftdi);
         goto exit_label;
     }
 
-    reset_mark_clock(ftdi, 1);
-    marker_for_reset(ftdi, 0);
+    reset_mark_clock(global_ftdi, 1);
+    marker_for_reset(global_ftdi, 0);
     write_tms_transition("RR1");
-    marker_for_reset(ftdi, 0);
+    marker_for_reset(global_ftdi, 0);
     ENTER_TMS_STATE('I');
 
     /*
@@ -722,73 +718,73 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
-    uint8_t *rdata = write_pattern(ftdi, 0, idcode_vpattern, 'P');
+    uint8_t *rdata = write_pattern(global_ftdi, 0, idcode_vpattern, 'P');
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
         memdump(idcode_vresult+1, idcode_vresult[0], "IDCODE_VALIDATE: EXPECT");
         memdump(rdata, last_read_data_length, "IDCODE_VALIDATE: ACTUAL");
     }
 
-    marker_for_reset(ftdi, 0);
-    readout_status0(ftdi);
-    access_mdm(ftdi, 1, 0, 99999);
-    marker_for_reset(ftdi, 0);
+    marker_for_reset(global_ftdi, 0);
+    readout_status0(global_ftdi);
+    access_mdm(global_ftdi, 1, 0, 99999);
+    marker_for_reset(global_ftdi, 0);
 
     /*
      * Step 2: Initialization
      */
-    write_cirreg(ftdi, 0, IRREG_JPROGRAM);
-    write_cirreg(ftdi, 0, IRREG_ISC_NOOP);
-    pulse_gpio(ftdi, 12500 /*msec*/);
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
+    write_cirreg(global_ftdi, 0, IRREG_JPROGRAM);
+    write_cirreg(global_ftdi, 0, IRREG_ISC_NOOP);
+    pulse_gpio(global_ftdi, 12500 /*msec*/);
+    if ((ret = write_cirreg(global_ftdi, DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
     /*
      * Step 6: Load Configuration Data Frames
      */
     printf("fpgajtag: Starting to send file\n");
-    send_data_file(ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
+    send_data_file(global_ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
         NULL, DITEM(INT32(0)), !jtag_index || !dcount, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*
      * Step 8: Startup
      */
-    pulse_gpio(ftdi, 1250 /*msec*/);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_BOOTSTS)) != (jtag_index ? 0x03000000 : 0x01000000))
+    pulse_gpio(global_ftdi, 1250 /*msec*/);
+    if ((ret = read_config_reg(global_ftdi, CONFIG_REG_BOOTSTS)) != (jtag_index ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    write_cirreg(ftdi, 0, IRREG_JSTART);
-    tmsw_delay(ftdi, 14, 1);
-    if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
+    write_cirreg(global_ftdi, 0, IRREG_JSTART);
+    tmsw_delay(global_ftdi, 14, 1);
+    if ((ret = write_cirreg(global_ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
+    if ((ret = read_config_reg(global_ftdi, CONFIG_REG_STAT)) !=
             (found_cortex != -1 ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
-    marker_for_reset(ftdi, 0);
-    ret = write_cbypass(ftdi, DREAD, idcode_count) & 0xff;
+    marker_for_reset(global_ftdi, 0);
+    ret = write_cbypass(global_ftdi, DREAD, idcode_count) & 0xff;
     if (ret == FIRST_TIME)
         printf("fpgajtag: bypass first time %x\n", ret);
     else if (ret == PROGRAMMED)
         printf("fpgajtag: bypass already programmed %x\n", ret);
     else
         printf("fpgajtag: bypass unknown %x\n", ret);
-    reset_mark_clock(ftdi, 0);
+    reset_mark_clock(global_ftdi, 0);
 
-    ret = readout_seq(ftdi, jtag_index, rstatus, sizeof(uint32_t), -1);
+    ret = readout_seq(global_ftdi, jtag_index, rstatus, sizeof(uint32_t), -1);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))
         printf("[%s:%d] expect %x mismatch %x\n", __FUNCTION__, __LINE__, 0xf07910, ret);
     printf("STATUS %08x done %x release_done %x eos %x startup_state %x\n", status,
         status & 0x4000, status & 0x2000, status & 0x10, (status >> 18) & 7);
-    access_mdm(ftdi, 0, 0, 1);
+    access_mdm(global_ftdi, 0, 0, 1);
     rescan = 1;
 
     /*
      * Cleanup and free USB device
      */
 exit_label:
-    fpgausb_close(ftdi);
+    fpgausb_close(global_ftdi);
     fpgausb_release();
     if (rescan)
         execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */

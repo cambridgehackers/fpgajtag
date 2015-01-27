@@ -242,6 +242,10 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
             flush_write(ftdi, NULL);
     }
 }
+static void write_req(struct ftdi_context *ftdi, uint8_t *req, int opttail)
+{
+    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, opttail, 0, 0);
+}
 void idle_to_shift_dr(int idindex)
 {
     ENTER_TMS_STATE('D');
@@ -413,7 +417,7 @@ void write_creg(struct ftdi_context *ftdi, int regname)
 static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     uint8_t *pdata, int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
-    static uint8_t zerodata[7];
+    static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
     flush_write(ftdi, NULL);
     write_cirreg(ftdi, read, IRREG_CFG_IN);
     idle_to_shift_dr(idcode_count - 1 - jtag_index);
@@ -424,7 +428,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
         int temp = (dcount == 2 && !tremain) ? -6 : -7;
         if (tremain == 1)
            temp = -(8 - (idcode_count - 1 - jtag_index));
-        write_bytes(ftdi, 0, 0, zerodata, 7, SEND_SINGLE_FRAME, temp, 0, 0);
+        write_req(ftdi, zerod, temp);
         if (tremain-- <= 1)
             break;
     }
@@ -505,10 +509,9 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
-    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, !idindex, 0, 0/*weird!*/);
+    write_req(ftdi, req, !idindex);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_above2(0, idindex);
-DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
     return fetch_result(ftdi, idindex, IRREG_CFG_OUT, resp_len, fd);
 }
 

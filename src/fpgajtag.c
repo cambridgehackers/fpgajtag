@@ -199,7 +199,7 @@ static void write_fill(struct ftdi_context *ftdi, int read, int width, int tail)
     static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
     if (width > 7) {
         int bytes = width/8;
-        write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 1);
+        write_bytes(ftdi, read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 0);
         width -= 8 * bytes;
     }
     write_bit(read, width, 0xff, tail);
@@ -259,14 +259,14 @@ void idle_to_shift_dr(int idindex)
 static uint8_t *write_pattern(struct ftdi_context *ftdi, int idindex, uint8_t *req, int target_state)
 {
     idle_to_shift_dr(idindex);
-    write_bytes(ftdi, DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 1);
+    write_bytes(ftdi, DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 0);
     return read_data(ftdi);
 }
 
 static void write_int32(struct ftdi_context *ftdi, uint8_t *data, int size)
 {
     while (size) {
-        write_bytes(ftdi, 0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 1);
+        write_bytes(ftdi, 0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0);
         data += sizeof(uint32_t);
         size -= sizeof(uint32_t);
     }
@@ -555,7 +555,8 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     write_cirreg(ftdi, 0, IRREG_CFG_OUT);
     uint64_t ret = read_data_int(
         write_pattern(ftdi, trailing_len, DITEM(INT32(0)), jtag_index ? 'P' : 'E'));
-    write_fill(ftdi, 0, dcount == 2 && !jtag_index && !trailing_len, 'E');
+    if (jtag_index)
+        write_fill(ftdi, 0, dcount == 2 && !trailing_len, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }

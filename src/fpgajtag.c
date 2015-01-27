@@ -450,16 +450,16 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
 
 static void write_above2(int read, int idindex)
 {
-    write_bit(read, (idindex == idcode_count - 1 && idcode_count > 1) * (idcode_count - 2), 0, 'I');
+    write_bit(read, (idindex == idcode_count - 1) * (idcode_count - 2), 0, 'I');
 }
 uint32_t fetch_result(struct ftdi_context *ftdi, int idindex, int command, int resp_len, int fd)
 {
-    int j, readitem = (!idindex) * DREAD;
+    int j;
     uint32_t ret = 0;
 
     if (idindex >= 0 && resp_len) {
         write_dirreg(ftdi, command, idindex);
-DPRINT("[%s:%d] idindex %d readitem %x\n", __FUNCTION__, __LINE__, idindex, readitem);
+DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
         write_bit(0, (dcount - 2) * (idindex && idindex != idcode_count - 1), 0, 0);
     }
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -468,12 +468,12 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
         if (size > SEGMENT_LENGTH)
             size = SEGMENT_LENGTH;
         resp_len -= size;
-        if (readitem)
-            write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
-        else
+        if (idindex)
             write_item(DITEM(DATAR(size)));
+        else
+            write_item(DITEM(DATAR(size - 1), DATARBIT, 0x06));
         if (resp_len <= 0)
-            write_above2(readitem, idindex);
+            write_above2((!idindex) * DREAD, idindex);
         uint8_t *rdata = read_data(ftdi);
         uint8_t sdata[] = {SINT32(*(uint32_t *)rdata)};
         ret = *(uint32_t *)sdata;
@@ -505,8 +505,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 static uint32_t readout_seq(struct ftdi_context *ftdi, int idindex, uint8_t *req, int resp_len, int fd)
 {
     write_dirreg(ftdi, IRREG_CFG_IN, idindex);
-    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME,
-        (idcode_count == 1) || (!idindex && idcode_count > 1), 0, 0/*weird!*/);
+    write_bytes(ftdi, 0, 0, req+1, req[0], SEND_SINGLE_FRAME, !idindex, 0, 0/*weird!*/);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_above2(0, idindex);
 DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);

@@ -112,22 +112,21 @@ static int match_state(char req)
 }
 void write_tms_transition(char *tail)
 {
-     char *p = tail+2;
-     uint8_t temp[] = {TMSW, 0, 0};
-     int len = 0;
+    char *p = tail+2;
+    uint8_t temp[] = {TMSW, 0, 0};
+    int len = 0;
 
-     if (!match_state(tail[0])) {
-         printf("%s: TMS Error: current %c target %s last %s\n", __FUNCTION__, current_state, tail, lasttail);
-     }
-     lasttail = tail;
-     current_state = tail[1];
-     while (*p) {
-         len++;
-         temp[2] = (temp[2] >> 1) | ((*p++ << 7) & 0x80);
-     }
-     temp[1] = len-1;
-     temp[2] >>= 8 - len;
-     write_data(temp, sizeof(temp));
+    if (!match_state(tail[0]))
+        printf("fpgajtag: TMS Error: current %c target %s last %s\n", current_state, tail, lasttail);
+    lasttail = tail;
+    current_state = tail[1];
+    while (*p) {
+        len++;
+        temp[2] = (temp[2] >> 1) | ((*p++ << 7) & 0x80);
+    }
+    temp[1] = len-1;
+    temp[2] >>= 8 - len;
+    write_data(temp, sizeof(temp));
 }
 void ENTER_TMS_STATE(char required)
 {

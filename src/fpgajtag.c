@@ -51,7 +51,7 @@ int input_filesize, found_cortex = -1;
 int jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, trailing_count, skip_idcode;
+static int verbose, skip_idcode;
 static USB_INFO *uinfo;
 
 static int first_time_idcode_read = 1;
@@ -234,7 +234,7 @@ void write_bytes(struct ftdi_context *ftdi, uint8_t read,
                     exchar = bitswap[exchar];
                 opttail = -7;
             }
-            write_fill(ftdi, 0, target_state == 'E' && dcount == 2 && trailing_count == 0, 0);
+            write_fill(ftdi, 0, target_state == 'E' && dcount == 2 && jtag_index == idcode_count - 1, 0);
             write_bit(read, -opttail, exchar, target_state);
         }
         size -= max_frame_size;
@@ -419,7 +419,7 @@ static void send_data_file(struct ftdi_context *ftdi, int read, int extra_shift,
     idle_to_shift_dr(idcode_count - 1 - jtag_index);
     if (pre)
         write_int32(ftdi, pre+1, pre[0]);
-    int tremain = trailing_count;
+    int tremain = (jtag_index != idcode_count - 1) * (jtag_index + 1);
     while (idcode_count > 1) {
         int temp = (dcount == 2 && !tremain) ? -6 : -7;
         if (tremain == 1)
@@ -517,7 +517,7 @@ static void readout_status0(struct ftdi_context *ftdi)
     int ret, idindex;
 
     for (idindex = 0; idindex < idcode_count; idindex++) {
-DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
+DPRINT("[%s:%d] idindex %d/%d dcount %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount);
         if (idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, idcode_count);
             continue; // skip Cortex element
@@ -528,7 +528,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, 
         write_cbypass(ftdi, DREAD, idcode_count);
         write_cbypass(ftdi, DREAD, idcode_count);
         ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
+DPRINT("[%s:%d] idindex %d/%d dcount %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount);
         ret = readout_seq(ftdi, idindex, rstatus, sizeof(uint32_t), -1);
         uint32_t status = ret >> 8;
         if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -560,7 +560,7 @@ static uint32_t read_config_reg(struct ftdi_context *ftdi, uint32_t data)
     uint64_t ret = read_data_int(
         write_pattern(ftdi, idcode_count - 1 - jtag_index, DITEM(INT32(0)), jtag_index ? 'P' : 'E'));
     if (jtag_index)
-        write_fill(ftdi, 0, dcount == 2 && trailing_count == 0, 'E');
+        write_fill(ftdi, 0, dcount == 2 && jtag_index == idcode_count - 1, 'E');
     write_cirreg(ftdi, 0, IRREG_BYPASS);
     return ret;
 }
@@ -706,8 +706,7 @@ usage:
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
-    trailing_count = (jtag_index != idcode_count - 1) * (jtag_index + 1);
-printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count, dcount);
+printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, dcount);
 
     /*
      * See if we are reading out data
@@ -770,7 +769,7 @@ printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d dcount %d\n", __FUN
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(ftdi, DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), (trailing_count == 1) || dcount == 0, 1);
+        NULL, DITEM(INT32(0)), ((jtag_index != idcode_count - 1) && (jtag_index == 0)) || dcount == 0, 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

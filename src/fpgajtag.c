@@ -47,7 +47,7 @@
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
-int input_filesize, found_cortex;
+int input_filesize, found_cortex = -1;
 int not_last_id, jtag_index = -1, device_type, dcount, idcode_count;
 int tracep ;//= 1;
 
@@ -517,7 +517,7 @@ static void readout_status0(struct ftdi_context *ftdi)
 
     for (idindex = idcode_count - 1; idindex >= 0; idindex--) {
 DPRINT("[%s:%d] idindex %d/%d dcount %d trailing %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount, trailing_count);
-        if (found_cortex && idindex == found_cortex) {
+        if (found_cortex != -1 && idindex == found_cortex) {
             write_cbypass(ftdi, DREAD, -1);
             continue; // skip Cortex element
         }
@@ -704,7 +704,7 @@ usage:
 
     struct ftdi_context *ftdi = init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
-    dcount = idcode_count - (found_cortex != 0) - 1;
+    dcount = idcode_count - (found_cortex != -1) - 1;
     not_last_id = jtag_index != idcode_count - 1;
     trailing_count = (jtag_index != 0) * (idcode_count - jtag_index);
 printf("[%s:%d] count %d cortex %d jtag %d trailing_count %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, trailing_count);
@@ -786,7 +786,7 @@ printf("[%s:%d] bef user2 jtagindex %d not_last_id %d dcount %d not_last_id %d\n
     if ((ret = write_cirreg(ftdi, DREAD, IRREG_BYPASS)) != FINISHED)
         printf("[%s:%d] mismatch %x\n", __FUNCTION__, __LINE__, ret);
     if ((ret = read_config_reg(ftdi, CONFIG_REG_STAT)) !=
-            (found_cortex ? 0xf87f1046 : 0xfc791040))
+            (found_cortex != -1 ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
     marker_for_reset(ftdi, 0);

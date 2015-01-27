@@ -141,7 +141,7 @@ DPRINT("[%s:%d] bottom toploop %d/%d match %d izero %d version %d innerl %d/%d f
             }
             if (++flip >= idmult2) {
                 flip = 0;
-                if (izero && found_cortex) {
+                if (izero && found_cortex != -1) {
                     if (!shift_enable)
                         cortex_bypass(ftdi, top_wait);
                     idindex++;

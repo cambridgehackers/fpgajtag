@@ -97,7 +97,7 @@ void process_command_list(struct ftdi_context *ftdi)
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
             write_bytes(ftdi, DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
-            if (found_cortex)
+            if (found_cortex != -1)
                  write_tms_transition("EE0101");
             ENTER_TMS_STATE('I');
             uint8_t *rdata = read_data(ftdi);

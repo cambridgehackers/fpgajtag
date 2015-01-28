@@ -423,14 +423,14 @@ static void send_data_file(int read, int extra_shift,
         write_int32(post+1, post[0]);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {
-        int size = FILE_READSIZE, final = (psize <= FILE_READSIZE);
-        if (final)
+        int size = FILE_READSIZE;
+        if (psize < size)
             size = psize;
-        write_bytes(0, (final && !extra_shift) ? 'E' : 'P', pdata,
-            size, limit_len, !final || opttail, swapbits, 1);
+        psize -= size;
+        write_bytes(0, (!psize && !extra_shift) ? 'E' : 'P', pdata,
+            size, limit_len, psize || opttail, swapbits, 1);
         flush_write(NULL);
         limit_len = MAX_SINGLE_USB_DATA;
-        psize -= size;
         pdata += size;
     };
     if (extra_shift)

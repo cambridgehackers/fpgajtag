@@ -416,7 +416,7 @@ static void send_data_file(int read, int extra_shift, uint8_t *pdata,
     idle_to_shift_dr(trailing_len);
     write_int32(pre);
     while (idcode_count > 1) {
-        write_req(0, zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
+        write_req(0, zerod, -7 + (tremain == 1 ? trailing_len - 1 : dc2trail));
         if (tremain-- <= 1)
             break;
     }

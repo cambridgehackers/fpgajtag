@@ -411,14 +411,18 @@ static void send_data_file(int read, int extra_shift, uint8_t *pdata,
     int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
     static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
-    int tremain = (trailing_len != 0) * (jtag_index + 1);
+    int tremain;
+//count 1/2 cortex 0 dcount 0 trail 0               -8
+//count 1/4 cortex 2 dcount 2 trail 2 ..... -1      -7   -4
+//count 0/4 cortex 2 dcount 2 trail 3 ..... -3      -5   -6
     write_cirreg(read, IRREG_CFG_IN);
     idle_to_shift_dr(trailing_len);
     write_int32(pre);
-    while (idcode_count > 1) {
-        write_req(0, zerod, -7 + (tremain == 1 ? trailing_len - 1 : dc2trail));
-        if (tremain-- <= 1)
-            break;
+    for (tremain = 0; tremain <= jtag_index && idcode_count > 1; tremain++) {
+        if (tremain != found_cortex)
+            write_req(0, zerod, -8 + tremain
++ (dcount != 0) * (trailing_len - jtag_index)
+);
     }
     write_int32(post);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
@@ -679,7 +683,7 @@ usage:
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;
     dc2trail = dcount == 2 && !trailing_len;
-printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count, found_cortex, jtag_index, dcount);
+printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, found_cortex, dcount, trailing_len);
 
     /*
      * See if we are reading out data

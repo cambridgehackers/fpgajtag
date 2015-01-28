@@ -263,12 +263,12 @@ static uint8_t *write_pattern(int idindex, uint8_t *req, int target_state)
     return read_data();
 }
 
-static void write_int32(uint8_t *data, int size)
+static void write_int32(uint8_t *data)
 {
-    while (size) {
+    int size = *data++ / sizeof(uint32_t);
+    while (size--) {
         write_bytes(0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0);
         data += sizeof(uint32_t);
-        size -= sizeof(uint32_t);
     }
 }
 
@@ -412,7 +412,7 @@ static void send_data_file(int read, int extra_shift,
     write_cirreg(read, IRREG_CFG_IN);
     idle_to_shift_dr(trailing_len);
     if (pre)
-        write_int32(pre+1, pre[0]);
+        write_int32(pre);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
         write_req(zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
@@ -420,7 +420,7 @@ static void send_data_file(int read, int extra_shift,
             break;
     }
     if (post)
-        write_int32(post+1, post[0]);
+        write_int32(post);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {
         int size = FILE_READSIZE;

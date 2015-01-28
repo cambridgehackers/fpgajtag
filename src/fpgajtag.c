@@ -55,6 +55,7 @@ static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
             CONFIG_TYPE1(CONFIG_OP_READ, CONFIG_REG_STAT, 1), SINT32(0));
+static int befbits, afterbits;
 
 #ifndef USE_MDM
 void access_mdm(int version, int pre, int amatch)
@@ -346,7 +347,6 @@ static void get_deviceid(int device_index)
 /*
  * Functions for setting Instruction Register(IR)
  */
-static int befbits, afterbits;
 void write_irreg(int read, int command, int idindex, char tail)
 {
     int i;
@@ -708,14 +708,14 @@ printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count
     reset_mark_clock(1);
     marker_for_reset(0);
     write_tms_transition("RR1");
-    marker_for_reset(0);
-    ENTER_TMS_STATE('I');
 
     /*
      * Use a pattern of 0xffffffff to validate that we actually understand all the
      * devices in the JTAG chain.  (this list was set up in read_idcode()
      * on the first call
      */
+    marker_for_reset(0);
+    ENTER_TMS_STATE('I');
     uint8_t *rdata = write_pattern(0, idcode_vpattern, 'P');
     if (last_read_data_length != idcode_vresult[0]
      || memcmp(idcode_vresult+1, rdata, idcode_vresult[0])) {
@@ -726,11 +726,11 @@ printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count
     marker_for_reset(0);
     readout_status0();
     access_mdm(1, 0, 99999);
-    marker_for_reset(0);
 
     /*
      * Step 2: Initialization
      */
+    marker_for_reset(0);
     write_cirreg(0, IRREG_JPROGRAM);
     write_cirreg(0, IRREG_ISC_NOOP);
     pulse_gpio(12500 /*msec*/);
@@ -759,6 +759,7 @@ printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count
             (found_cortex != -1 ? 0xf87f1046 : 0xfc791040))
         if (verbose)
             printf("[%s:%d] CONFIG_REG_STAT mismatch %x\n", __FUNCTION__, __LINE__, ret);
+
     marker_for_reset(0);
     ret = write_cbypass(DREAD, idcode_count) & 0xff;
     if (ret == FIRST_TIME)
@@ -767,8 +768,8 @@ printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count
         printf("fpgajtag: bypass already programmed %x\n", ret);
     else
         printf("fpgajtag: bypass unknown %x\n", ret);
-    reset_mark_clock(0);
 
+    reset_mark_clock(0);
     ret = readout_seq(jtag_index, rstatus, sizeof(uint32_t), -1);
     int status = ret >> 8;
     if (verbose && (bitswap[M(ret)] != 2 || status != 0xf07910))

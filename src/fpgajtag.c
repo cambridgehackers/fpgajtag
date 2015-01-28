@@ -256,6 +256,8 @@ static uint8_t *write_pattern(int idindex, uint8_t *req, int target_state)
 
 static void write_int32(uint8_t *data)
 {
+    if (!data)
+        return;
     int size = *data++ / sizeof(uint32_t);
     while (size--) {
         write_bytes(0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0);
@@ -405,22 +407,20 @@ void write_creg(int regname)
     write_irreg(0, regname, found_cortex, 'U');
 }
 
-static void send_data_file(int read, int extra_shift,
-    uint8_t *pdata, int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
+static void send_data_file(int read, int extra_shift, uint8_t *pdata,
+    int psize, uint8_t *pre, uint8_t *post, int opttail, int swapbits)
 {
     static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
+    int tremain = (trailing_len != 0) * (jtag_index + 1);
     write_cirreg(read, IRREG_CFG_IN);
     idle_to_shift_dr(trailing_len);
-    if (pre)
-        write_int32(pre);
-    int tremain = (trailing_len != 0) * (jtag_index + 1);
+    write_int32(pre);
     while (idcode_count > 1) {
         write_req(0, zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
         if (tremain-- <= 1)
             break;
     }
-    if (post)
-        write_int32(post);
+    write_int32(post);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {
         int size = FILE_READSIZE;

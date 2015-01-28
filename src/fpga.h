@@ -79,10 +79,10 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 #define IRREG_BYPASS_EXTEND  0xffff // even on PCIE, this has an extra bit
 
 /* Status values */
-#define FIRST_TIME    ((found_cortex | jtag_index) ? 0x8a : 0x20)
-#define INPROGRAMMING ((idcode_count > 1 && jtag_index == 0) ? 0x10 : 0x88)
+#define FIRST_TIME    ((found_cortex != -1 || jtag_index != idcode_count - 1) ? 0x8a : 0x20)
+#define INPROGRAMMING ((idcode_count > 1 && jtag_index == idcode_count - 1) ? 0x10 : 0x88)
 #define PROGRAMMED    ((idcode_count > 1) ? 0xae : 0xbc)
-#define FINISHED      ((idcode_count > 1 && jtag_index == 0) ? 0x5c : 0xac)
+#define FINISHED      ((idcode_count > 1 && jtag_index == idcode_count - 1) ? 0x5c : 0xac)
 
 /*
  * Xilinx Configuration Packets

@@ -413,24 +413,21 @@ static void send_data_file(int read, int extra_shift, uint8_t *pdata,
     static uint8_t zerod[] = DITEM(0, 0, 0, 0, 0, 0, 0);
     int tremain;
     int mid = jtag_index && jtag_index != idcode_count -1;
-//2 //count 1/2 cortex 0 dcount 0 trail 0               -8 jf
-//1 //count 1/2 cortex -1 dcount 1 trail 0      -1      -7 j1
-//1 //count 0/2 cortex -1 dcount 1 trail 1      -1      -7 j
-//2 //count 1/4 cortex 2 dcount 2 trail 2 ..... -1      -7 jfa2_1
-//2 //count 1/3 cortex -1 dcount 2 trail 1      -1      -7 j_2
-//1 //count 0/3 cortex 1 dcount 1 trail 2       -2      -6 jfa
-//1 //count 2/3 cortex -1 dcount 2 trail 0      -2      -6 j0_1
-//1 //count 0/3 cortex -1 dcount 2 trail 2      -2      -6 j_1
-//1 //count 0/4 cortex 2 dcount 2 trail 3 ..... -3      -5 jfa2_2
+//1 //count 1/2 cortex 0 dcount 0 trail 0       -7 jf
+//1 //count 0/2 cortex -1 dcount 1 trail 1      -7 j
+//1 //count 1/2 cortex -1 dcount 1 trail 0      -7 j1
+//1 //count 0/3 cortex 1 dcount 1 trail 2       -6 jfa
+//1 //count 0/3 cortex -1 dcount 2 trail 2      -6 j_1
+//2 //count 1/3 cortex -1 dcount 2 trail 1      -7 j_2
+//1 //count 2/3 cortex -1 dcount 2 trail 0      -6 j0_1
+//1 //count 0/4 cortex 2 dcount 2 trail 3 ..... -5 jfa2_2
+//2 //count 1/4 cortex 2 dcount 2 trail 2 ..... -7 jfa2_1
     write_cirreg(read, IRREG_CFG_IN);
     idle_to_shift_dr(trailing_len);
     write_int32(pre);
-    for (tremain = 0; tremain < (1 + mid + (found_cortex == 0)) && idcode_count > 1; tremain++) {
-        if (tremain != found_cortex)
-            write_req(0, zerod, -7 + tremain * (found_cortex != -1)
-                - (found_cortex == 0) + (idcode_count - 2)
-                - mid * (idcode_count - 1 - jtag_index));
-    }
+    for (tremain = 0; tremain < (1 + mid) && idcode_count > 1; tremain++)
+        write_req(0, zerod, idcode_count - 9 + tremain * (found_cortex != -1)
+            - mid * (idcode_count - 1 - jtag_index));
     write_int32(post);
     int limit_len = MAX_SINGLE_USB_DATA - buffer_current_size();
     while(psize) {

@@ -50,7 +50,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1;
+static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -414,8 +414,7 @@ static void send_data_file(int read, int extra_shift,
         write_int32(pre+1, pre[0]);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
-        write_req(zerod, tremain == 1 ? -(8 - trailing_len)
-            : -7 + (dcount == 2 && !trailing_len));
+        write_req(zerod, tremain == 1 ? -(8 - trailing_len) : -7 + (dcount == 2 && !trailing_len));
         if (tremain-- <= 1)
             break;
     }
@@ -436,7 +435,6 @@ static void send_data_file(int read, int extra_shift,
     if (extra_shift)
         write_fill(0, 0, 'E');
     ENTER_TMS_STATE('I');
-    flush_write(NULL);
 }
 
 static void write_above2(int read, int idindex)
@@ -507,7 +505,7 @@ static void readout_status0(void)
     int ret, idindex;
 
     for (idindex = 0; idindex < idcode_count; idindex++) {
-DPRINT("[%s:%d] idindex %d/%d dcount %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount);
+DPRINT("[%s:%d] idindex %d/%d\n", __FUNCTION__, __LINE__, idindex, idcode_count);
         if (idindex != found_cortex)
             if ((ret = fetch_result(idindex, IRREG_USERCODE, sizeof(uint32_t), -1)) != 0xffffffff)
                 printf("fpgajtag: USERCODE value %x\n", ret);
@@ -516,7 +514,7 @@ DPRINT("[%s:%d] idindex %d/%d dcount %d\n", __FUNCTION__, __LINE__, idindex, idc
             write_cbypass(DREAD, idcode_count);
             write_cbypass(DREAD, idcode_count);
             ENTER_TMS_STATE('R');
-DPRINT("[%s:%d] idindex %d/%d dcount %d\n", __FUNCTION__, __LINE__, idindex, idcode_count, dcount);
+DPRINT("[%s:%d] idindex %d/%d\n", __FUNCTION__, __LINE__, idindex, idcode_count);
             ret = readout_seq(idindex, rstatus, sizeof(uint32_t), -1);
             uint32_t status = ret >> 8;
             if (verbose && (bitswap[M(ret)] != 2 || status != 0x301900))
@@ -678,6 +676,7 @@ usage:
     init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
+    dc2trail = dcount == 2 && !trailing_len;
     trailing_len = idcode_count - 1 - jtag_index;
 printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, dcount);
 

@@ -237,7 +237,8 @@ void write_bytes(uint8_t read,
                     exchar = bitswap[exchar];
                 opttail = -7;
             }
-            write_fill(0, target_state == 'E' && dcount == 2 && !trailing_len, 0);
+            if (target_state == 'E')
+                write_fill(0, dc2trail, 0);
             write_bit(read, -opttail, exchar, target_state);
         }
         size -= max_frame_size;
@@ -414,7 +415,7 @@ static void send_data_file(int read, int extra_shift,
         write_int32(pre+1, pre[0]);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
-        write_req(zerod, tremain == 1 ? -(8 - trailing_len) : -7 + (dcount == 2 && !trailing_len));
+        write_req(zerod, tremain == 1 ? -(8 - trailing_len) : -7 + dc2trail);
         if (tremain-- <= 1)
             break;
     }
@@ -547,7 +548,7 @@ static uint32_t read_config_reg(uint32_t data)
     uint64_t ret = read_data_int(
         write_pattern(trailing_len, DITEM(INT32(0)), jtag_index ? 'P' : 'E'));
     if (jtag_index)
-        write_fill(0, dcount == 2 && !trailing_len, 'E');
+        write_fill(0, dc2trail, 'E');
     write_cirreg(0, IRREG_BYPASS);
     return ret;
 }
@@ -676,8 +677,8 @@ usage:
     init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
-    dc2trail = dcount == 2 && !trailing_len;
     trailing_len = idcode_count - 1 - jtag_index;
+    dc2trail = dcount == 2 && !trailing_len;
 printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, dcount);
 
     /*
@@ -741,7 +742,7 @@ printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__,
      */
     printf("fpgajtag: Starting to send file\n");
     send_data_file(DREAD, !dcount && jtag_index, input_fileptr, input_filesize,
-        NULL, DITEM(INT32(0)), !jtag_index || !dcount, 1);
+        NULL, DITEM(INT32(0)), !(jtag_index && dcount), 1);
     printf("fpgajtag: Done sending file\n");
 
     /*

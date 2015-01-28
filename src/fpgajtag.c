@@ -193,24 +193,19 @@ void write_bit(int read, int bits, int data, char target_state)
         cptr[2] |= extrabit; // insert 1 bit of data here
     }
 }
+static void write_req(uint8_t *req, int opttail)
+{
+    write_bytes(0, 0, req+1, req[0], SEND_SINGLE_FRAME, opttail, 0, 0);
+}
 static void write_fill(int read, int width, int tail)
 {
-    static uint8_t ones[] = {0xff, 0xff, 0xff, 0xff};
+    static uint8_t ones[] = DITEM(0xff, 0xff, 0xff, 0xff);
     if (width > 7) {
-        int bytes = width/8;
-        write_bytes(read, 0, ones, bytes, SEND_SINGLE_FRAME, 0, 0, 0);
-        width -= 8 * bytes;
+        ones[0] = width/8;
+        write_bytes(read, 0, ones+1, ones[0], SEND_SINGLE_FRAME, 0, 0, 0);
+        width -= 8 * ones[0];
     }
     write_bit(read, width, 0xff, tail);
-}
-
-static uint64_t read_data_int(uint8_t *bufp)
-{
-    uint64_t ret = 0;
-    uint8_t *backp = bufp + last_read_data_length;
-    while (backp > bufp)
-        ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
-    return ret;
 }
 
 void write_bytes(uint8_t read,
@@ -247,10 +242,6 @@ void write_bytes(uint8_t read,
             flush_write(NULL);
     }
 }
-static void write_req(uint8_t *req, int opttail)
-{
-    write_bytes(0, 0, req+1, req[0], SEND_SINGLE_FRAME, opttail, 0, 0);
-}
 void idle_to_shift_dr(int idindex)
 {
     ENTER_TMS_STATE('D');
@@ -270,6 +261,15 @@ static void write_int32(uint8_t *data)
         write_bytes(0, 0, data, sizeof(uint32_t), SEND_SINGLE_FRAME, 0, 0, 0);
         data += sizeof(uint32_t);
     }
+}
+
+static uint64_t read_data_int(uint8_t *bufp)
+{
+    uint64_t ret = 0;
+    uint8_t *backp = bufp + last_read_data_length;
+    while (backp > bufp)
+        ret = (ret << 8) | bitswap[*--backp];  //each byte is bitswapped
+    return ret;
 }
 
 /*

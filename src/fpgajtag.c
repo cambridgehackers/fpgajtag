@@ -415,7 +415,7 @@ static void send_data_file(int read, int extra_shift,
         write_int32(pre+1, pre[0]);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
-        write_req(zerod, tremain == 1 ? -(8 - trailing_len) : -7 + dc2trail);
+        write_req(zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
         if (tremain-- <= 1)
             break;
     }
@@ -679,7 +679,7 @@ usage:
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;
     dc2trail = dcount == 2 && !trailing_len;
-printf("[%s:%d] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, __LINE__, idcode_count, found_cortex, jtag_index, dcount);
+printf("[%s] count %d cortex %d jtag %d dcount %d\n", __FUNCTION__, idcode_count, found_cortex, jtag_index, dcount);
 
     /*
      * See if we are reading out data

@@ -193,17 +193,17 @@ void write_bit(int read, int bits, int data, char target_state)
         cptr[2] |= extrabit; // insert 1 bit of data here
     }
 }
-static void write_req(uint8_t *req, int opttail)
+static void write_req(int read, uint8_t *req, int opttail)
 {
-    write_bytes(0, 0, req+1, req[0], SEND_SINGLE_FRAME, opttail, 0, 0);
+    write_bytes(read, 0, req+1, req[0], SEND_SINGLE_FRAME, opttail, 0, 0);
 }
 static void write_fill(int read, int width, int tail)
 {
     static uint8_t ones[] = DITEM(0xff, 0xff, 0xff, 0xff);
     if (width > 7) {
         ones[0] = width/8;
-        write_bytes(read, 0, ones+1, ones[0], SEND_SINGLE_FRAME, 0, 0, 0);
         width -= 8 * ones[0];
+        write_req(read, ones, 0);
     }
     write_bit(read, width, 0xff, tail);
 }
@@ -415,7 +415,7 @@ static void send_data_file(int read, int extra_shift,
         write_int32(pre);
     int tremain = (trailing_len != 0) * (jtag_index + 1);
     while (idcode_count > 1) {
-        write_req(zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
+        write_req(0, zerod, tremain == 1 ? -8 + trailing_len : -7 + dc2trail);
         if (tremain-- <= 1)
             break;
     }
@@ -495,7 +495,7 @@ DPRINT("[%s:%d]\n", __FUNCTION__, __LINE__);
 static uint32_t readout_seq(int idindex, uint8_t *req, int resp_len, int fd)
 {
     write_dirreg(IRREG_CFG_IN, idindex);
-    write_req(req, !idindex);
+    write_req(0, req, !idindex);
 DPRINT("[%s:%d] idindex %d\n", __FUNCTION__, __LINE__, idindex);
     write_above2(0, idindex);
     return fetch_result(idindex, IRREG_CFG_OUT, resp_len, fd);

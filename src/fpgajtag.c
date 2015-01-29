@@ -603,7 +603,11 @@ static void init_fpgajtag(const char *serialno, const char *filename)
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
         if (!filename) {
             idcode_count = 0;
-            get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
+            if (uinfo[i].idVendor == USB_JTAG_ALTERA) {
+                 printf("Altera device");
+            }
+            else
+                get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
             fpgausb_close();
             if (idcode_count)
                 fprintf(stderr, "; IDCODE:");

@@ -329,13 +329,28 @@ USB_INFO *fpgausb_init(void)
         if (libusb_get_device_descriptor(dev, &desc) < 0)
             break;
         if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
-         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) {
+         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) { /* Xilinx */
             usbinfo_array[usbinfo_array_index].dev = dev;
+            usbinfo_array[usbinfo_array_index].idVendor = desc.idVendor;
             usbinfo_array[usbinfo_array_index].idProduct = desc.idProduct;
             usbinfo_array[usbinfo_array_index].bcdDevice = desc.bcdDevice;
             usbinfo_array[usbinfo_array_index].bNumConfigurations = desc.bNumConfigurations;
             if (libusb_open(dev, &usbhandle) < 0
              || UDESC(iManufacturer) < 0 || UDESC(iProduct) < 0 || UDESC(iSerialNumber) < 0) {
+                printf("Error getting USB device attributes\n");
+                exit(-1);
+            }
+            libusb_close (usbhandle);
+            usbhandle = NULL;
+            usbinfo_array_index++;
+        }
+        else if ( desc.idVendor == USB_JTAG_ALTERA && desc.idProduct == 0x6810) { /* Altera */
+            usbinfo_array[usbinfo_array_index].dev = dev;
+            usbinfo_array[usbinfo_array_index].idVendor = desc.idVendor;
+            usbinfo_array[usbinfo_array_index].idProduct = desc.idProduct;
+            usbinfo_array[usbinfo_array_index].bcdDevice = desc.bcdDevice;
+            usbinfo_array[usbinfo_array_index].bNumConfigurations = desc.bNumConfigurations;
+            if (libusb_open(dev, &usbhandle) < 0) {
                 printf("Error getting USB device attributes\n");
                 exit(-1);
             }

@@ -42,6 +42,7 @@ struct ftdi_context;
 #endif
 
 #define M(A)               ((A) & 0xff)
+#define USB_JTAG_ALTERA     0x9fb  /* idVendor */
 
 extern FILE *logfile;
 extern int usb_bcddevice;
@@ -56,6 +57,7 @@ void memdump(const uint8_t *p, int len, char *title);
 
 typedef struct {
     void          *dev;
+    int           idVendor;
     int           idProduct;
     int           bcdDevice;
     int           bNumConfigurations;

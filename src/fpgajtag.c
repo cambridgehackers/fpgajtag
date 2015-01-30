@@ -623,7 +623,9 @@ static void init_fpgajtag(const char *serialno, const char *filename)
             fprintf(stderr, "fpgajtag: Can't find usable usb interface\n");
             exit(-1);
         }
-        if (!serialno || !strcmp(serialno, (char *)uinfo[usb_index].iSerialNumber))
+        if (uinfo[usb_index].idVendor == USB_JTAG_ALTERA) {
+        }
+        else if (!serialno || !strcmp(serialno, (char *)uinfo[usb_index].iSerialNumber))
             break;
         usb_index++;
     }

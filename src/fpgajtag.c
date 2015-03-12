@@ -800,6 +800,6 @@ exit_label:
     fpgausb_close();
     fpgausb_release();
     if (rescan)
-        execlp("/usr/local/bin/pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+        execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
     return 0;
 }

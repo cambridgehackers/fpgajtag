@@ -32,6 +32,7 @@
 #include <inttypes.h>
 #include <libusb.h>
 #include "util.h"
+#include "elfdef.h"
 
 // for using libftdi.so
 //#define USE_LIBFTDI
@@ -489,6 +490,7 @@ uint32_t read_inputfile(const char *filename)
     static uint8_t filebuf[BUFFER_MAX_LEN];
     static uint8_t uncompressbuf[BUFFER_MAX_LEN];
     static uint8_t gzmagic[] = {0x1f, 0x8b};
+    static uint8_t elfmagic[] = {0x7f, 'E', 'L', 'F'};
     int inputfd = 0;   /* default input for '-' is stdin */
 
     if (strcmp(filename, "-")) {
@@ -503,6 +505,29 @@ uint32_t read_inputfile(const char *filename)
     close(inputfd);
     if (input_filesize <= 0 || input_filesize >= sizeof(filebuf) - 1)
         goto badlen;
+    if (!memcmp(input_fileptr, elfmagic, sizeof(elfmagic))) {
+        printf("fpgajtag: elf input file, len %d\n", input_filesize);
+#if 1
+        int entry;
+        ELF_HEADER *elfh = (ELF_HEADER *)input_fileptr;
+#define IS64() (elfh->h32.e_ident[4] == ELFCLASS64)
+#define HELF(A) (IS64() ? elfh->h64.A : elfh->h32.A)
+#define SELF(ENT, A) (IS64() ? sech->s64[ENT].A : sech->s32[ENT].A)
+        int shnum = HELF(e_shnum);
+printf("[%s:%d] is64 %d shnum %d\n", __FUNCTION__, __LINE__, IS64(), shnum);
+        ELF_SECTION *sech = &input_fileptr[HELF(e_shoff)];
+        uint8_t *stringTable = &input_fileptr[SELF(HELF(e_shstrndx), sh_offset)];
+        for (entry = 0; entry < shnum; ++entry) {
+            char *name = &stringTable[SELF(entry, sh_name)];
+            if (!strcmp(name, "fpgadata")) {
+printf("[%s:%d] foundelfdata\n", __FUNCTION__, __LINE__);
+                input_fileptr = &input_fileptr[SELF(entry, sh_offset)];
+                input_filesize = SELF(entry, sh_size);
+                break;
+            }
+        }
+#endif
+    }
     if (!memcmp(input_fileptr, gzmagic, sizeof(gzmagic))) {
         printf("fpgajtag: unzip input file, len %d\n", input_filesize);
         z_stream strm;

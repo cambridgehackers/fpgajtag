@@ -507,26 +507,22 @@ uint32_t read_inputfile(const char *filename)
         goto badlen;
     if (!memcmp(input_fileptr, elfmagic, sizeof(elfmagic))) {
         printf("fpgajtag: elf input file, len %d\n", input_filesize);
-#if 1
         int entry;
         ELF_HEADER *elfh = (ELF_HEADER *)input_fileptr;
 #define IS64() (elfh->h32.e_ident[4] == ELFCLASS64)
 #define HELF(A) (IS64() ? elfh->h64.A : elfh->h32.A)
 #define SELF(ENT, A) (IS64() ? sech->s64[ENT].A : sech->s32[ENT].A)
         int shnum = HELF(e_shnum);
-printf("[%s:%d] is64 %d shnum %d\n", __FUNCTION__, __LINE__, IS64(), shnum);
-        ELF_SECTION *sech = &input_fileptr[HELF(e_shoff)];
+        ELF_SECTION *sech = (ELF_SECTION *)&input_fileptr[HELF(e_shoff)];
         uint8_t *stringTable = &input_fileptr[SELF(HELF(e_shstrndx), sh_offset)];
         for (entry = 0; entry < shnum; ++entry) {
-            char *name = &stringTable[SELF(entry, sh_name)];
+            char *name = (char *)&stringTable[SELF(entry, sh_name)];
             if (!strcmp(name, "fpgadata")) {
-printf("[%s:%d] foundelfdata\n", __FUNCTION__, __LINE__);
                 input_fileptr = &input_fileptr[SELF(entry, sh_offset)];
                 input_filesize = SELF(entry, sh_size);
                 break;
             }
         }
-#endif
     }
     if (!memcmp(input_fileptr, gzmagic, sizeof(gzmagic))) {
         printf("fpgajtag: unzip input file, len %d\n", input_filesize);

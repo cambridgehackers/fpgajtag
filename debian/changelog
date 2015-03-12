@@ -1,3 +1,9 @@
+fpgajtag (15.03.1-1trusty1) trusty; urgency=medium
+
+  * 15.03.1 Now reads bitstreams from executables, e.g., ubuntu.exe
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Thu, 12 Mar 2015 14:46:46 -0400
+
 fpgajtag (14.10.2-1trusty1) precise; urgency=low
 
   * Updated to 14.10.2

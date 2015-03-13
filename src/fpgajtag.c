@@ -587,7 +587,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-static void init_fpgajtag(const char *serialno, const char *filename)
+static void init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
 {
     int i, j;
 
@@ -631,11 +631,6 @@ static void init_fpgajtag(const char *serialno, const char *filename)
     }
 
     /*
-     * Read input file
-     */
-    uint32_t file_idcode = read_inputfile(filename);
-
-    /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
@@ -654,17 +649,20 @@ static void init_fpgajtag(const char *serialno, const char *filename)
 int main(int argc, char **argv)
 {
     uint32_t ret;
-    int i, rflag = 0, lflag = 0, cflag = 0, rescan = 0;
+    int i, rflag = 0, lflag = 0, cflag = 0, xflag = 0, rescan = 0;
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "trls:ci:")) != -1)
+    while ((i = getopt (argc, argv, "trxls:ci:")) != -1)
         switch (i) {
         case 't':
             trace = 1;
             break;
         case 'r':
             rflag = 1;
+            break;
+        case 'x':
+            xflag = 1;
             break;
         case 'l':
             lflag = 1;
@@ -684,11 +682,24 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "%s: [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
         exit(1);
     }
+    const char *filename = lflag ? NULL : argv[argc - 1];
 
-    init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
+    /*
+     * Read input file
+     */
+    uint32_t file_idcode = read_inputfile(filename);
+
+    if (xflag) {
+        int fd = open("/dev/xdevcfg", O_WRONLY);
+        int len = write(fd, input_fileptr, input_filesize);
+        printf("[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
+        close(fd);
+        exit(0);
+    }
+    init_fpgajtag(serialno, filename, file_idcode);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;

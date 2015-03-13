@@ -37,5 +37,8 @@ util.o: $(HEADERS) Makefile
 install: fpgajtag
 	cp fpgajtag $(DESTDIR)$(BINDIR)
 
+android:
+	ndk-build
+
 clean:
-	rm -f $(OBJS) fpgajtag
+	rm -rf $(OBJS) fpgajtag obj libs

@@ -5,6 +5,9 @@ all:
 mac:
 	make -C src mac
 
+android:
+	make -C src android
+
 install:
 	make -C src install
 

@@ -13,6 +13,9 @@ On Mac OSX, before compiling be sure to:
 or
     brew install libusb
 
+To make android version:
+    make android
+
 
 In the util directory, there are 2 tools:
    1) dumpbit: formatted dump of xilinx bit file

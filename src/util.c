@@ -30,9 +30,13 @@
 #include <zlib.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-#include <libusb.h>
 #include "util.h"
 #include "elfdef.h"
+#ifdef __arm__
+#define NO_LIBUSB
+#else
+#include <libusb.h>
+#endif
 
 // for using libftdi.so
 //#define USE_LIBFTDI
@@ -51,6 +55,7 @@
 #define USBSIO_SET_LATENCY_TIMER_REQUEST 9
 #define USBSIO_SET_BITMODE_REQUEST       11
 #define MAX_ITEM_LENGTH 2000
+#define MAX_USB_DEVICECOUNT 100
 
 static int logall = 1;
 static int datafile_fd = -1;
@@ -74,8 +79,13 @@ static int logging = 1;
 #else
 static int logging;
 #endif
+#ifndef NO_LIBUSB
 static libusb_device_handle *usbhandle = NULL;
 static struct libusb_context *usb_context;
+static libusb_device **device_list;
+#endif
+static USB_INFO usbinfo_array[MAX_USB_DEVICECOUNT];
+static int usbinfo_array_index;
 static uint8_t usbreadbuffer[USB_CHUNKSIZE];
 static uint8_t *usbreadbuffer_ptr = usbreadbuffer;
 static int read_size[MAX_ITEM_LENGTH];
@@ -112,10 +122,12 @@ int i;
 static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, int size)
 {
     int actual_length = -1;
-    int ret;
+    int ret = -1;
     if (logging)
         formatwrite(1, buf, size, "WRITE");
+#ifndef NO_LIBUSB
     ret = libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT);
+#endif
     if (ret < 0) {
         fprintf(stderr, "fpgajtag: usb bulk write failed: ret %d req size %d act %d\n", ret, size, actual_length);
         exit(-1);
@@ -129,10 +141,12 @@ static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, 
 static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
     int actual_length = 1;
-    int count = 0;
+    int count = 0, ret = -1;
     do {
         count++;
-        int ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
+#ifndef NO_LIBUSB
+        ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
+#endif
         if (ret < 0) {
             fprintf(stderr, "fpgajtag: usb bulk read failed: rc %d\n", ret);
             fprintf(stderr, "size %d act %d count %d\n", size, actual_length, count);
@@ -306,13 +320,10 @@ uint8_t *read_data(void)
 /*
  * USB interface
  */
-#define MAX_USB_DEVICECOUNT 100
-static USB_INFO usbinfo_array[MAX_USB_DEVICECOUNT];
-static int usbinfo_array_index;
-static libusb_device **device_list;
 USB_INFO *fpgausb_init(void)
 {
     int i = 0;
+#ifndef NO_LIBUSB
     libusb_device *dev;
 #define UDESC(A) libusb_get_string_descriptor_ascii(usbhandle, desc.A, \
      usbinfo_array[usbinfo_array_index].A, sizeof(usbinfo_array[usbinfo_array_index].A))
@@ -360,13 +371,15 @@ USB_INFO *fpgausb_init(void)
             usbinfo_array_index++;
         }
     }
+#endif
     return usbinfo_array;
 }
 
 void fpgausb_open(int device_index)
 {
-    int cfg, baudrate = 9600;
     int step = 0;
+#ifndef NO_LIBUSB
+    int cfg, baudrate = 9600;
     static const char frac_code[8] = {0, 3, 2, 4, 1, 5, 6, 7};
     int best_divisor = 12000000*8 / baudrate;
     unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
@@ -415,6 +428,7 @@ void fpgausb_open(int device_index)
         goto error;
     return;
 error:
+#endif
     printf("Error opening usb interface: %d\n", step);
     exit(-1);
 }
@@ -427,19 +441,23 @@ int i;
 for (i = 0; i < 100; i++)
     ftdi_deinit(global_ftdi); /* flush out logfile */
 #else
+#ifndef NO_LIBUSB
     if (usbhandle)
         libusb_close (usbhandle);
     usbhandle = NULL;
+#endif
 #endif
     fflush(stdout);
 }
 void fpgausb_release(void)
 {
-    libusb_free_device_list(device_list,1);
     fclose(logfile);
     close(datafile_fd);
+#ifndef NO_LIBUSB
+    libusb_free_device_list(device_list,1);
 #ifndef USE_LIBFTDI
     libusb_exit(usb_context);
+#endif
 #endif
 }
 
@@ -506,12 +524,12 @@ uint32_t read_inputfile(const char *filename)
     if (input_filesize <= 0 || input_filesize >= sizeof(filebuf) - 1)
         goto badlen;
     if (!memcmp(input_fileptr, elfmagic, sizeof(elfmagic))) {
-        printf("fpgajtag: elf input file, len %d\n", input_filesize);
         int entry;
         ELF_HEADER *elfh = (ELF_HEADER *)input_fileptr;
 #define IS64() (elfh->h32.e_ident[4] == ELFCLASS64)
 #define HELF(A) (IS64() ? elfh->h64.A : elfh->h32.A)
 #define SELF(ENT, A) (IS64() ? sech->s64[ENT].A : sech->s32[ENT].A)
+        printf("fpgajtag: elf input file, len %d class %d\n", input_filesize, elfh->h32.e_ident[4]);
         int shnum = HELF(e_shnum);
         ELF_SECTION *sech = (ELF_SECTION *)&input_fileptr[HELF(e_shoff)];
         uint8_t *stringTable = &input_fileptr[SELF(HELF(e_shstrndx), sh_offset)];
@@ -566,6 +584,6 @@ uint32_t read_inputfile(const char *filename)
     tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
     return tempidcode;
 badlen:
-    printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", sizeof(filebuf));
+    printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", (long)sizeof(filebuf));
     exit(-1);
 }

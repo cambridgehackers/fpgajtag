@@ -511,6 +511,8 @@ uint32_t read_inputfile(const char *filename)
     static uint8_t elfmagic[] = {0x7f, 'E', 'L', 'F'};
     int inputfd = 0;   /* default input for '-' is stdin */
 
+    if (!filename)
+        return -1;
     if (strcmp(filename, "-")) {
         inputfd = open(filename, O_RDONLY);
         if (inputfd == -1) {
@@ -524,6 +526,7 @@ uint32_t read_inputfile(const char *filename)
     if (input_filesize <= 0 || input_filesize >= sizeof(filebuf) - 1)
         goto badlen;
     if (!memcmp(input_fileptr, elfmagic, sizeof(elfmagic))) {
+        int found = 0;
         int entry;
         ELF_HEADER *elfh = (ELF_HEADER *)input_fileptr;
 #define IS64() (elfh->h32.e_ident[4] == ELFCLASS64)
@@ -538,8 +541,13 @@ uint32_t read_inputfile(const char *filename)
             if (!strcmp(name, "fpgadata")) {
                 input_fileptr = &input_fileptr[SELF(entry, sh_offset)];
                 input_filesize = SELF(entry, sh_size);
+                found = 1;
                 break;
             }
+        }
+        if (!found) {
+            printf("fpgajtag: attempt to use elf file, but no 'fpgadata' section found\n");
+            exit(-1);
         }
     }
     if (!memcmp(input_fileptr, gzmagic, sizeof(gzmagic))) {

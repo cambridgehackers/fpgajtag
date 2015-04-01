@@ -694,6 +694,9 @@ usage:
     uint32_t file_idcode = read_inputfile(filename);
 
     if (xflag) {
+	 int rc = setuid(0);
+	 fprintf(stderr, "setuid status %d uid %d euid %d\n",
+		 rc, getuid(), geteuid());
         int fd = open("/dev/xdevcfg", O_WRONLY);
 	if (fd < 0) {
 	  fprintf(stderr, "[%s:%d] failed to open /dev/xdevcfg: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, fd, errno, strerror(errno));

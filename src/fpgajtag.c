@@ -30,6 +30,7 @@
 // ARM DPACC/APACC programming documented at:
 //     IHI0031C_debug_interface_as.pdf
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -694,9 +695,23 @@ usage:
 
     if (xflag) {
         int fd = open("/dev/xdevcfg", O_WRONLY);
-        int len = write(fd, input_fileptr, input_filesize);
-        printf("[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
+	if (fd < 0) {
+	  fprintf(stderr, "[%s:%d] failed to open /dev/xdevcfg: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, fd, errno, strerror(errno));
+	  exit(-1);
+	}
+	while (input_filesize) {
+	  int len = write(fd, input_fileptr, input_filesize);
+	  if (len <= 0) {
+	    fprintf(stderr, "[%s:%d] failed to write to /dev/xdevcfg: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, len, errno, strerror(errno));
+	    exit(-1);
+	  }
+	  fprintf(stderr, "[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
+	  input_filesize -= len;
+	  input_fileptr += len;
+	}
         close(fd);
+        execlp("/zynqscan.sh", "arg", (char *)NULL); /*  */
+
         exit(0);
     }
     init_fpgajtag(serialno, filename, file_idcode);

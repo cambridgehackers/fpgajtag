@@ -713,8 +713,6 @@ usage:
 	  input_fileptr += len;
 	}
         close(fd);
-        execlp("/zynqscan.sh", "arg", (char *)NULL); /*  */
-
         exit(0);
     }
     init_fpgajtag(serialno, filename, file_idcode);

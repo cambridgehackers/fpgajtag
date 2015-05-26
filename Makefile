@@ -16,7 +16,9 @@ VERSION=14.10.1
 spkg:
 	git clean -fdx
 	sed -i s/precise/trusty/g debian/changelog
-	git buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu/trusty --git-ignore-new -tc -S
+	git buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s' --git-ignore-new -tc -S
 	sed -i s/trusty/precise/g debian/changelog
-	git buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu/trusty --git-ignore-new -tc -S
+	git buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -S
+	sed -i s/precise/utopic/g debian/changelog
+	git buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -S
 

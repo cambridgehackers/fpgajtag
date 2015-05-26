@@ -27,6 +27,6 @@ upload:
 	git push origin v$(VERSION)
 	dput ppa:jamey-hicks/fpgajtag ../fpgajtag_$(VERSION)-*_source.changes
 	(cd  ../obs/home:jameyhicks:connectaldeb/fpgajtag/; osc rm * || true)
-	cp -v ../fpgajtag_$(VERSION)*trusty*.diff.gz ../fpgajtag_$(VERSION)*trusty*.dsc ../fpgajtag_$(VERSION)*trusty*.orig.tar.gz ../obs/home:jameyhicks:connectaldeb/fpgajtag/
+	cp -v ../fpgajtag_$(VERSION)*trusty*.diff.gz ../fpgajtag_$(VERSION)*trusty*.dsc ../fpgajtag_$(VERSION)*.orig.tar.gz ../obs/home:jameyhicks:connectaldeb/fpgajtag/
 	(cd ../obs/home:jameyhicks:connectaldeb/fpgajtag/; osc add *; osc commit -m $(VERSION) )
 	(cd ../obs/home:jameyhicks:connectal/fpgajtag; sed -i "s/>v.....</>v$(VERSION)</" _service; osc commit -m "v$(VERSION)" )

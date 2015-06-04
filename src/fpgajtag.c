@@ -683,7 +683,13 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "%s: [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "%s: [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Optional arguments:\n"
+                        "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
+                        "  -l             Display a list of all jtag interfaces discovered on USB\n"
+                        "  -s <serialno>  Use the jtag interface with the given serial number\n"
+                        "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
+                        "  -t             Trace usb programming traffic\n");
         exit(1);
     }
     const char *filename = lflag ? NULL : argv[argc - 1];

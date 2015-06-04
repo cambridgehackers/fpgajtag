@@ -1,3 +1,9 @@
+fpgajtag (15.06.2-1trusty1) trusty; urgency=medium
+
+  * Bump version to get dput to upload a new source tarball.
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Thu, 04 Jun 2015 16:26:22 -0400
+
 fpgajtag (15.06.1-2trusty1) trusty; urgency=medium
 
   * Fixed packaging problem.

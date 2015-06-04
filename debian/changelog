@@ -1,3 +1,9 @@
+fpgajtag (15.06.1-2trusty1) trusty; urgency=medium
+
+  * Fixed packaging problem.
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Thu, 04 Jun 2015 16:09:52 -0400
+
 fpgajtag (15.06.1-1trusty1) trusty; urgency=medium
 
   * Added usage documentation.

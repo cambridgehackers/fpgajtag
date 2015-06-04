@@ -683,10 +683,28 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "%s: [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+	fprintf(stderr, "\n",
+		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
+                        "\n"
+                        "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
+                        "\n"
+                        "If the data is compressed with gzip, it is uncompressed.\n"
+		        "\n"
+                        "If the data has a .bit header, the header is removed.\n"
+                        "\n"
+                        "Unless using /dev/xdevcfg, scans USB for devices whose IDCODE matches the bitstream\n"
+                        "and programs the device whose position matches index. Index defaults to 0.\n"
+                        "\n"
+                        "When using /dev/xdevcfg, programs the device by writing the bitstream to /dev/xdevcfg."
+                        "\n"
+                        "A bitstream may be embedded into ELF executable application.elf via the following command:\n"
+                        "    objcopy --add-section fpgadata=system.bin.gz application.elf\n"
+                        "\n"
+		);
         fprintf(stderr, "Optional arguments:\n"
                         "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
-                        "  -l             Display a list of all jtag interfaces discovered on USB\n"
+                        "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
                         "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
                         "  -t             Trace usb programming traffic\n");

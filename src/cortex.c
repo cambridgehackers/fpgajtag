@@ -64,7 +64,7 @@ static void check_read_cortex(int linenumber, uint32_t *buf, int load)
             printf("fpgajtag:%d Info in cortex response %x \n", linenumber, (int)(ret & 7));
         uint32_t ret32 = ret >> 3;
         if ((ret32 & 0x1fffffff) != (*testp & 0x1fffffff)) {
-            printf("fpgajtag:%d Info [%ld] act %x expect %x\n", linenumber, testp - buf, ret32, *testp);
+            printf("fpgajtag:%d Info [%ld] act %x expect %x\n", linenumber, (long)(testp - buf), ret32, *testp);
             memdump(rdata, 5, "RX");
         }
         testp++;

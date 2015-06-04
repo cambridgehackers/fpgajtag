@@ -30,6 +30,7 @@
 // ARM DPACC/APACC programming documented at:
 //     IHI0031C_debug_interface_as.pdf
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -587,7 +588,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-static void init_fpgajtag(const char *serialno, const char *filename)
+static void init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
 {
     int i, j;
 
@@ -631,11 +632,6 @@ static void init_fpgajtag(const char *serialno, const char *filename)
     }
 
     /*
-     * Read input file
-     */
-    uint32_t file_idcode = read_inputfile(filename);
-
-    /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
     get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
@@ -654,17 +650,20 @@ static void init_fpgajtag(const char *serialno, const char *filename)
 int main(int argc, char **argv)
 {
     uint32_t ret;
-    int i, rflag = 0, lflag = 0, cflag = 0, rescan = 0;
+    int i, rflag = 0, lflag = 0, cflag = 0, xflag = 0, rescan = 0;
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "trls:ci:")) != -1)
+    while ((i = getopt (argc, argv, "trxls:ci:")) != -1)
         switch (i) {
         case 't':
             trace = 1;
             break;
         case 'r':
             rflag = 1;
+            break;
+        case 'x':
+            xflag = 1;
             break;
         case 'l':
             lflag = 1;
@@ -684,11 +683,63 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "%s: [ -l ] [ -t ] [ -s <serialno> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+	fprintf(stderr, "\n",
+		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
+                        "\n"
+                        "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
+                        "\n"
+                        "If the data is compressed with gzip, it is uncompressed.\n"
+		        "\n"
+                        "If the data has a .bit header, the header is removed.\n"
+                        "\n"
+                        "Unless using /dev/xdevcfg, scans USB for devices whose IDCODE matches the bitstream\n"
+                        "and programs the device whose position matches index. Index defaults to 0.\n"
+                        "\n"
+                        "When using /dev/xdevcfg, programs the device by writing the bitstream to /dev/xdevcfg."
+                        "\n"
+                        "A bitstream may be embedded into ELF executable application.elf via the following command:\n"
+                        "    objcopy --add-section fpgadata=system.bin.gz application.elf\n"
+                        "\n"
+		);
+        fprintf(stderr, "Optional arguments:\n"
+                        "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
+                        "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
+                        "  -s <serialno>  Use the jtag interface with the given serial number\n"
+                        "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
+                        "  -t             Trace usb programming traffic\n");
         exit(1);
     }
+    const char *filename = lflag ? NULL : argv[argc - 1];
 
-    init_fpgajtag(serialno, lflag ? NULL : argv[argc - 1]);
+    /*
+     * Read input file
+     */
+    uint32_t file_idcode = read_inputfile(filename);
+
+    if (xflag) {
+	 int rc = setuid(0);
+	 fprintf(stderr, "setuid status %d uid %d euid %d\n",
+		 rc, getuid(), geteuid());
+        int fd = open("/dev/xdevcfg", O_WRONLY);
+	if (fd < 0) {
+	  fprintf(stderr, "[%s:%d] failed to open /dev/xdevcfg: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, fd, errno, strerror(errno));
+	  exit(-1);
+	}
+	while (input_filesize) {
+	  int len = write(fd, input_fileptr, input_filesize);
+	  if (len <= 0) {
+	    fprintf(stderr, "[%s:%d] failed to write to /dev/xdevcfg: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, len, errno, strerror(errno));
+	    exit(-1);
+	  }
+	  fprintf(stderr, "[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
+	  input_filesize -= len;
+	  input_fileptr += len;
+	}
+        close(fd);
+        exit(0);
+    }
+    init_fpgajtag(serialno, filename, file_idcode);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;

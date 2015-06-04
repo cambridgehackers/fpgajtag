@@ -42,5 +42,8 @@ install: fpgajtag
 	install -d -m755 $(DESTDIR)$(BINDIR)
 	install -m755 fpgajtag $(DESTDIR)$(BINDIR)/fpgajtag
 
+android:
+	ndk-build
+
 clean:
-	rm -f $(OBJS) fpgajtag
+	rm -rf $(OBJS) fpgajtag obj libs

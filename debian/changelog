@@ -1,3 +1,9 @@
+fpgajtag (15.06.1-1trusty1) trusty; urgency=medium
+
+  * Added usage documentation.
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Thu, 04 Jun 2015 16:06:48 -0400
+
 fpgajtag (15.03.3-2trusty1) trusty; urgency=medium
 
   * 15.03.3

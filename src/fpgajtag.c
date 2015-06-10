@@ -636,7 +636,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
      */
     get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
-        if (idcode_array[i] == file_idcode) {
+        if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff) {
             jtag_index = i;
             if (skip_idcode-- <= 0)
                 break;
@@ -684,7 +684,7 @@ int main(int argc, char **argv)
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
         fprintf(stderr, "Usage %s [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
-	fprintf(stderr, "\n",
+	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
                         "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
@@ -739,7 +739,7 @@ usage:
         close(fd);
         exit(0);
     }
-    init_fpgajtag(serialno, filename, file_idcode);
+    init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;

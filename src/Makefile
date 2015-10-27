@@ -12,7 +12,8 @@ ifeq ($(OS), Darwin)
 CFLAGS += -DDARWIN
 endif
 
-BINDIR=/usr/local/bin
+PREFIX?=/usr/local
+BINDIR?=$(PREFIX)/bin
 
 OBJS = fpgajtag.o process.o cortex.o util.o
 

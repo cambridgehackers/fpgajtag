@@ -647,6 +647,14 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
     }
 }
 
+int min(int a, int b)
+{
+  if (a < b)
+      return a;
+  else
+      return b;
+}
+
 int main(int argc, char **argv)
 {
     uint32_t ret;
@@ -727,12 +735,11 @@ usage:
 	  exit(-1);
 	}
 	while (input_filesize) {
-	  int len = write(fd, input_fileptr, input_filesize);
+	  int len = write(fd, input_fileptr, min(input_filesize, 4096));
 	  if (len <= 0) {
 	    fprintf(stderr, "[%s:%d] failed to write to /dev/xdevcfg: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, len, errno, strerror(errno));
 	    exit(-1);
 	  }
-	  fprintf(stderr, "[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
 	  input_filesize -= len;
 	  input_fileptr += len;
 	}

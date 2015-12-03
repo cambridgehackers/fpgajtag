@@ -51,7 +51,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
+static int verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -636,7 +636,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
      */
     get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
-        if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff) {
+        if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff || match_any_idcode) {
             jtag_index = i;
             if (skip_idcode-- <= 0)
                 break;
@@ -662,7 +662,7 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "trxls:ci:")) != -1)
+    while ((i = getopt (argc, argv, "atrxls:ci:")) != -1)
         switch (i) {
         case 't':
             trace = 1;
@@ -685,13 +685,16 @@ int main(int argc, char **argv)
         case 'i':
             skip_idcode = atoi(optarg);
             break;
+        case 'a':
+	    match_any_idcode = 1;
+            break;
         default:
             goto usage;
         }
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -711,6 +714,7 @@ usage:
                         "\n"
 		);
         fprintf(stderr, "Optional arguments:\n"
+		        "  -a             Match any idcode\n"
                         "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
                         "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"

@@ -1,18 +1,18 @@
 
 all:
-	make -C src
+	$(MAKE) -C src
 
 mac:
-	make -C src mac
+	$(MAKE) -C src mac
 
 android:
-	make -C src android
+	$(MAKE) -C src android
 
 install:
-	make -C src install
+	$(MAKE) -C src install
 
 clean:
-	make -C src clean
+	$(MAKE) -C src clean
 
 VERSION=14.10.1
 

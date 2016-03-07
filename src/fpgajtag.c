@@ -51,7 +51,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, skip_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
+static int verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -636,7 +636,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
      */
     get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
-        if (idcode_array[i] == file_idcode) {
+        if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff || match_any_idcode) {
             jtag_index = i;
             if (skip_idcode-- <= 0)
                 break;
@@ -647,6 +647,14 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
     }
 }
 
+int min(int a, int b)
+{
+  if (a < b)
+      return a;
+  else
+      return b;
+}
+
 int main(int argc, char **argv)
 {
     uint32_t ret;
@@ -654,7 +662,7 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "trxls:ci:")) != -1)
+    while ((i = getopt (argc, argv, "atrxls:ci:")) != -1)
         switch (i) {
         case 't':
             trace = 1;
@@ -677,14 +685,17 @@ int main(int argc, char **argv)
         case 'i':
             skip_idcode = atoi(optarg);
             break;
+        case 'a':
+	    match_any_idcode = 1;
+            break;
         default:
             goto usage;
         }
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
-	fprintf(stderr, "\n",
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
                         "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
@@ -703,6 +714,7 @@ usage:
                         "\n"
 		);
         fprintf(stderr, "Optional arguments:\n"
+		        "  -a             Match any idcode\n"
                         "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
                         "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
@@ -727,19 +739,18 @@ usage:
 	  exit(-1);
 	}
 	while (input_filesize) {
-	  int len = write(fd, input_fileptr, input_filesize);
+	  int len = write(fd, input_fileptr, min(input_filesize, 4096));
 	  if (len <= 0) {
 	    fprintf(stderr, "[%s:%d] failed to write to /dev/xdevcfg: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, len, errno, strerror(errno));
 	    exit(-1);
 	  }
-	  fprintf(stderr, "[%s:%d] fd %d len %d input_filesize %d\n", __FUNCTION__, __LINE__, fd, len, input_filesize);
 	  input_filesize -= len;
 	  input_fileptr += len;
 	}
         close(fd);
         exit(0);
     }
-    init_fpgajtag(serialno, filename, file_idcode);
+    init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode);
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;

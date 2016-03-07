@@ -52,7 +52,7 @@
 /*
  * Xilinx constants
  */
-#ifdef USE_LOGGING // when comparing to old libftdi output, use slower clock
+#if 1 //def USE_LOGGING // when comparing to old libftdi output, use slower clock
 #define CLOCK_FREQUENCY      15000000
 #else
 #define CLOCK_FREQUENCY      30000000

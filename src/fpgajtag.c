@@ -730,6 +730,22 @@ usage:
     uint32_t file_idcode = read_inputfile(filename);
 
     if (xflag) {
+	int magic[2];
+	memcpy(&magic, input_fileptr+32, 8);
+	if (magic[0] != 0x000000bb || magic[1] != 0x11220044) {
+	    char *buffer = malloc(input_filesize);
+	    int i;
+	    fprintf(stderr, "mismatched magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
+	    memcpy(buffer, input_fileptr, input_filesize);
+	    for (i = 0; i < input_filesize/4; i++) {
+		int *bufl = (int *)buffer;
+		int *inputl = (int *)input_fileptr;
+		bufl[i] = ntohl(inputl[i]);
+	    }
+	    memcpy(&magic, buffer+32, 8);
+	    fprintf(stderr, "updated magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
+	    input_fileptr = buffer;
+	}
 	 int rc = setuid(0);
 	 fprintf(stderr, "setuid status %d uid %d euid %d\n",
 		 rc, getuid(), geteuid());

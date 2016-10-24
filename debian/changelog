@@ -1,3 +1,9 @@
+fpgajtag (16.10.1-1trusty1) trusty; urgency=medium
+
+  * suppress debug messages about byte swapping
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Mon, 24 Oct 2016 12:04:32 -0400
+
 fpgajtag (16.03.1-1trusty1) trusty; urgency=medium
 
   * Reduced JTAG clock speed to fix programming problem on NETFPGA SUME

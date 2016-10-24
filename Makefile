@@ -14,7 +14,7 @@ install:
 clean:
 	$(MAKE) -C src clean
 
-VERSION=14.10.1
+VERSION=16.10.1
 
 spkg:
 	git clean -fdx

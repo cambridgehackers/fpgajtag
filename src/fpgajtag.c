@@ -51,7 +51,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
+static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -735,7 +735,7 @@ usage:
 	if (magic[0] != 0x000000bb || magic[1] != 0x11220044) {
 	    char *buffer = malloc(input_filesize);
 	    int i;
-	    fprintf(stderr, "mismatched magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
+	    if (debug) fprintf(stderr, "mismatched magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
 	    memcpy(buffer, input_fileptr, input_filesize);
 	    for (i = 0; i < input_filesize/4; i++) {
 		int *bufl = (int *)buffer;
@@ -743,10 +743,11 @@ usage:
 		bufl[i] = ntohl(inputl[i]);
 	    }
 	    memcpy(&magic, buffer+32, 8);
-	    fprintf(stderr, "updated magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
+	    if (debug) fprintf(stderr, "updated magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
 	    input_fileptr = buffer;
 	}
 	 int rc = setuid(0);
+	 if (rc != 0)
 	 fprintf(stderr, "setuid status %d uid %d euid %d\n",
 		 rc, getuid(), geteuid());
         int fd = open("/dev/xdevcfg", O_WRONLY);

@@ -878,7 +878,10 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
 exit_label:
     fpgausb_close();
     fpgausb_release();
-    if (rescan)
-        execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+    if (rescan) {
+	int rc = execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+	fprintf(stderr, "fpgajtag: ERROR failed to run pciescanportal: %s\n", strerror(errno));
+	return rc;
+    }
     return 0;
 }

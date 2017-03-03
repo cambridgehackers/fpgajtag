@@ -733,6 +733,9 @@ usage:
      */
     uint32_t file_idcode = read_inputfile(filename);
 
+    if (mflag)
+	setuid( 0 );
+
     if (xflag || mflag) {
 	int magic[2];
 	memcpy(&magic, input_fileptr+32, 8);

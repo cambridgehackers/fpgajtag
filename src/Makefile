@@ -36,7 +36,8 @@ mdm.o: $(HEADERS) Makefile
 util.o: $(HEADERS) Makefile
 
 install: fpgajtag
-	cp fpgajtag $(DESTDIR)$(BINDIR)
+	install -d -m755 $(DESTDIR)$(BINDIR)
+	install -m4755 fpgajtag $(DESTDIR)$(BINDIR)/fpgajtag
 
 android:
 	ndk-build

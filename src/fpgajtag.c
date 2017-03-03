@@ -658,35 +658,38 @@ int min(int a, int b)
 int main(int argc, char **argv)
 {
     uint32_t ret;
-    int i, rflag = 0, lflag = 0, cflag = 0, xflag = 0, rescan = 0;
+    int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0, rescan = 0;
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxls:ci:")) != -1)
+    while ((i = getopt (argc, argv, "atrxlms:ci:")) != -1)
         switch (i) {
-        case 't':
-            trace = 1;
-            break;
-        case 'r':
-            rflag = 1;
-            break;
-        case 'x':
-            xflag = 1;
-            break;
-        case 'l':
-            lflag = 1;
+        case 'a':
+	    match_any_idcode = 1;
             break;
         case 'c':
             cflag = 1;
             break;
-        case 's':
-            serialno = optarg;
-            break;
         case 'i':
             skip_idcode = atoi(optarg);
             break;
-        case 'a':
-	    match_any_idcode = 1;
+        case 'l':
+            lflag = 1;
+            break;
+        case 'm':
+            mflag = 1;
+            break;
+        case 'r':
+            rflag = 1;
+            break;
+        case 's':
+            serialno = optarg;
+            break;
+        case 't':
+            trace = 1;
+            break;
+        case 'x':
+            xflag = 1;
             break;
         default:
             goto usage;
@@ -694,7 +697,7 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -717,6 +720,7 @@ usage:
 		        "  -a             Match any idcode\n"
                         "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
                         "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
+                        "  -m             Use FPGA Manager\n"
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
                         "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
                         "  -t             Trace usb programming traffic\n");
@@ -729,11 +733,14 @@ usage:
      */
     uint32_t file_idcode = read_inputfile(filename);
 
-    if (xflag) {
+    if (mflag)
+	setuid( 0 );
+
+    if (xflag || mflag) {
 	int magic[2];
 	memcpy(&magic, input_fileptr+32, 8);
 	if (magic[0] != 0x000000bb || magic[1] != 0x11220044) {
-	    char *buffer = malloc(input_filesize);
+	    uint8_t *buffer = (uint8_t *)malloc(input_filesize);
 	    int i;
 	    if (debug) fprintf(stderr, "mismatched magic: %08x.%08x expected %08x.%08x\n", magic[0], magic[1], 0x000000bb, 0x11220044);
 	    memcpy(buffer, input_fileptr, input_filesize);
@@ -747,24 +754,36 @@ usage:
 	    input_fileptr = buffer;
 	}
 	 int rc = setuid(0);
+	 const char *filename = (mflag) ? "/lib/firmware/fpga.bin" : "/dev/xdevcfg";
 	 if (rc != 0)
 	 fprintf(stderr, "setuid status %d uid %d euid %d\n",
 		 rc, getuid(), geteuid());
-        int fd = open("/dev/xdevcfg", O_WRONLY);
+        int fd = open(filename, (mflag) ? (O_WRONLY|O_CREAT) : O_WRONLY);
 	if (fd < 0) {
-	  fprintf(stderr, "[%s:%d] failed to open /dev/xdevcfg: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, fd, errno, strerror(errno));
+	  fprintf(stderr, "[%s:%d] failed to open %s: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, filename, fd, errno, strerror(errno));
 	  exit(-1);
 	}
 	while (input_filesize) {
 	  int len = write(fd, input_fileptr, min(input_filesize, 4096));
 	  if (len <= 0) {
-	    fprintf(stderr, "[%s:%d] failed to write to /dev/xdevcfg: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, len, errno, strerror(errno));
+	    fprintf(stderr, "[%s:%d] failed to write to %s: len=%d errno=%d %s\n", __FUNCTION__, __LINE__, filename, len, errno, strerror(errno));
 	    exit(-1);
 	  }
 	  input_filesize -= len;
 	  input_fileptr += len;
 	}
         close(fd);
+	if (mflag) {
+	    filename = "/sys/class/fpga_manager/fpga0/firmware";
+	    fd = open(filename, O_WRONLY);
+	    if (fd < 0) {
+		fprintf(stderr, "[%s:%d] failed to open %s: fd=%d errno=%d %s\n", __FUNCTION__, __LINE__, filename, fd, errno, strerror(errno));
+		exit(-1);
+	    }
+	    filename = "fpga.bin";
+	    write(fd, filename, strlen(filename));
+	    close(fd);
+	}
         exit(0);
     }
     init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode);

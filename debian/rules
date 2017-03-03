@@ -11,3 +11,7 @@
 
 %:
 	dh $@ 
+
+override_dh_fixperms:
+	echo dh_fixperms
+	dh_fixperms -Xfpgajtag

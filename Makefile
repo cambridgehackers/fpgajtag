@@ -1,3 +1,4 @@
+VERSION=17.03.1
 
 all:
 	$(MAKE) -C src
@@ -13,8 +14,6 @@ install:
 
 clean:
 	$(MAKE) -C src clean
-
-VERSION=17.02.1
 
 spkg:
 	git clean -fdx

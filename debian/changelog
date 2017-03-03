@@ -1,3 +1,9 @@
+fpgajtag (17.03.1-1trusty1) trusty; urgency=medium
+
+  * Added support for programming via FPGA manager
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Fri, 03 Mar 2017 08:26:53 -0500
+
 fpgajtag (17.02.1-1trusty1) trusty; urgency=medium
 
   * Return -1 and print a message if pciescanportal fails to run

@@ -41,12 +41,14 @@
 // for using libftdi.so
 //#define USE_LIBFTDI
 
+int ftdi_interface;
+
 #define BUFFER_MAX_LEN    100000000
 #define USB_TIMEOUT     5000
-#define ENDPOINT_IN     0x02
-#define ENDPOINT_OUT    0x81
+#define ENDPOINT_IN     ((ftdi_interface == 0) ? 0x02 : 0x04)
+#define ENDPOINT_OUT    ((ftdi_interface == 0) ? 0x81 : 0x83)
 #define USB_CHUNKSIZE   4096
-#define USB_INDEX          0
+#define USB_INDEX       ((ftdi_interface == 0) ? 1 : 2)
 
 #define USBSIO_RESET                     0 /* Reset the port */
 #define USBSIO_RESET_PURGE_RX            1
@@ -375,7 +377,7 @@ USB_INFO *fpgausb_init(void)
     return usbinfo_array;
 }
 
-void fpgausb_open(int device_index)
+void fpgausb_open(int device_index, int interface)
 {
     int step = 0;
 #ifndef NO_LIBUSB
@@ -385,15 +387,16 @@ void fpgausb_open(int device_index)
     unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
     struct libusb_config_descriptor *config_descrip;
 
+    ftdi_interface = interface;
     libusb_open(usbinfo_array[device_index].dev, &usbhandle);
     if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0)
         goto error;
     int configv = config_descrip->bConfigurationValue;
     libusb_free_config_descriptor (config_descrip);
-    libusb_detach_kernel_driver(usbhandle, 0);
+    libusb_detach_kernel_driver(usbhandle, interface);
 #define USBCTRL(A,B,C) \
-     libusb_control_transfer(usbhandle, LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE \
-           | LIBUSB_ENDPOINT_OUT, (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
+    libusb_control_transfer(usbhandle, (LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT), \
+			    (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
 
     if (libusb_get_configuration (usbhandle, &cfg) < 0)
         goto error;
@@ -402,7 +405,7 @@ void fpgausb_open(int device_index)
         goto error;
     step++;
 #ifndef DARWIN // not supported on Mac-OS
-    if (libusb_claim_interface(usbhandle, 0) < 0)
+    if (libusb_claim_interface(usbhandle, interface) < 0)
         goto error;
 #endif
     step++;
@@ -477,13 +480,13 @@ void sync_ftdi(int val)
 /*
  * FTDI generic initialization
  */
-void init_ftdi(int device_index)
+void init_ftdi(int device_index, int interface)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
     global_ftdi = (struct ftdi_context *)illegal_command;
     int i;
 
-    fpgausb_open(device_index);            /*** Open selected USB interface ***/
+    fpgausb_open(device_index, interface);            /*** Open selected USB interface ***/
 #ifdef USE_LIBFTDI
     global_ftdi = ftdi_new();
     global_ftdi_set_usbdev(ftdi, usbhandle);

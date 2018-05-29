@@ -1,3 +1,4 @@
+VERSION=18.05.2
 
 all:
 	$(MAKE) -C src
@@ -14,14 +15,11 @@ install:
 clean:
 	$(MAKE) -C src clean
 
-VERSION=18.05.1
-
 spkg:
 	git clean -fdx
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s' --git-ignore-new -tc -pgpg2 -S
+	git checkout debian
 	sed -i s/trusty/precise/g debian/changelog
-	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -pgpg2 -S
-	sed -i s/precise/utopic/g debian/changelog
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -pgpg2 -S
 	git checkout debian
 	sed -i s/trusty/xenial/g debian/changelog

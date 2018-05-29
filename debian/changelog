@@ -1,8 +1,32 @@
+fpgajtag (18.05.2-1trusty1) trusty; urgency=medium
+
+  * Merge connectal/master
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Tue, 29 May 2018 12:19:06 -0400
+
 fpgajtag (18.05.1-1trusty1) trusty; urgency=medium
 
   * Minor changes and build for bionic
 
  -- Jamey Hicks <jamey.hicks@gmail.com>  Tue, 29 May 2018 12:19:06 -0400
+
+fpgajtag (17.03.1-1trusty1) trusty; urgency=medium
+
+  * Added support for programming via FPGA manager
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Fri, 03 Mar 2017 08:26:53 -0500
+
+fpgajtag (17.02.1-1trusty1) trusty; urgency=medium
+
+  * Return -1 and print a message if pciescanportal fails to run
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Mon, 13 Feb 2017 12:06:57 -0500
+
+fpgajtag (16.10.1-1trusty1) trusty; urgency=medium
+
+  * suppress debug messages about byte swapping
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Mon, 24 Oct 2016 12:04:32 -0400
 
 fpgajtag (16.03.1-1trusty1) trusty; urgency=medium
 

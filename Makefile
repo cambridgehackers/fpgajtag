@@ -1,4 +1,4 @@
-VERSION=17.03.1
+VERSION=18.08.1
 
 all:
 	$(MAKE) -C src
@@ -23,6 +23,9 @@ spkg:
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -S
 	git checkout debian
 	sed -i s/trusty/xenial/g debian/changelog
+	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -S
+	git checkout debian
+	sed -i s/trusty/bionic/g debian/changelog
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -S
 	git checkout debian
 	git clean -fdx

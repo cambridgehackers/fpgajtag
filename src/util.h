@@ -64,10 +64,10 @@ typedef struct {
     unsigned char iSerialNumber[64], iManufacturer[64], iProduct[128];
 } USB_INFO;
 USB_INFO *fpgausb_init(void);
-void fpgausb_open(int device_index);
+void fpgausb_open(int device_index, int interface);
 void fpgausb_close(void);
 void fpgausb_release(void);
-void init_ftdi(int device_index);
+void init_ftdi(int device_index, int interface);
 
 void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);

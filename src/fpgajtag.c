@@ -51,7 +51,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 
-static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
+static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail, interface;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -335,9 +335,9 @@ static void init_device(int extra)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
 }
-static void get_deviceid(int device_index)
+static void get_deviceid(int device_index, int interface)
 {
-    init_ftdi(device_index);
+    init_ftdi(device_index, interface);
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
@@ -608,7 +608,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
                  printf("Altera device");
             }
             else
-                get_deviceid(i);  /*** Generic initialization of FTDI chip ***/
+                get_deviceid(i, interface);  /*** Generic initialization of FTDI chip ***/
             fpgausb_close();
             if (idcode_count)
                 fprintf(stderr, "; IDCODE:");
@@ -634,7 +634,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    get_deviceid(usb_index);          /*** Generic initialization of FTDI chip ***/
+    get_deviceid(usb_index, interface);          /*** Generic initialization of FTDI chip ***/
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
         if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff || match_any_idcode) {
             jtag_index = i;
@@ -662,7 +662,7 @@ int main(int argc, char **argv)
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxlms:ci:")) != -1)
+    while ((i = getopt (argc, argv, "atrxlms:ci:I:")) != -1)
         switch (i) {
         case 'a':
 	    match_any_idcode = 1;
@@ -672,6 +672,9 @@ int main(int argc, char **argv)
             break;
         case 'i':
             skip_idcode = atoi(optarg);
+            break;
+        case 'I':
+            interface = atoi(optarg);
             break;
         case 'l':
             lflag = 1;
@@ -697,7 +700,7 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -723,6 +726,7 @@ usage:
                         "  -m             Use FPGA Manager\n"
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
                         "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
+		        "  -I <0|1>       Which interface of FT2232 to use\n"
                         "  -t             Trace usb programming traffic\n");
         exit(1);
     }

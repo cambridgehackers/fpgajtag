@@ -1,3 +1,9 @@
+fpgajtag (18.08.1-1trusty1) trusty; urgency=medium
+
+  * package for bionic
+
+ -- Jamey Hicks <jamey.hicks@gmail.com>  Tue, 28 Aug 2018 11:21:39 -0400
+
 fpgajtag (18.05.2-1trusty1) trusty; urgency=medium
 
   * Merge connectal/master

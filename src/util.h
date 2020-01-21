@@ -41,6 +41,16 @@
 struct ftdi_context;
 #endif
 
+#ifdef USE_LOGGING
+#define ENTER() fprintf(stderr,"Entering %s()\n",__FUNCTION__)
+#define EXIT() fprintf(stderr,"Exiting %s()\n",__FUNCTION__)
+#define LOGNOTE(M) fprintf(stderr,"%s:%d:%s():%s\n",__FILE__,__LINE__,__FUNCTION__,M);
+#else
+#define ENTER()
+#define EXIT()
+#define LOGNOTE(M)
+#endif
+
 #define M(A)               ((A) & 0xff)
 #define USB_JTAG_ALTERA     0x9fb  /* idVendor */
 
@@ -63,8 +73,9 @@ typedef struct {
     int           bNumConfigurations;
     unsigned char iSerialNumber[64], iManufacturer[64], iProduct[128];
 } USB_INFO;
+int min(int a, int b);
 USB_INFO *fpgausb_init(void);
-void fpgausb_open(int device_index, int interface);
+int fpgausb_open(int device_index, int interface);
 void fpgausb_close(void);
 void fpgausb_release(void);
 void init_ftdi(int device_index, int interface);

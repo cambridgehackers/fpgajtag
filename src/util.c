@@ -93,6 +93,14 @@ static uint8_t *usbreadbuffer_ptr = usbreadbuffer;
 static int read_size[MAX_ITEM_LENGTH];
 static int read_size_ptr;
 
+int min(int a, int b)
+{
+  if (a < b)
+      return a;
+  else
+      return b;
+}
+
 static void openlogfile(void)
 {
     if (!logfile)
@@ -180,13 +188,20 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
  */
 void write_data(uint8_t *buf, int size)
 {
+    ENTER();
+#ifdef USE_LOGGING
+    dump_bytes(0,"write_data()", buf, size);
+#endif
     memcpy(usbreadbuffer_ptr, buf, size);
     usbreadbuffer_ptr += size;
+    EXIT();
 }
 
 void write_item(uint8_t *buf)
 {
+    ENTER();
     write_data(buf+1, buf[0]);
+    EXIT();
 }
 
 int buffer_current_size(void)
@@ -377,7 +392,7 @@ USB_INFO *fpgausb_init(void)
     return usbinfo_array;
 }
 
-void fpgausb_open(int device_index, int interface)
+int fpgausb_open(int device_index, int interface)
 {
     int step = 0;
 #ifndef NO_LIBUSB
@@ -429,11 +444,11 @@ void fpgausb_open(int device_index, int interface)
     step++;
     if (USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
-    return;
+    return 0;
 error:
 #endif
     printf("Error opening usb interface: %d\n", step);
-    exit(-1);
+    return -1;
 }
 
 void fpgausb_close(void)

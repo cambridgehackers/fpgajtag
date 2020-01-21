@@ -39,8 +39,11 @@
 #include <arpa/inet.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <unistd.h>
+#include <dirent.h>
 #include "util.h"
 #include "fpga.h"
+#include "fpgajtag.h"
 
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
@@ -113,6 +116,7 @@ static int match_state(char req)
 }
 void write_tms_transition(char *tail)
 {
+    ENTER();
     char *p = tail+2;
     uint8_t temp[] = {TMSW, 0, 0};
     int len = 0;
@@ -128,6 +132,7 @@ void write_tms_transition(char *tail)
     temp[1] = len-1;
     temp[2] >>= 8 - len;
     write_data(temp, sizeof(temp));
+    EXIT();
 }
 void ENTER_TMS_STATE(char required)
 {
@@ -138,7 +143,10 @@ void ENTER_TMS_STATE(char required)
         "SE1",   /* Shift-IR -> Exit1-IR */ "SU11", /* Shift-DR -> Update-DR */
         "UD100", /* Update -> Shift-DR */   "ID100",/* Idle -> Shift-DR */
         "RD0100",/* Reset -> Shift-DR */    "IR111",/* Idle -> Reset */
-        "PR11111",/* Pause -> Reset */      "IS1100", NULL};/* Idle -> Shift-IR */
+        "PR11111",/* Pause -> Reset */      "IS1100",/* Idle -> Shift-IR */
+        "ED1100", /* Exit1-IR ->  -> Shift-DR */
+        NULL};
+
     char **p = tail; 
     while(*p) {
         if (temp == (*p)[0] && required == (*p)[1])
@@ -250,8 +258,11 @@ void idle_to_shift_dr(int idindex)
 }
 static uint8_t *write_pattern(int idindex, uint8_t *req, int target_state)
 {
+    LOGNOTE("Calling idle_to_shift_dr()");
     idle_to_shift_dr(idindex);
+    LOGNOTE("Switched to shift_dr");
     write_bytes(DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 0);
+    LOGNOTE("Wrote bytes. Now reading...");
     return read_data();
 }
 
@@ -291,13 +302,16 @@ static uint8_t idcode_vpattern[] = DITEM(IDCODE_VPAT);
 static uint8_t idcode_vresult[] = DITEM(IDCODE_VPAT); // filled in with idcode
 void read_idcode(int prereset)
 {
+    ENTER();
     int i, offset = 0;
     uint32_t temp[IDCODE_ARRAY_SIZE];
 
     if (prereset)
         write_tms_transition("RR1");
+    LOGNOTE("Checkpoint pre marker_for_reset()");
     marker_for_reset(4);
     uint8_t *rdata = write_pattern(0, idcode_ppattern, 'I');
+    LOGNOTE("Checkpoint post write-pattern");
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
         memcpy(&idcode_presult[1], idcode_ppattern+1, idcode_ppattern[0]);
@@ -324,16 +338,22 @@ void read_idcode(int prereset)
             idcode_len[i] = XILINX_IR_LENGTH;
         }
     }
+    EXIT();
 }
 
 static void init_device(int extra)
 {
+    ENTER();
+    LOGNOTE("Disable loopback. Disable divide by 5 of master clock.");
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
+    LOGNOTE("Set clock divisor");
     set_clock_divisor();
     write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
     if (extra)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    LOGNOTE("For TAP to reset state.");
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
+    EXIT();
 }
 static void get_deviceid(int device_index, int interface)
 {
@@ -588,7 +608,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-static void init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
+int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
 {
     int i, j;
 
@@ -618,7 +638,7 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
         fprintf(stderr, "\n");
     }
     if (!filename)
-        exit(1);
+        return -1;
     while (1) {
         if (!uinfo[usb_index].dev) {
             fprintf(stderr, "fpgajtag: Can't find usable usb interface\n");
@@ -643,94 +663,24 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
         }
     if (jtag_index == -1) {
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
-        exit(-1);
+        return -1;
     }
+    return 0;
 }
 
-int min(int a, int b)
-{
-  if (a < b)
-      return a;
-  else
-      return b;
-}
-
-int main(int argc, char **argv)
+int fpgajtag_main(const char *bitstream, const char *serialport,
+    int rflag, int mflag, int cflag, int xflag,
+    int askip_idcode, int amatch_any_idcode, int ainterface)
 {
     uint32_t ret;
-    int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0, rescan = 0;
-    const char *serialno = NULL;
+    int rescan = 0;
+    const char *serialno = serialport;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxlms:ci:I:")) != -1)
-        switch (i) {
-        case 'a':
-	    match_any_idcode = 1;
-            break;
-        case 'c':
-            cflag = 1;
-            break;
-        case 'i':
-            skip_idcode = atoi(optarg);
-            break;
-        case 'I':
-            interface = atoi(optarg);
-            break;
-        case 'l':
-            lflag = 1;
-            break;
-        case 'm':
-            mflag = 1;
-            break;
-        case 'r':
-            rflag = 1;
-            break;
-        case 's':
-            serialno = optarg;
-            break;
-        case 't':
-            trace = 1;
-            break;
-        case 'x':
-            xflag = 1;
-            break;
-        default:
-            goto usage;
-        }
-
-    if (optind != argc - 1 && !cflag && !lflag) {
-usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] <filename>\n", argv[0]);
-	fprintf(stderr, "\n"
-		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
-                        "\n"
-                        "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
-                        "\n"
-                        "If the data is compressed with gzip, it is uncompressed.\n"
-		        "\n"
-                        "If the data has a .bit header, the header is removed.\n"
-                        "\n"
-                        "Unless using /dev/xdevcfg, scans USB for devices whose IDCODE matches the bitstream\n"
-                        "and programs the device whose position matches index. Index defaults to 0.\n"
-                        "\n"
-                        "When using /dev/xdevcfg, programs the device by writing the bitstream to /dev/xdevcfg."
-                        "\n"
-                        "A bitstream may be embedded into ELF executable application.elf via the following command:\n"
-                        "    objcopy --add-section fpgadata=system.bin.gz application.elf\n"
-                        "\n"
-		);
-        fprintf(stderr, "Optional arguments:\n"
-		        "  -a             Match any idcode\n"
-                        "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
-                        "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
-                        "  -m             Use FPGA Manager\n"
-                        "  -s <serialno>  Use the jtag interface with the given serial number\n"
-                        "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
-		        "  -I <0|1>       Which interface of FT2232 to use\n"
-                        "  -t             Trace usb programming traffic\n");
-        exit(1);
-    }
-    const char *filename = lflag ? NULL : argv[argc - 1];
+    const char *filename = bitstream;
+    skip_idcode = askip_idcode;
+    match_any_idcode = amatch_any_idcode;
+    interface = ainterface;
 
     /*
      * Read input file

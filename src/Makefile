@@ -16,6 +16,7 @@ PREFIX?=/usr/local
 BINDIR?=$(PREFIX)/bin
 
 OBJS = fpgajtag.o process.o cortex.o util.o
+LIB = fpgajtag.a
 
 HEADERS = dumpdata.h fpga.h util.h
 
@@ -26,8 +27,12 @@ else
     USBLIB = -lusb-1.0
 endif
 
-fpgajtag: $(OBJS) Makefile
-	gcc -g -o fpgajtag $(OBJS) -lpthread $(FTDILIB) $(USBLIB) -lz
+fpgajtag: $(LIB) Makefile main.c
+	gcc -g -o fpgajtag main.c $(LIB) -lpthread $(FTDILIB) $(USBLIB) -lz
+
+$(LIB): $(OBJS)
+	rm -f $(LIB)
+	ar -cr $(LIB) $(OBJS)
 
 fpgajtag.o: $(HEADERS) Makefile
 process.o: $(HEADERS) Makefile
@@ -43,4 +48,4 @@ android:
 	ndk-build
 
 clean:
-	rm -rf $(OBJS) fpgajtag obj libs
+	rm -rf $(OBJS) $(LIB) fpgajtag obj libs

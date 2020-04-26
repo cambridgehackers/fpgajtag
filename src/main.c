@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include "util.h"
@@ -33,11 +34,11 @@ int main(int argc, char **argv)
 {
     uint32_t ret;
     int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0;
-    int skip_idcode = 0, match_any_idcode = 0, interface = 0;
+    int skip_idcode = 0, match_any_idcode = 0, interface = 0, adevice = 0;
     const char *serialno = NULL;
     logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxlms:ci:I:")) != -1)
+    while ((i = getopt (argc, argv, "atrxlms:ci:I:d:")) != -1)
         switch (i) {
         case 'a':
 	    match_any_idcode = 1;
@@ -69,13 +70,19 @@ int main(int argc, char **argv)
         case 'x':
             xflag = 1;
             break;
+        case 'd':     // device_type
+            if (!strcmp(optarg, "MIMAS_A7"))
+                adevice = DEVICE_MIMAS_A7;
+            else 
+                goto usage;
+            break;
         default:
             goto usage;
         }
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] [ -d <device_type> ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -102,10 +109,12 @@ usage:
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
                         "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
 		        "  -I <0|1>       Which interface of FT2232 to use\n"
+                        "  -d <device_type> to specify programmed device name\n"
+                        "                 Supported names: MIMAS_A7\n"
                         "  -t             Trace usb programming traffic\n");
         exit(1);
     }
     const char *filename = lflag ? NULL : argv[argc - 1];
-    return fpgajtag_main(filename, serialno, rflag, mflag, cflag, xflag, skip_idcode, match_any_idcode, interface);
+    return fpgajtag_main(filename, serialno, rflag, mflag, cflag, xflag, skip_idcode, match_any_idcode, interface, adevice);
 }
 

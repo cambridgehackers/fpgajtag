@@ -53,6 +53,7 @@
 uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
+int device_type;
 
 static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail, interface;
 static USB_INFO *uinfo;
@@ -348,7 +349,10 @@ static void init_device(int extra)
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
     LOGNOTE("Set clock divisor");
     set_clock_divisor();
-    write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+    if (device_type == DEVICE_MIMAS_A7)
+        write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x00, 0x00));
+    else
+        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
     if (extra)
         write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
     LOGNOTE("For TAP to reset state.");
@@ -670,7 +674,7 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
 
 int fpgajtag_main(const char *bitstream, const char *serialport,
     int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int ainterface)
+    int askip_idcode, int amatch_any_idcode, int ainterface, int adevice)
 {
     uint32_t ret;
     int rescan = 0;
@@ -681,6 +685,7 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
     skip_idcode = askip_idcode;
     match_any_idcode = amatch_any_idcode;
     interface = ainterface;
+    device_type = adevice;
 
     /*
      * Read input file

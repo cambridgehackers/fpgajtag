@@ -432,8 +432,10 @@ int fpgausb_open(int device_index, int interface)
 
     ftdi_interface = interface;
     libusb_open(usbinfo_array[device_index].dev, &usbhandle);
-    if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0)
+    if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0) {
+        printf("%s: error from libusb_get_config_descriptor\n", __FUNCTION__);
         goto error;
+    }
     int configv = config_descrip->bConfigurationValue;
     libusb_free_config_descriptor (config_descrip);
     libusb_detach_kernel_driver(usbhandle, interface);
@@ -445,15 +447,21 @@ int fpgausb_open(int device_index, int interface)
     libusb_control_transfer(usbhandle, (LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT), \
 			    (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
 
-    if (libusb_get_configuration (usbhandle, &cfg) < 0)
+    if (libusb_get_configuration (usbhandle, &cfg) < 0) {
+        printf("%s: error from libusb_get_configuration\n", __FUNCTION__);
         goto error;
+    }
     step++;
-    if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0))
+    if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)) {
+        printf("%s: error from libusb_set_configuration\n", __FUNCTION__);
         goto error;
+    }
     step++;
 #ifndef DARWIN // not supported on Mac-OS
-    if (libusb_claim_interface(usbhandle, interface) < 0)
+    if (libusb_claim_interface(usbhandle, interface) < 0) {
+        printf("%s: error from libusb_claim_interface\n", __FUNCTION__);
         goto error;
+    }
 #endif
     step++;
     if (USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0)

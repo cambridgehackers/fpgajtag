@@ -136,6 +136,10 @@ static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, 
     if (logging)
         formatwrite(1, buf, size, "WRITE");
 #ifndef NO_LIBUSB
+    if (!usbhandle) {
+        printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+        exit(-1);
+    }
     ret = libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT);
 #endif
     if (ret < 0) {
@@ -155,6 +159,10 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     do {
         count++;
 #ifndef NO_LIBUSB
+        if (!usbhandle) {
+            printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+            exit(-1);
+        }
         ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
 #endif
         if (ret < 0) {
@@ -182,6 +190,24 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     return actual_length;
 }
 #endif //end if not USE_LIBFTDI
+
+static void dump_bytes(int fd, const char *title, unsigned char *p, int len)
+{
+int i;
+
+    i = 0;
+    while (len > 0) {
+        if (!(i & 0xf)) {
+            if (i > 0)
+                fprintf(stderr, "\n");
+            fprintf(stderr, "%s: ",title);
+        }
+        fprintf(stderr, "%02x ", *p++);
+        i++;
+        len--;
+    }
+    fprintf(stderr, "\n");
+}
 
 /*
  * Write utility functions
@@ -411,6 +437,10 @@ int fpgausb_open(int device_index, int interface)
     int configv = config_descrip->bConfigurationValue;
     libusb_free_config_descriptor (config_descrip);
     libusb_detach_kernel_driver(usbhandle, interface);
+    if (!usbhandle) {
+        printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+        exit(-1);
+    }
 #define USBCTRL(A,B,C) \
     libusb_control_transfer(usbhandle, (LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT), \
 			    (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
@@ -497,13 +527,16 @@ void sync_ftdi(int val)
 /*
  * FTDI generic initialization
  */
-void init_ftdi(int device_index, int interface)
+int init_ftdi(int device_index, int interface)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
     global_ftdi = (struct ftdi_context *)illegal_command;
     int i;
 
-    fpgausb_open(device_index, interface);            /*** Open selected USB interface ***/
+    if (fpgausb_open(device_index, interface) < 0) {    /*** Open selected USB interface ***/
+        printf("[%s:%d] error from fpgausb_open\n", __FUNCTION__, __LINE__);
+        return -1;
+    }
 #ifdef USE_LIBFTDI
     global_ftdi = ftdi_new();
     global_ftdi_set_usbdev(ftdi, usbhandle);
@@ -516,6 +549,7 @@ void init_ftdi(int device_index, int interface)
     for (i = 0; i < 4; i++)
         sync_ftdi(0xaa);
     sync_ftdi(0xab);
+    return 0;
 }
 
 /*

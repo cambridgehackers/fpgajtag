@@ -359,9 +359,10 @@ static void init_device(int extra)
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
     EXIT();
 }
-static void get_deviceid(int device_index, int interface)
+static int get_deviceid(int device_index, int interface)
 {
-    init_ftdi(device_index, interface);
+    if (init_ftdi(device_index, interface) < 0)
+        return -1;
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
@@ -370,6 +371,7 @@ static void get_deviceid(int device_index, int interface)
     first_time_idcode_read = 1;
     ENTER_TMS_STATE('R');
     read_idcode(1);
+    return 0;
 }
 /*
  * Functions for setting Instruction Register(IR)
@@ -631,8 +633,8 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
             if (uinfo[i].idVendor == USB_JTAG_ALTERA) {
                  printf("Altera device");
             }
-            else
-                get_deviceid(i, interface);  /*** Generic initialization of FTDI chip ***/
+            else if (get_deviceid(i, interface) < 0)  /*** Generic initialization of FTDI chip ***/
+                return -1;
             fpgausb_close();
             if (idcode_count)
                 fprintf(stderr, "; IDCODE:");
@@ -658,7 +660,8 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    get_deviceid(usb_index, interface);          /*** Generic initialization of FTDI chip ***/
+    if (get_deviceid(usb_index, interface) < 0) /*** Generic initialization of FTDI chip ***/
+        return -1;
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
         if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff || match_any_idcode) {
             jtag_index = i;
@@ -745,7 +748,8 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
 	}
         exit(0);
     }
-    init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode);
+    if (init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode) < 0)
+        return -1;      // error
 
     dcount = idcode_count - (found_cortex != -1) - 1;
     trailing_len = idcode_count - 1 - jtag_index;

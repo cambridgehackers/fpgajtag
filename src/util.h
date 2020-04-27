@@ -81,7 +81,7 @@ USB_INFO *fpgausb_init(void);
 int fpgausb_open(int device_index, int interface);
 void fpgausb_close(void);
 void fpgausb_release(void);
-void init_ftdi(int device_index, int interface);
+int init_ftdi(int device_index, int interface);
 
 void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);

@@ -32,7 +32,6 @@
 
 int main(int argc, char **argv)
 {
-    uint32_t ret;
     int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0;
     int skip_idcode = 0, match_any_idcode = 0, interface = 0, adevice = 0;
     const char *serialno = NULL;

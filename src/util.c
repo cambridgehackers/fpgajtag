@@ -385,8 +385,10 @@ USB_INFO *fpgausb_init(void)
             break;
         if (( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
            || desc.idProduct == 0x6011 || desc.idProduct == 0x6014))
-         || (device_type == DEVICE_MIMAS_A7 && desc.idVendor == 0x2a19 && desc.idProduct == 0x1009)
+         || (desc.idVendor == 0x2a19 && desc.idProduct == 0x1009)
            ) { /* Xilinx */
+            if (desc.idVendor == 0x2a19 && desc.idProduct == 0x1009)
+                device_type = DEVICE_MIMAS_A7;
             usbinfo_array[usbinfo_array_index].dev = dev;
             usbinfo_array[usbinfo_array_index].idVendor = desc.idVendor;
             usbinfo_array[usbinfo_array_index].idProduct = desc.idProduct;

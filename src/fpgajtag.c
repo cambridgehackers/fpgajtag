@@ -350,7 +350,7 @@ static void init_device(int extra)
     LOGNOTE("Set clock divisor");
     set_clock_divisor();
     if (device_type == DEVICE_MIMAS_A7)
-        write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x00, 0x00));
+        write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x20, 0x30));
     else
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
     if (extra)

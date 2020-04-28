@@ -430,10 +430,12 @@ int fpgausb_open(int device_index, int interface)
     unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
     struct libusb_config_descriptor *config_descrip;
 
+    if (usbinfo_array[device_index].idVendor == 0x2a19 && usbinfo_array[device_index].idProduct == 0x1009) {
+        device_type = DEVICE_MIMAS_A7;
+        interface = 1;
+    }
     ftdi_interface = interface;
     libusb_open(usbinfo_array[device_index].dev, &usbhandle);
-    if (usbinfo_array[device_index].idVendor == 0x2a19 && usbinfo_array[device_index].idProduct == 0x1009)
-        device_type = DEVICE_MIMAS_A7;
     if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0) {
         printf("%s: error from libusb_get_config_descriptor\n", __FUNCTION__);
         goto error;

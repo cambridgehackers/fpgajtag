@@ -356,10 +356,11 @@ static void init_device(int extra)
     set_clock_divisor();
     if (device_type == DEVICE_MIMAS_A7)
         write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x20, 0x30));
-    else
+    else {
         write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (extra)
-        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+        if (extra)
+            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    }
     LOGNOTE("For TAP to reset state.");
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
     EXIT();
@@ -813,7 +814,8 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
     marker_for_reset(0);
     write_cirreg(0, IRREG_JPROGRAM);
     write_cirreg(0, IRREG_ISC_NOOP);
-    pulse_gpio(12500 /*msec*/);
+    if (device_type != DEVICE_MIMAS_A7)
+        pulse_gpio(12500 /*msec*/);
     if ((ret = write_cirreg(DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
@@ -828,7 +830,8 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
     /*
      * Step 8: Startup
      */
-    pulse_gpio(1250 /*msec*/);
+    if (device_type != DEVICE_MIMAS_A7)
+        pulse_gpio(1250 /*msec*/);
     if ((ret = read_config_reg(CONFIG_REG_BOOTSTS)) != (jtag_index ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(0, IRREG_JSTART);

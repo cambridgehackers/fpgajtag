@@ -54,6 +54,7 @@ uint8_t *input_fileptr;
 int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 int device_type;
+long clock_frequency = CLOCK_FREQUENCY;
 
 static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail, interface;
 static USB_INFO *uinfo;
@@ -87,8 +88,8 @@ static void pulse_gpio(int adelay)
 
     ENTER_TMS_STATE('I');
     switch (adelay) {
-    case 1250:  delay = CLOCK_FREQUENCY/800; break;
-    case 12500: delay = CLOCK_FREQUENCY/80; break;
+    case 1250:  delay = clock_frequency/800; break;
+    case 12500: delay = clock_frequency/80; break;
     default:
            printf("pulse_gpio: unsupported time delay %d\n", adelay);
            exit(-1);
@@ -105,7 +106,7 @@ static void pulse_gpio(int adelay)
 }
 static void set_clock_divisor(void)
 {
-    flush_write(DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
+    flush_write(DITEM(TCK_DIVISOR, INT16(30000000/clock_frequency - 1)));
 }
 
 static char current_state, *lasttail;
@@ -348,6 +349,10 @@ static void init_device(int extra)
     LOGNOTE("Disable loopback. Disable divide by 5 of master clock.");
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
     LOGNOTE("Set clock divisor");
+#if 0
+    if (device_type == DEVICE_MIMAS_A7)
+        clock_frequency = 30000000;     // in case needs to be decreased
+#endif
     set_clock_divisor();
     if (device_type == DEVICE_MIMAS_A7)
         write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x20, 0x30));

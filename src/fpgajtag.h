@@ -24,4 +24,4 @@
 
 int fpgajtag_main(const char *bitstream, const char *serialport,
     int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int ainterface, int adevice);
+    int askip_idcode, int amatch_any_idcode, int interface, int adevice);

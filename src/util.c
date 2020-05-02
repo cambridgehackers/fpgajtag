@@ -461,12 +461,14 @@ int fpgausb_open(int device_index, int interface)
         goto error;
     }
     step++;
-#ifndef DARWIN // not supported on Mac-OS
     if (libusb_claim_interface(usbhandle, interface) < 0) {
         printf("%s: error from libusb_claim_interface\n", __FUNCTION__);
+#ifdef DARWIN // Apple driver conflict
+        printf("%s: Probably a conflict with Apple driver.  Please run:\n", __FUNCTION__);
+        printf("%s:     sudo kextunload -b com.apple.driver.AppleUSBFTDI\n", __FUNCTION__);
+#endif
         goto error;
     }
-#endif
     step++;
     if (USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0)
         goto error;

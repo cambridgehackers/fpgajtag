@@ -56,7 +56,7 @@ int tracep ;//= 1;
 int device_type;
 long clock_frequency = CLOCK_FREQUENCY;
 
-static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail, interface;
+static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -620,7 +620,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
+int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode, int interface)
 {
     int i, j;
 
@@ -683,7 +683,7 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
 
 int fpgajtag_main(const char *bitstream, const char *serialport,
     int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int ainterface, int adevice)
+    int askip_idcode, int amatch_any_idcode, int interface, int adevice)
 {
     uint32_t ret;
     int rescan = 0;
@@ -693,7 +693,6 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
     const char *filename = bitstream;
     skip_idcode = askip_idcode;
     match_any_idcode = amatch_any_idcode;
-    interface = ainterface;
     device_type = adevice;
 
     /*
@@ -754,7 +753,7 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
 	}
         exit(0);
     }
-    if (init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode) < 0)
+    if (init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode, interface) < 0)
         return -1;      // error
 
     dcount = idcode_count - (found_cortex != -1) - 1;

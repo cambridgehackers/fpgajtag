@@ -2,7 +2,7 @@
 include $(CLEAR_VARS)
 LOCAL_PATH := $(PWD)
 LOCAL_ARM_MODE := arm
-LOCAL_SRC_FILES := cortex.c fpgajtag.c process.c util.c
+LOCAL_SRC_FILES := main.c cortex.c fpgajtag.c process.c util.c
 
 LOCAL_MODULE := fpgajtag
 LOCAL_MODULE_TAGS := optional

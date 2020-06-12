@@ -89,7 +89,7 @@ void process_command_list(void)
         else if (mode == 0) {
             int t = tempbuf[0];
             t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(0, t, 0, 'I');
+            write_irreg(0, t, found_xilinx, 'I');
             flush_write(NULL);
         }
         else {

@@ -51,7 +51,7 @@
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
-int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
+int input_filesize, found_cortex = -1, found_xilinx = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
 int device_type;
 long clock_frequency = CLOCK_FREQUENCY;
@@ -337,6 +337,7 @@ void read_idcode(int prereset)
         }
         else {
             idcode_array[i] &= 0x0fffffff;  /* Xilinx 7 Series: 4 MSB are 'version': UG470, Fig 5-8 */
+            found_xilinx = i;
             idcode_len[i] = XILINX_IR_LENGTH;
         }
     }

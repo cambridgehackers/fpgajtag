@@ -81,7 +81,7 @@ int main(int argc, char **argv)
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] [ -d <device_type> ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] [ -c <commandfile> ] [ -d <device_type> ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -108,6 +108,7 @@ usage:
                         "  -s <serialno>  Use the jtag interface with the given serial number\n"
                         "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
 		        "  -I <0|1>       Which interface of FT2232 to use\n"
+                        "  -c <commandfile> Direct setting/reading of IR and DR registers\n"
                         "  -d <device_type> to specify programmed device name\n"
                         "                 Supported names: MIMAS_A7\n"
                         "  -t             Trace usb programming traffic\n");

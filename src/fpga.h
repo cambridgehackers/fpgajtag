@@ -236,5 +236,5 @@ uint32_t fetch_result(int idindex, int command, int resp_len, int fd);
 int write_cbypass(int read, int idindex);
 void write_dirreg(int command, int idindex);
 void read_idcode(int prereset);
-extern int above2, jtag_index, dcount, tracep, found_cortex, idcode_count;
+extern int above2, jtag_index, dcount, tracep, found_cortex, found_xilinx, idcode_count;
 

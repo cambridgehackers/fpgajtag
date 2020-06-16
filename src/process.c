@@ -26,7 +26,8 @@
 #include <string.h>
 #include <inttypes.h>
 #include "util.h"
-#include "fpga.h"
+//#include "fpga.h"
+#include "fpgajtag.h"
 
 #define BUFFER_MAX_LEN    100000000
 #define TOHEX(A) (((A) >= '0' && (A) <= '9') ? (A) - '0' : \
@@ -87,20 +88,12 @@ void process_command_list(void)
         else if (mode == -1)
             printf("fpgajtag: mode not set!\n");
         else if (mode == 0) {
-            int t = tempbuf[0];
-            t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
-            write_irreg(0, t, found_xilinx, 'I');
-            flush_write(NULL);
+            fpgajtag_write_ir(tempbuf[0]);
         }
         else {
-            idle_to_shift_dr(0);
             for (i = 0; i < len; i++)
                 tempbuf2[i] = tempbuf[len-1-i];
-            write_bytes(DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
-            if (found_cortex != -1)
-                 write_tms_transition("EE0101");
-            ENTER_TMS_STATE('I');
-            uint8_t *rdata = read_data();
+            uint8_t *rdata = fpgajtag_write_dr(tempbuf2, len);
             int i = 0;
             while(i < len) {
                 uint8_t t = rdata[len-1-i];
@@ -113,5 +106,4 @@ void process_command_list(void)
         }
         str = NULL;
     }
-    flush_write(NULL);
 }

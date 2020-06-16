@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0;
     int skip_idcode = 0, match_any_idcode = 0, interface = 0, adevice = 0;
     const char *serialno = NULL;
-    logfile = stdout;
+    fpgajtag_logfile = stdout;
     opterr = 0;
     while ((i = getopt (argc, argv, "atrxlms:ci:I:d:")) != -1)
         switch (i) {

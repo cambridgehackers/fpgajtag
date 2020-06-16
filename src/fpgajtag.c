@@ -109,17 +109,18 @@ static void set_clock_divisor(void)
     flush_write(DITEM(TCK_DIVISOR, INT16(30000000/clock_frequency - 1)));
 }
 
-static char current_state, *lasttail;
+static char current_state;
+static const char *lasttail;
 static int match_state(char req)
 {
     return req == 'X' || !current_state || current_state == req
        || (current_state == 'S' && req == 'D')
        || (current_state == 'D' && req == 'S');
 }
-void write_tms_transition(char *tail)
+void write_tms_transition(const char *tail)
 {
     ENTER();
-    char *p = tail+2;
+    const char *p = tail+2;
     uint8_t temp[] = {TMSW, 0, 0};
     int len = 0;
 
@@ -409,6 +410,21 @@ printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __
     else
         write_bit(read, idcode_len[idindex] - 1, command, tail);
 }
+void fpgajtag_write_ir(int t)
+{
+    t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
+    write_irreg(0, t, found_xilinx, 'I');
+    flush_write(NULL);
+}
+uint8_t *fpgajtag_write_dr(uint8_t *tempbuf2, int len)
+{
+    idle_to_shift_dr(0);
+    write_bytes(DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
+    if (found_cortex != -1)
+         write_tms_transition("EE0101");
+    ENTER_TMS_STATE('I');
+    return read_data();
+}
 static int write_cirreg(int read, int command)
 {
     int ret = 0, target_state = (jtag_index && read ? 'P' : 'E');
@@ -621,7 +637,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode, int interface)
+int init_fpgajtag(const char *serialno, int read_idcode_only, uint32_t file_idcode, int interface)
 {
     int i, j;
 
@@ -635,7 +651,7 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
     for (i = 0; uinfo[i].dev; i++) {
         fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
-        if (!filename) {
+        if (read_idcode_only) {
             idcode_count = 0;
             if (uinfo[i].idVendor == USB_JTAG_ALTERA) {
                  printf("Altera device");
@@ -650,7 +666,7 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
         }
         fprintf(stderr, "\n");
     }
-    if (!filename)
+    if (read_idcode_only)
         return -1;
     while (1) {
         if (!uinfo[usb_index].dev) {
@@ -679,6 +695,23 @@ int init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idco
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
         return -1;
     }
+    dcount = idcode_count - (found_cortex != -1) - 1;
+    trailing_len = idcode_count - 1 - jtag_index;
+    dc2trail = dcount == 2 && !trailing_len;
+printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, found_cortex, dcount, trailing_len);
+    return 0;
+}
+
+int fpgajtag_finish(int rescan)
+{
+    flush_write(NULL);
+    fpgausb_close();
+    fpgausb_release();
+    if (rescan) {
+	int rc = execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+	fprintf(stderr, "fpgajtag: ERROR failed to run pciescanportal: %s\n", strerror(errno));
+	return rc;
+    }
     return 0;
 }
 
@@ -689,7 +722,7 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
     uint32_t ret;
     int rescan = 0;
     const char *serialno = serialport;
-    logfile = stdout;
+    fpgajtag_logfile = stdout;
     opterr = 0;
     const char *filename = bitstream;
     skip_idcode = askip_idcode;
@@ -754,13 +787,8 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
 	}
         exit(0);
     }
-    if (init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode, interface) < 0)
+    if (init_fpgajtag(serialno, filename == NULL, cflag ? 0xffffffff : file_idcode, interface) < 0)
         return -1;      // error
-
-    dcount = idcode_count - (found_cortex != -1) - 1;
-    trailing_len = idcode_count - 1 - jtag_index;
-    dc2trail = dcount == 2 && !trailing_len;
-printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, found_cortex, dcount, trailing_len);
 
     /*
      * See if we are reading out data
@@ -783,6 +811,7 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
      */
     if (cflag) {
         process_command_list();
+        flush_write(NULL);
         goto exit_label;
     }
 
@@ -866,12 +895,5 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
      * Cleanup and free USB device
      */
 exit_label:
-    fpgausb_close();
-    fpgausb_release();
-    if (rescan) {
-	int rc = execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
-	fprintf(stderr, "fpgajtag: ERROR failed to run pciescanportal: %s\n", strerror(errno));
-	return rc;
-    }
-    return 0;
+    return fpgajtag_finish(rescan);
 }

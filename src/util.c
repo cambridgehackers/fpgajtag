@@ -31,6 +31,7 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include "util.h"
+#include "fpgajtag.h"
 #include "elfdef.h"
 #ifdef __arm__
 #define NO_LIBUSB
@@ -65,7 +66,7 @@ static void openlogfile(void);
 
 #include "dumpdata.h"
 
-FILE *logfile;
+FILE *fpgajtag_logfile;
 int usb_bcddevice;
 uint8_t bitswap[256];
 int last_read_data_length;
@@ -103,13 +104,13 @@ int min(int a, int b)
 
 static void openlogfile(void)
 {
-    if (!logfile)
-        logfile = fopen("/tmp/xx.logfile2", "w");
+    if (!fpgajtag_logfile)
+        fpgajtag_logfile = fopen("/tmp/xx.logfile2", "w");
     if (datafile_fd < 0)
         datafile_fd = creat("/tmp/xx.datafile2", 0666);
 }
 
-void memdump(const uint8_t *p, int len, char *title)
+void memdump(const uint8_t *p, int len, const char *title)
 {
 int i;
 
@@ -515,7 +516,7 @@ for (i = 0; i < 100; i++)
 }
 void fpgausb_release(void)
 {
-    fclose(logfile);
+    fclose(fpgajtag_logfile);
     close(datafile_fd);
 #ifndef NO_LIBUSB
     libusb_free_device_list(device_list,1);

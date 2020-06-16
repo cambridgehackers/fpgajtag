@@ -72,14 +72,14 @@ int i;
     while (len > 0) {
         if (!(i & 0xf)) {
             if (i > 0)
-                fprintf(logfile, "\n");
-            fprintf(logfile, "%s ",title);
+                fprintf(fpgajtag_logfile, "\n");
+            fprintf(fpgajtag_logfile, "%s ",title);
         }
-        fprintf(logfile, "0x%02x, ", *p++);
+        fprintf(fpgajtag_logfile, "0x%02x, ", *p++);
         i++;
         len--;
     }
-    fprintf(logfile, "\n");
+    fprintf(fpgajtag_logfile, "\n");
 }
 static int started = 0;
 static void formatwrite(int submit, const unsigned char *p, int len, const char *title)

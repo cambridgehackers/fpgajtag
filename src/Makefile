@@ -30,7 +30,7 @@ else
 endif
 
 fpgajtag: $(LIB) Makefile main.c
-	gcc -g $(CFLAGS) -o fpgajtag main.c $(LIB) -lpthread $(FTDILIB) $(USBLIB) -lz
+	gcc -g $(CFLAGS) -o $@ main.c $(LIB) -lpthread $(FTDILIB) $(USBLIB) -lz
 
 $(LIB): $(OBJS)
 	rm -f $(LIB)

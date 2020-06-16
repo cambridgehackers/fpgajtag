@@ -1,5 +1,4 @@
-// Copyright (c) 2014 Quanta Research Cambridge, Inc.
-// Original author: John Ankcorn
+// Copyright (c) 2020 The Connectal Project
 
 // Permission is hereby granted, free of charge, to any person
 // obtaining a copy of this software and associated documentation
@@ -21,20 +20,30 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
+#include <stdio.h>
+#include <inttypes.h>
+#include "fpgajtag.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-extern FILE *fpgajtag_logfile;
-
-int fpgajtag_main(const char *bitstream, const char *serialport,
-    int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int interface, int adevice);
-int init_fpgajtag(const char *serialno, int read_idcode_only, uint32_t file_idcode, int interface);
-int fpgajtag_finish(int rescan);
-void fpgajtag_write_ir(int t);
-uint8_t *fpgajtag_write_dr(uint8_t *tempbuf, int len);
-void memdump(const uint8_t *p, int len, const char *title);
-#ifdef __cplusplus
+int main(int argc, char **argv)
+{
+    fpgajtag_logfile = stdout;
+    if (init_fpgajtag(NULL, 0, 0xffffffff, 0) < 0)
+        return -1;      // error
+int op = 0x9;
+printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
+    fpgajtag_write_ir(op);
+    op = 0x22;
+printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
+    fpgajtag_write_ir(op);
+static uint8_t data[] = {0xef, 0xbe, 0x1d, 0xd0, 0xef, 0xbe, 0xad, 0xde};
+    int len = sizeof(data);
+    for (int i = 0; i < 99999; i++) {
+if (i % 100 == 0)
+printf("[%s:%d] i %d\n", __FUNCTION__, __LINE__, i);
+        uint8_t *rdata = fpgajtag_write_dr(data, len);
+if (i % 100 == 0)
+        memdump(rdata, len, "           RVAL");
+    }
+    return fpgajtag_finish(0);
 }
-#endif
+

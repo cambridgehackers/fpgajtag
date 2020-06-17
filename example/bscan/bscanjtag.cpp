@@ -21,6 +21,7 @@
 // SOFTWARE.
 //
 #include <stdio.h>
+#include <unistd.h>
 #include <inttypes.h>
 #include "fpgajtag.h"
 
@@ -29,20 +30,21 @@ int main(int argc, char **argv)
     fpgajtag_logfile = stdout;
     if (init_fpgajtag(NULL, 0, 0xffffffff, 0) < 0)
         return -1;      // error
-int op = 0x9;
-printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
+    int op = 0x9;
+    printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
     op = 0x22;
-printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
+    printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
-static uint8_t data[] = {0xef, 0xbe, 0x1d, 0xd0, 0xef, 0xbe, 0xad, 0xde};
+//static uint8_t data[] = {0xef, 0xbe, 0x1d, 0xd0, 0xef, 0xbe, 0xad, 0xde};
+static uint32_t data = 0xbeefdead;
     int len = sizeof(data);
-    for (int i = 0; i < 99999; i++) {
-if (i % 100 == 0)
-printf("[%s:%d] i %d\n", __FUNCTION__, __LINE__, i);
-        uint8_t *rdata = fpgajtag_write_dr(data, len);
-if (i % 100 == 0)
-        memdump(rdata, len, "           RVAL");
+    for (int i = 0; i < 20; i++) {
+        data += 5;
+        uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, len);
+        sleep(1);
+        printf("%5d %8x\n", i, *(uint32_t *)rdata);
+        //memdump(rdata, len, "           RVAL");
     }
     return fpgajtag_finish(0);
 }

@@ -25,10 +25,9 @@
 #include <inttypes.h>
 #include "fpgajtag.h"
 
-#define MAX_DATA_SIZE 100000
-uint8_t buffer[MAX_DATA_SIZE];
 int main(int argc, char **argv)
 {
+    int counter = 0;
     fpgajtag_logfile = stdout;
     if (init_fpgajtag(NULL, 0, 0xffffffff, 0) < 0)
         return -1;      // error
@@ -42,12 +41,12 @@ int main(int argc, char **argv)
     int len = sizeof(data);
     for (int i = 0; i < LOOP_LIMIT; i++) {  // loop length defined in Makefile
         data += 0x10010105;
-        //for (int j = 0; j < len; j++)
-            //buffer[i] = ((uint8_t *) &data)[len - 1 - i];
         uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, len);
-        printf("%5d out %8x in %8x\n", i, data, *(uint32_t *)rdata);
+        counter++;
+        //if ((counter % 1000) == 0)
+            printf("%5d out %8x in %8x\n", counter, data, *(uint32_t *)rdata);
 #ifdef SLOW
-        sleep(3);
+        sleep(1);
 #endif
     }
     return fpgajtag_finish(0);

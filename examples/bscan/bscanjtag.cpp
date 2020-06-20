@@ -38,19 +38,14 @@ int main(int argc, char **argv)
     op = 0x22;
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
-//static uint8_t data[] = {0xef, 0xbe, 0x1d, 0xd0, 0xef, 0xbe, 0xad, 0xde};
     static uint32_t data = 0xbeefdead;
     int len = sizeof(data);
     for (int i = 0; i < LOOP_LIMIT; i++) {  // loop length defined in Makefile
-        data += 5;
-        for (int j = 0; j < len; j++)
-            buffer[i] = ((uint8_t *) &data)[len - 1 - i];
-        uint8_t *rdata = fpgajtag_write_dr(buffer, len);
-        for (int j = 0; j < len; j++)
-            buffer[j] = rdata[len - 1 - j];
-        printf("%5d out %8x in %8x\n", i, data, *(uint32_t *)buffer);
-        //memdump(rdata, len, "           RVAL");
-        //memdump(buffer, len, "           RVAL");
+        data += 0x10010105;
+        //for (int j = 0; j < len; j++)
+            //buffer[i] = ((uint8_t *) &data)[len - 1 - i];
+        uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, len);
+        printf("%5d out %8x in %8x\n", i, data, *(uint32_t *)rdata);
 #ifdef SLOW
         sleep(3);
 #endif

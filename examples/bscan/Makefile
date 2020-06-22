@@ -2,9 +2,9 @@
 OS := $(shell uname)
 LIBDIR = ../../src
 # Define the number of requests to send and whether to sleep between them
-CFLAGS += -DLOOP_LIMIT=20
-#50000000
-#CFLAGS += -DSLOW
+CFLAGS += -DLOOP_LIMIT=5
+#000000
+CFLAGS += -DSLOW
 
 #USE_LIBFTDI = 1
 #VARIANT=-DUSE_LOGGING

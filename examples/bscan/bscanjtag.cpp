@@ -25,6 +25,11 @@
 #include <inttypes.h>
 #include "fpgajtag.h"
 
+//#define USER_PORT_IR    32
+//#define USER_PORT_IR    34
+#define USER_PORT_IR    35
+#define QUIET_GUARD //if ((counter % 1000) == 0)
+
 int main(int argc, char **argv)
 {
     int counter = 0;
@@ -34,7 +39,7 @@ int main(int argc, char **argv)
     int op = 0x9;
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
-    op = 0x22;
+    op = USER_PORT_IR;
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
     static uint32_t data = 0xbeefdead;
@@ -43,7 +48,7 @@ int main(int argc, char **argv)
         data += 0x10010105;
         uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, len);
         counter++;
-        //if ((counter % 1000) == 0)
+        QUIET_GUARD
             printf("%5d out %8x in %8x\n", counter, data, *(uint32_t *)rdata);
 #ifdef SLOW
         sleep(1);

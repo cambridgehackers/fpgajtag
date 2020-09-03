@@ -32,6 +32,7 @@
 
 int main(int argc, char **argv)
 {
+    int loop_limit = argc < 2 ? 5: 200000;
     int counter = 0;
     fpgajtag_logfile = stdout;
     if (init_fpgajtag(NULL, 0, 0xffffffff, 0) < 0)
@@ -44,15 +45,14 @@ int main(int argc, char **argv)
     fpgajtag_write_ir(op);
     static uint32_t data = 0xbeefdead;
     int len = sizeof(data);
-    for (int i = 0; i < LOOP_LIMIT; i++) {  // loop length defined in Makefile
+    for (int i = 0; i < loop_limit; i++) {  // loop length defined in Makefile
         data += 0x10010105;
         uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, len);
         counter++;
         QUIET_GUARD
             printf("%5d out %8x in %8x\n", counter, data, *(uint32_t *)rdata);
-#ifdef SLOW
+        if (argc < 2)
         sleep(1);
-#endif
     }
     return fpgajtag_finish(0);
 }

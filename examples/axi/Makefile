@@ -1,6 +1,7 @@
 
 OS := $(shell uname)
 LIBDIR = ../../src
+ATOMICCDIR=../../../atomicc
 
 #USE_LIBFTDI = 1
 #VARIANT=-DUSE_LOGGING
@@ -24,11 +25,14 @@ else
     USBLIB = -lusb-1.0
 endif
 
-trace: $(LIB) Makefile axitrace.cpp
-	$(CC) -g $(CFLAGS) -o $@ axitrace.cpp $(LIB) -lpthread $(FTDILIB) $(USBLIB) -lz
+trace: $(LIB) Makefile axitrace.cpp vcddump.cpp
+	$(CC) -g $(CFLAGS) -o $@ axitrace.cpp vcddump.cpp $(LIB) -lpthread $(FTDILIB) $(USBLIB) -lz
 
 android:
 	ndk-build
 
 clean:
 	rm -rf trace
+
+tracedump:
+	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo

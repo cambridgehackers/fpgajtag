@@ -25,15 +25,16 @@
 #include <inttypes.h>
 #include <string>
 #include "fpgajtag.h"
+#include "vcddump.h"
 
 //#define USER_PORT_IR    35
 #define USER_PORT_IR    34
 #define DOLLAR "$"
 
 // skip 3 bits from beginning
-static int width[] = {3, 32, 1, 1, 32, 12, 4, 1, 1, 32, 12, 4, 1, 1, 32, 12, 1, 1, 1, 32, 12, 1, 2, 1, 1, 12, 2, 1, -1};
 static bool comma[200];
-//char *name[] = {"interrupt", "MAXIGP0_O.AR__ENA", "MAXIGP0_O.AR$addr", "MAXIGP0_O.AR$id", "MAXIGP0_O.AR$len", "MAXIGP0_O.AR__RDY", "MAXIGP0_O.AW__ENA", "MAXIGP0_O.AW$addr", "MAXIGP0_O.AW$id", "MAXIGP0_O.AW$len", "MAXIGP0_O.AW__RDY", "MAXIGP0_O.W__ENA", "MAXIGP0_O.W$data", "MAXIGP0_O.W$id", "MAXIGP0_O.W$last", "MAXIGP0_O.W__RDY", "MAXIGP0_I.R__ENA", "MAXIGP0_I.R$data", "MAXIGP0_I.R$id", "MAXIGP0_I.R$last", "MAXIGP0_I.R$resp", "MAXIGP0_I.R__RDY", "MAXIGP0_I.B__ENA", "MAXIGP0_I.B$id", "MAXIGP0_I.B$resp", "MAXIGP0_I.B__RDY", nullptr};
+static int width[] = {3, 32, 1, 1, 32, 12, 4, 1, 1, 32, 12, 4, 1, 1, 32, 12, 1, 1, 1, 32, 12, 1, 2, 1, 1, 12, 2, 1, -1};
+const char *fullname[] = {"NULL", "TIME", "interrupt", "MAXIGP0_O.AR__ENA", "MAXIGP0_O.AR$addr", "MAXIGP0_O.AR$id", "MAXIGP0_O.AR$len", "MAXIGP0_O.AR__RDY", "MAXIGP0_O.AW__ENA", "MAXIGP0_O.AW$addr", "MAXIGP0_O.AW$id", "MAXIGP0_O.AW$len", "MAXIGP0_O.AW__RDY", "MAXIGP0_O.W__ENA", "MAXIGP0_O.W$data", "MAXIGP0_O.W$id", "MAXIGP0_O.W$last", "MAXIGP0_O.W__RDY", "MAXIGP0_I.R__ENA", "MAXIGP0_I.R$data", "MAXIGP0_I.R$id", "MAXIGP0_I.R$last", "MAXIGP0_I.R$resp", "MAXIGP0_I.R__RDY", "MAXIGP0_I.B__ENA", "MAXIGP0_I.B$id", "MAXIGP0_I.B$resp", "MAXIGP0_I.B__RDY", nullptr};
 const char *name[] = {"", "TIME", "interrupt",
      "AR__ENA", "AR$addr", "AR$id", "AR$len", "AR__RDY",
      "AW__ENA", "AW$addr", "AW$id", "AW$len", "AW__RDY",
@@ -69,6 +70,7 @@ int main(int argc, char **argv)
     fpgajtag_write_ir(op);
     std::string prefix, sep;
     int index = 0;
+    startVcdFile("xx.foo", fullname, width);
     printf("            ");
     comma[1] = true; // TIME
     while (name[index] != nullptr) {
@@ -126,6 +128,11 @@ outlab:;
                 printf(" %x", data);
             if (comma[index])
                 printf(",   ");
+            std::string name = fullname[index];
+            if (name == "TIME")
+                outputTime(data);
+            else
+                outputValue(name, data);
             index++;
         }
 #else
@@ -134,6 +141,7 @@ outlab:;
 #endif
         printf("\n");
     }
+    endVcdFile();
     return fpgajtag_finish(0);
 }
 

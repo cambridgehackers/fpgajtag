@@ -41,8 +41,8 @@ const char *name[] = {"", "TIME", "interrupt",
      "W__ENA", "W$data", "W$id", "W$last", "W__RDY",
      "R__ENA", "R$data", "R$id", "R$last", "R$resp", "R__RDY",
      "B__ENA", "B$id", "B$resp", "B__RDY", nullptr};
-#define TRACE_WIDTH       245
-#define TRACE_WIDTH_BYTES ((TRACE_WIDTH + 7)/8)
+#define LLTRACE_WIDTH       245
+#define TRACE_WIDTH_BYTES 4 //((TRACE_WIDTH + 7)/8)
 #define TRACE_DEPTH        1024
 
 static uint8_t data[TRACE_WIDTH_BYTES];
@@ -99,10 +99,11 @@ int main(int argc, char **argv)
         for (int j = 0; j < TRACE_WIDTH_BYTES; j++)
             if (rdata[j])
                 goto outlab;
+if (0)
         continue;
 outlab:;
-        printf("[%3d] ", i);
-#if 1
+        //printf("[%3d] ", i);
+#if 0
         int iremain = 0;
         uint8_t *p = &rdata[TRACE_WIDTH_BYTES - 1];
         uint8_t idata;
@@ -136,9 +137,14 @@ outlab:;
             index++;
         }
 #else
-        for (int j = TRACE_WIDTH_BYTES - 1 - 4; j >= 0; j--)
+static uint8_t prev[TRACE_WIDTH_BYTES];
+        for (int j = TRACE_WIDTH_BYTES - 1; j >= 0; j--)
             printf(" %02x", rdata[j]);
+            //printf(" %3d", rdata[j] - prev[j]);
+        for (int j = TRACE_WIDTH_BYTES - 1; j >= 0; j--)
+            prev[j] = rdata[j];
 #endif
+if ((i+1) % 8 == 0)
         printf("\n");
     }
     endVcdFile();

@@ -34,5 +34,6 @@ android:
 clean:
 	rm -rf trace
 
-tracedump:
-	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo
+run:
+	./trace >xx
+	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo >xx.ll

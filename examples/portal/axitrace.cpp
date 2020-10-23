@@ -32,7 +32,6 @@
 #define USER_PORT_IR    34
 #define DOLLAR "$"
 
-#include "../../../atomicc-examples/lib/generated/AxiTop.trace"
 #define TRACE_WIDTH       245
 #define TRACE_WIDTH_BYTES ((TRACE_WIDTH + 7)/8)
 #define TRACE_DEPTH        1024
@@ -51,6 +50,9 @@ bool inline startswith(std::string str, std::string suffix)
     return str.substr(0, suffix.length()) == suffix;
 }
 
+#define DECODE_BUFFER_SIZE 2000
+static char decodeBuffer[DECODE_BUFFER_SIZE];
+
 int main(int argc, char **argv)
 {
     fpgajtag_logfile = stdout;
@@ -62,6 +64,30 @@ int main(int argc, char **argv)
     op = USER_PORT_IR;
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
+    FILE *inputData = fopen("../../../atomicc-examples/lib/generated/AxiTop.trace", "r");
+    fgets(decodeBuffer, sizeof(decodeBuffer), inputData);
+    int traceCount = atoi(decodeBuffer);
+    if (traceCount <= 1) {
+        printf("[%s:%d] unable to read decode data %d\n", __FUNCTION__, __LINE__, traceCount);
+    }
+    int *width = (int *)malloc(sizeof(int) * (traceCount + 2));
+    memset(width, 0, sizeof(int) * (traceCount + 2));
+    const char **fullname = (const char **)malloc(sizeof(const char *) * (traceCount + 2));
+    memset(fullname, 0, sizeof(const char *) * (traceCount + 2));
+    int currentItem = 0;
+    while (fgets(decodeBuffer, sizeof(decodeBuffer), inputData)) {
+        if (currentItem >= traceCount) {
+            printf("[%s:%d] too many items in decode data %d max was %d\n", __FUNCTION__, __LINE__, currentItem, traceCount);
+            exit(-1);
+        }
+        char *len = strstr(decodeBuffer, " ");
+        *len++ = 0;
+        fullname[currentItem] = strdup(decodeBuffer);
+        width[currentItem] = atoi(len);
+        currentItem++;
+    }
+    fullname[currentItem] = nullptr;
+    width[currentItem] = -1;
     startVcdFile("xx.foo", fullname, width);
     for (int i = 0; i < TRACE_DEPTH; i++) {
         uint8_t *bufferp = returnBuffer;

@@ -29,16 +29,15 @@
 #include "vcddump.h"
 
 //#define USER_PORT_IR    35
-#define USER_PORT_IR    34
+#define USER_PORT_IR       34
+#define TRANSFER_WIDTH     4
+#define MAX_TRACE_WIDTH    100000
+#define DECODE_BUFFER_SIZE 100000
 #define DOLLAR "$"
 
-#define TRACE_WIDTH       245
-#define TRACE_WIDTH_BYTES ((TRACE_WIDTH + 7)/8)
-#define TRACE_DEPTH        1024
-#define TRANSFER_WIDTH     4
-
-static uint8_t data[TRACE_WIDTH_BYTES];
-static uint8_t returnBuffer[TRACE_WIDTH_BYTES];
+static uint8_t data[MAX_TRACE_WIDTH];
+static uint8_t returnBuffer[TRANSFER_WIDTH];
+static char decodeBuffer[DECODE_BUFFER_SIZE];
 
 bool inline endswith(std::string str, std::string suffix)
 {
@@ -49,9 +48,6 @@ bool inline startswith(std::string str, std::string suffix)
 {
     return str.substr(0, suffix.length()) == suffix;
 }
-
-#define DECODE_BUFFER_SIZE 2000
-static char decodeBuffer[DECODE_BUFFER_SIZE];
 
 int main(int argc, char **argv)
 {
@@ -65,13 +61,37 @@ int main(int argc, char **argv)
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
     FILE *inputData = fopen("../../../atomicc-examples/lib/generated/AxiTop.trace", "r");
-    fgets(decodeBuffer, sizeof(decodeBuffer), inputData);
-    char *len = strstr(decodeBuffer, " ");
-    *len++ = 0;
-    int traceCount = atoi(len);
-    if (traceCount <= 1) {
-        printf("[%s:%d] unable to read decode data %d\n", __FUNCTION__, __LINE__, traceCount);
+    int traceCount = -1, traceWidth = -1, traceDepth = -1;
+    while (fgets(decodeBuffer, sizeof(decodeBuffer), inputData)) {
+        if (!strncmp(decodeBuffer, "-----", 5))
+            break;
+        char *len = strstr(decodeBuffer, " ");
+        *len++ = 0;
+        int temp = 0;
+        while (1) {
+            char *endptr = nullptr;
+            temp += strtol(len, &endptr, 10);
+            if (*endptr == '\n')
+                break;
+            if (*endptr != '+') {
+                printf("[%s:%d] error in decode data expression %s\n", __FUNCTION__, __LINE__, len);
+            }
+            len = endptr+1;
+        }
+        if (temp <= 1) {
+            printf("[%s:%d] unable to read decode data %d\n", __FUNCTION__, __LINE__, temp);
+        }
+        if (!strcmp(decodeBuffer, "COUNT"))
+            traceCount = temp;
+        else if (!strcmp(decodeBuffer, "WIDTH"))
+            traceWidth = temp;
+        else if (!strcmp(decodeBuffer, "DEPTH"))
+            traceDepth = temp;
+        else
+            printf("[%s:%d] unknown tag when reading decode data %s\n", __FUNCTION__, __LINE__, decodeBuffer);
     }
+printf("[%s:%d] width %d depth %d count %d\n", __FUNCTION__, __LINE__, traceWidth, traceDepth, traceCount);
+    int traceWidthBytes = (traceWidth + 7)/8;
     int *width = (int *)malloc(sizeof(int) * (traceCount + 2));
     memset(width, 0, sizeof(int) * (traceCount + 2));
     const char **fullname = (const char **)malloc(sizeof(const char *) * (traceCount + 2));
@@ -91,9 +111,9 @@ int main(int argc, char **argv)
     fullname[currentItem] = nullptr;
     width[currentItem] = -1;
     startVcdFile("xx.foo", fullname, width);
-    for (int i = 0; i < TRACE_DEPTH; i++) {
+    for (int i = 0; i < traceDepth; i++) {
         uint8_t *bufferp = returnBuffer;
-        for (int j = 0; j < TRACE_WIDTH_BYTES; j += TRANSFER_WIDTH) {
+        for (int j = 0; j < traceWidthBytes; j += TRANSFER_WIDTH) {
             uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, TRANSFER_WIDTH);
             for (int k = 0; k < TRANSFER_WIDTH; k++)
                 *bufferp++ = rdata[TRANSFER_WIDTH-1 - k];
@@ -123,7 +143,7 @@ int main(int argc, char **argv)
                 outputValue(name, data);
             index++;
         }
-        for (int j = 0; j < TRACE_WIDTH_BYTES - 1; j++)
+        for (int j = 0; j < traceWidthBytes - 1; j++)
             printf(" %02x", returnBuffer[j]);
         printf("\n");
     }

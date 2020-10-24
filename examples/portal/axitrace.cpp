@@ -66,7 +66,9 @@ int main(int argc, char **argv)
     fpgajtag_write_ir(op);
     FILE *inputData = fopen("../../../atomicc-examples/lib/generated/AxiTop.trace", "r");
     fgets(decodeBuffer, sizeof(decodeBuffer), inputData);
-    int traceCount = atoi(decodeBuffer);
+    char *len = strstr(decodeBuffer, " ");
+    *len++ = 0;
+    int traceCount = atoi(len);
     if (traceCount <= 1) {
         printf("[%s:%d] unable to read decode data %d\n", __FUNCTION__, __LINE__, traceCount);
     }

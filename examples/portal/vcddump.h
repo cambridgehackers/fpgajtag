@@ -20,8 +20,23 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
+#include <string>
+#include <list>
+#define PERIOD "."
+#define DOLLAR "$"
 
-void startVcdFile(std::string filename, const char **names, int *size);
+typedef struct {
+    int traceCount;
+    int traceWidth;
+    int traceWidthBytes;
+    int traceDepth;
+    std::list<int> width;
+    std::list<std::string> fullname;
+} TraceDescription;
+
+extern TraceDescription descr[10];
+
+void startVcdFile(std::string filename, int maxDescr);
 void outputTime(uint32_t value);
 void outputValue(std::string name, uint32_t value);
 void endVcdFile(void);

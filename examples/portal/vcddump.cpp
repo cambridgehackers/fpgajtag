@@ -24,7 +24,6 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <time.h>
-#include <string>
 #include <map>
 #include "vcddump.h"
 
@@ -34,9 +33,9 @@ typedef struct {
     bool        seen;
 } SymbolInfo;
 
-int symbolIndex;
-std::map<std::string, SymbolInfo> symbolMap;
-std::map<std::string, uint32_t> currentValue;
+static int symbolIndex;
+static std::map<std::string, SymbolInfo> symbolMap;
+static std::map<std::string, uint32_t> currentValue;
 static FILE *outputFile;
 
 static inline std::string autostr(uint64_t X, bool isNeg = false) {
@@ -96,7 +95,7 @@ void outputValue(std::string name, uint32_t value)
     }
 }
 
-void startVcdFile(std::string filename, const char **names, int *width)
+void startVcdFile(std::string filename, int maxDescr)
 {
     time_t rawtime;
     time (&rawtime);
@@ -107,19 +106,45 @@ void startVcdFile(std::string filename, const char **names, int *width)
     fprintf(outputFile, "$date %s $end\n", asctime(timeinfo));
     fprintf(outputFile, "$timescale   1ps $end\n\n");
     fprintf(outputFile, " $scope module TOP $end\n");
-    while (*names != nullptr) {
-        int sWidth = *width++;
-        std::string sName = *names++;
-        std::string code = createCode(++symbolIndex);
-        std::string vecCount;
-        if (sWidth > 1)
-            vecCount = " [" + autostr(sWidth-1) + ":0]";
-        symbolMap[sName] = {code, sWidth, false};
-        int ind;
-#define PERIOD "."
-        while ((ind = sName.find(PERIOD)) > 0)
-            sName = sName.substr(0, ind) + "_" + sName.substr(ind+1);
-        fprintf(outputFile, "    $var wire  %d %s %s%s $end\n", sWidth, code.c_str(), sName.c_str(), vecCount.c_str());
+    for (int i = 0; i < maxDescr; i++) {
+        std::string prefix;
+        int prefixCount = 0;
+        auto names = descr[i].fullname.begin();
+        for (auto sWidth: descr[i].width) {
+            std::string sName = *names++;
+            std::string orig = sName;
+            if (symbolMap[sName].width) {
+printf("[%s:%d] SYMBOLDEF %s\n", __FUNCTION__, __LINE__, sName.c_str());
+                continue;
+            }
+            int ind;
+printf("[%s:%d]checkprefix %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
+            if (//prefix.length() && sName.length() > prefix.length() && 
+sName.substr(0, prefix.length()) == prefix) {
+                sName = sName.substr(prefix.length());
+                while ((ind = sName.find("/")) > 0) {
+                    std::string component = sName.substr(0, ind);
+                    sName = sName.substr(ind+1);
+                    fprintf(outputFile, "    $scope module  %s $end\n", component.c_str());
+                    prefixCount++;
+                    if (prefix.length())
+                        prefix += "/";
+                    prefix += component;
+                }
+            }
+            else {
+printf("[%s:%d]NOTPREFIX %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
+            }
+            std::string code = createCode(++symbolIndex);
+            std::string vecCount;
+            if (sWidth > 1)
+                vecCount = " [" + autostr(sWidth-1) + ":0]";
+            symbolMap[orig] = {code, sWidth, false};
+            fprintf(outputFile, "    $var wire  %d %s %s%s $end\n", sWidth, code.c_str(), sName.c_str(), vecCount.c_str());
+        }
+        while (prefixCount-- > 0) {
+            fprintf(outputFile, "    $upscope $end\n");
+        }
     }
     fprintf(outputFile, "$enddefinitions $end\n\n\n");
 }

@@ -32,12 +32,13 @@
 
 //#define USER_PORT_IR    35
 #define USER_PORT_IR       34
-#define TRANSFER_WIDTH     4
 #define MAX_TRACE_WIDTH    100000
-#define DECODE_BUFFER_SIZE 100000
+#define DESCRIPTION_BUFFER_SIZE 100000
 
-static uint8_t data[MAX_TRACE_WIDTH];
-static uint8_t returnBuffer[TRANSFER_WIDTH];
+typedef struct {
+    int format;
+    std::string data;
+} TraceItem;
 
 TraceDescription descr[10];
 
@@ -80,7 +81,7 @@ static int getValue(char *len, std::map<std::string, std::string> &mapValue)
 
 static int readTraceDescription(std::string directoryName)
 {
-    char decodeBuffer[DECODE_BUFFER_SIZE];
+    static char decodeBuffer[DESCRIPTION_BUFFER_SIZE];
     int traceIndex = 0;
 
     FILE *inputDict = fopen(directoryName.c_str(), "r");
@@ -151,17 +152,30 @@ static int readTraceDescription(std::string directoryName)
     return traceIndex;
 }
 
+static std::map<uint32_t, std::list<TraceItem>> traceData;
 static void readTraceData(int traceIndex)
 {
+static uint8_t returnBuffer[MAX_TRACE_WIDTH];
+
+    uint32_t sendData;
     for (int i = 0; i < descr[traceIndex].traceDepth; i++) {
         uint8_t *bufferp = returnBuffer;
-        for (int j = 0; j < descr[traceIndex].traceWidthBytes; j += TRANSFER_WIDTH) {
-            uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&data, TRANSFER_WIDTH);
-            for (int k = 0; k < TRANSFER_WIDTH; k++)
-                *bufferp++ = rdata[TRANSFER_WIDTH-1 - k];
+        for (int j = 0; j < descr[traceIndex].traceWidthBytes; j += sizeof(sendData)) {
+            sendData = 0xffffffff;
+            uint8_t *rdata = fpgajtag_write_dr((uint8_t *)&sendData, sizeof(sendData));
+            for (int k = 0; k < sizeof(sendData); k++)
+                *bufferp++ = rdata[sizeof(sendData)-1 - k];
         }
+        traceData[0].push_back(TraceItem{traceIndex, std::string(returnBuffer, bufferp)});
+    }
+}
+
+static void outputTraceData(int traceIndex)
+{
+    for (auto &item: traceData[0]) {
         int iremain = 0;
-        uint8_t *p = &returnBuffer[0];
+        const uint8_t *pdata = (uint8_t *)item.data.c_str();
+        const uint8_t *p = pdata;
         uint8_t idata;
         auto namep = descr[traceIndex].fullname.begin();
         for (auto fwidth : descr[traceIndex].width) {
@@ -184,7 +198,7 @@ static void readTraceData(int traceIndex)
                 outputValue(name, data);
         }
         for (int j = 0; j < descr[traceIndex].traceWidthBytes - 1; j++)
-            printf(" %02x", returnBuffer[j]);
+            printf(" %02x", pdata[j]);
         printf("\n");
     }
 }
@@ -217,6 +231,7 @@ printf("\n");
 #endif
     startVcdFile("xx.foo", traceLimit);
     readTraceData(0);
+    outputTraceData(0);
     endVcdFile();
     return fpgajtag_finish(0);
 }

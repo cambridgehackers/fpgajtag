@@ -158,6 +158,8 @@ static void readTraceData(int traceIndex)
 static uint8_t returnBuffer[MAX_TRACE_WIDTH];
 
     uint32_t sendData;
+    sendData = traceIndex;
+    fpgajtag_write_dr((uint8_t *)&sendData, sizeof(sendData));
     for (int i = 0; i < descr[traceIndex].traceDepth; i++) {
         uint8_t *bufferp = returnBuffer;
         for (int j = 0; j < descr[traceIndex].traceWidthBytes; j += sizeof(sendData)) {
@@ -170,15 +172,15 @@ static uint8_t returnBuffer[MAX_TRACE_WIDTH];
     }
 }
 
-static void outputTraceData(int traceIndex)
+static void outputTraceData()
 {
     for (auto &item: traceData[0]) {
         int iremain = 0;
         const uint8_t *pdata = (uint8_t *)item.data.c_str();
         const uint8_t *p = pdata;
         uint8_t idata;
-        auto namep = descr[traceIndex].fullname.begin();
-        for (auto fwidth : descr[traceIndex].width) {
+        auto namep = descr[item.format].fullname.begin();
+        for (auto fwidth : descr[item.format].width) {
             std::string name = *namep++;
             int oremain = fwidth;
             uint32_t data = 0;
@@ -197,7 +199,7 @@ static void outputTraceData(int traceIndex)
             else
                 outputValue(name, data);
         }
-        for (int j = 0; j < descr[traceIndex].traceWidthBytes - 1; j++)
+        for (int j = 0; j < descr[item.format].traceWidthBytes - 1; j++)
             printf(" %02x", pdata[j]);
         printf("\n");
     }
@@ -230,8 +232,9 @@ printf("\n");
     }
 #endif
     startVcdFile("xx.foo", traceLimit);
-    readTraceData(0);
-    outputTraceData(0);
+    for (int i = 0; i < traceLimit; i++)
+        readTraceData(i);
+    outputTraceData();
     endVcdFile();
     return fpgajtag_finish(0);
 }

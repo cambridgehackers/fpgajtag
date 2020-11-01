@@ -118,9 +118,8 @@ printf("[%s:%d] SYMBOLDEF %s\n", __FUNCTION__, __LINE__, sName.c_str());
                 continue;
             }
             int ind;
-printf("[%s:%d]checkprefix %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
-            if (//prefix.length() && sName.length() > prefix.length() && 
-sName.substr(0, prefix.length()) == prefix) {
+//printf("[%s:%d]checkprefix %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
+            if (sName.substr(0, prefix.length()) == prefix) {
                 sName = sName.substr(prefix.length());
                 while ((ind = sName.find("/")) > 0) {
                     std::string component = sName.substr(0, ind);

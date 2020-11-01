@@ -168,13 +168,18 @@ static uint8_t returnBuffer[MAX_TRACE_WIDTH];
             for (int k = 0; k < sizeof(sendData); k++)
                 *bufferp++ = rdata[sizeof(sendData)-1 - k];
         }
-        traceData[0].push_back(TraceItem{traceIndex, std::string(returnBuffer, bufferp)});
+        uint32_t timestamp = (returnBuffer[0] << 24) | (returnBuffer[1] << 16) | (returnBuffer[2] << 8) | returnBuffer[3];
+        traceData[timestamp].push_back(TraceItem{traceIndex, std::string(returnBuffer, bufferp)});
     }
 }
 
 static void outputTraceData()
 {
-    for (auto &item: traceData[0]) {
+    static uint32_t offset;
+    static bool once = false;
+
+    for (auto &top: traceData)
+    for (auto &item: top.second) {
         int iremain = 0;
         const uint8_t *pdata = (uint8_t *)item.data.c_str();
         const uint8_t *p = pdata;
@@ -194,8 +199,13 @@ static void outputTraceData()
                 idata <<= 1;
                 iremain--;
             }
-            if (name == "TIME")
-                outputTime(data);
+            if (name == "TIME") {
+                if (!once) {
+                    once = true;
+                    offset = data - 100;
+                }
+                outputTime(data - offset);
+            }
             else
                 outputValue(name, data);
         }

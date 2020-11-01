@@ -95,6 +95,9 @@ void outputValue(std::string name, uint32_t value)
     }
 }
 
+#define PREFIX_DEPTH    1000
+static std::string prefixStack[PREFIX_DEPTH];
+static int prefixIndex;
 void startVcdFile(std::string filename, int maxDescr)
 {
     time_t rawtime;
@@ -107,8 +110,6 @@ void startVcdFile(std::string filename, int maxDescr)
     fprintf(outputFile, "$timescale   1ps $end\n\n");
     fprintf(outputFile, " $scope module TOP $end\n");
     for (int i = 0; i < maxDescr; i++) {
-        std::string prefix;
-        int prefixCount = 0;
         auto names = descr[i].fullname.begin();
         for (auto sWidth: descr[i].width) {
             std::string sName = *names++;
@@ -119,20 +120,23 @@ printf("[%s:%d] SYMBOLDEF %s\n", __FUNCTION__, __LINE__, sName.c_str());
             }
             int ind;
 //printf("[%s:%d]checkprefix %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
-            if (sName.substr(0, prefix.length()) == prefix) {
-                sName = sName.substr(prefix.length());
-                while ((ind = sName.find("/")) > 0) {
-                    std::string component = sName.substr(0, ind);
-                    sName = sName.substr(ind+1);
-                    fprintf(outputFile, "    $scope module  %s $end\n", component.c_str());
-                    prefixCount++;
-                    if (prefix.length())
-                        prefix += "/";
-                    prefix += component;
+            while(prefixIndex > 0) { // handle popping prefix stack
+                int len = prefixStack[prefixIndex].length();
+                if (sName.substr(0, len) == prefixStack[prefixIndex]) {
+                    sName = sName.substr(len+1);
+                    break;
                 }
+                fprintf(outputFile, "    $upscope $end\n");
+                prefixIndex--;
             }
-            else {
-printf("[%s:%d]NOTPREFIX %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(), sName.c_str());
+            while ((ind = sName.find(PERIOD)) > 0) { // handle pushing prefix stack
+                std::string component = sName.substr(0, ind);
+                sName = sName.substr(ind+1);
+                std::string prefix;
+                if (prefixIndex)
+                    prefix = prefixStack[prefixIndex] + PERIOD;
+                prefixStack[++prefixIndex] = prefix + component;
+                fprintf(outputFile, "    $scope module  %s $end\n", component.c_str());
             }
             std::string code = createCode(++symbolIndex);
             std::string vecCount;
@@ -141,9 +145,9 @@ printf("[%s:%d]NOTPREFIX %s sname %s\n", __FUNCTION__, __LINE__, prefix.c_str(),
             symbolMap[orig] = {code, sWidth, false};
             fprintf(outputFile, "    $var wire  %d %s %s%s $end\n", sWidth, code.c_str(), sName.c_str(), vecCount.c_str());
         }
-        while (prefixCount-- > 0) {
-            fprintf(outputFile, "    $upscope $end\n");
-        }
+    }
+    while (prefixIndex-- > 0) {
+        fprintf(outputFile, "    $upscope $end\n");
     }
     fprintf(outputFile, "$enddefinitions $end\n\n\n");
 }

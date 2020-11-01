@@ -101,7 +101,7 @@ static int readTraceDescription(std::string directoryName)
             continue;
         }
         std::string prefix = decodeBuffer;
-        prefix += "/";
+        prefix += PERIOD;
         std::string temp = base + filename;
         FILE *inputData = fopen(temp.c_str(), "r");
         assert(inputData);
@@ -136,9 +136,6 @@ static int readTraceDescription(std::string directoryName)
             std::string name = decodeBuffer;
             if (name != "TIME")
                 name = prefix + name;
-            int ind;
-            while ((ind = name.find(PERIOD)) > 0)
-                name = name.substr(0, ind) + "_" + name.substr(ind+1);
             descr[traceIndex].fullname.push_back(name);
             int temp = getValue(len, mapValue);
             descr[traceIndex].width.push_back(temp);

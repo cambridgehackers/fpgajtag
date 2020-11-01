@@ -169,6 +169,13 @@ static uint8_t returnBuffer[MAX_TRACE_WIDTH];
                 *bufferp++ = rdata[sizeof(sendData)-1 - k];
         }
         uint32_t timestamp = (returnBuffer[0] << 24) | (returnBuffer[1] << 16) | (returnBuffer[2] << 8) | returnBuffer[3];
+        if (!timestamp) {
+            for (uint8_t *p = returnBuffer; p < bufferp; p++)
+                if (*p)
+                    goto insertLabel;
+            continue;
+insertLabel:;
+        }
         traceData[timestamp].push_back(TraceItem{traceIndex, std::string(returnBuffer, bufferp)});
     }
 }

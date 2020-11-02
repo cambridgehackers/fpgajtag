@@ -30,6 +30,8 @@
 #include "fpgajtag.h"
 #include "vcddump.h"
 
+#define DICTIONARY_FILE "../../../atomicc-examples/examples/"
+
 //#define USER_PORT_IR    35
 #define USER_PORT_IR       34
 #define MAX_TRACE_WIDTH    100000
@@ -221,6 +223,13 @@ static void outputTraceData()
 
 int main(int argc, char **argv)
 {
+    if (argc < 2) {
+        printf("trace <projectDirectory>\n");
+        exit(-1);
+    }
+    std::string filename = DICTIONARY_FILE;
+    filename += argv[1];
+    filename += "/generated/ZynqTop.dict";
     fpgajtag_logfile = stdout;
     if (init_fpgajtag(NULL, 0, 0xffffffff, 0) < 0)
         return -1;      // error
@@ -230,21 +239,7 @@ int main(int argc, char **argv)
     op = USER_PORT_IR;
     printf("[%s:%d] IR %x\n", __FUNCTION__, __LINE__, op);
     fpgajtag_write_ir(op);
-    int traceLimit = readTraceDescription("../../../atomicc-examples/examples/gray/generated/ZynqTop.dict");
-#if 0
-    for (int index = 0; index < traceLimit; index++) {
-printf("[%s:%d] index %d count %d width %d widthbytes %d depth %d\n", __FUNCTION__, __LINE__, index, descr[index].traceCount,
-    descr[index].traceWidth, descr[index].traceWidthBytes, descr[index].traceDepth);
-printf("[%s:%d] width", __FUNCTION__, __LINE__);
-        for (auto item: descr[index].width)
-            printf(" %d,", item);
-printf("\n");
-printf("[%s:%d] fullname", __FUNCTION__, __LINE__);
-        for (auto item: descr[index].fullname)
-            printf(" %s,", item.c_str());
-printf("\n");
-    }
-#endif
+    int traceLimit = readTraceDescription(filename);
     startVcdFile("xx.foo", traceLimit);
     for (int i = 0; i < traceLimit; i++)
         readTraceData(i);

@@ -35,9 +35,9 @@ clean:
 	rm -rf trace
 
 rung:
-	./trace gray >xx
-	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo >xx.ll
+	./trace gray >xxg
+	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo >xx.llg
 
 runr:
-	./trace rulec >xx
-	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo >xx.ll
+	./trace rulec >xxr
+	$(ATOMICCDIR)/../verilog-vcd-parser/build/vcd-parse xx.foo >xx.llr

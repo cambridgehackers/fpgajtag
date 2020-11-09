@@ -159,6 +159,8 @@ static uint8_t returnBuffer[MAX_TRACE_WIDTH];
     uint32_t sendData;
     sendData = traceIndex;
     fpgajtag_write_dr((uint8_t *)&sendData, sizeof(sendData));
+    sendData = 0xffffffff;
+    fpgajtag_write_dr((uint8_t *)&sendData, sizeof(sendData));
     for (int i = 0; i < descr[traceIndex].traceDepth; i++) {
         uint8_t *bufferp = returnBuffer;
         for (int j = 0; j < descr[traceIndex].traceWidthBytes; j += sizeof(sendData)) {
@@ -215,7 +217,7 @@ static void outputTraceData()
             else
                 outputValue(name, data);
         }
-        for (int j = 0; j < descr[item.format].traceWidthBytes - 1; j++)
+        for (int j = 0; j < descr[item.format].traceWidthBytes; j++)
             printf(" %02x", pdata[j]);
         printf("\n");
     }

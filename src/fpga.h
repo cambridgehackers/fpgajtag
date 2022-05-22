@@ -90,6 +90,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
  *
  * In ug470_7Series_Config.pdf, this is described on pages 89ff.
  */
+#define CONFIG_TYPE_SHIFT               29
 
 // Type 1 Packet, Table 5-17
 #define CONFIG_TYPE_MASK     0xe0000000
@@ -150,6 +151,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 // Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
 //
+#define CONFIG_TYPE2_WORDCNT_MASK 0x3ffffff
 #define CONFIG_TYPE2_RAW(LEN) (0x40000000 | (LEN))
 #define CONFIG_TYPE2(LEN) SINT32(CONFIG_TYPE2_RAW(LEN))
 

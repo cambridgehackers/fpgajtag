@@ -55,6 +55,7 @@ int input_filesize, found_cortex = -1, found_xilinx = -1, jtag_index = -1, dcoun
 int tracep ;//= 1;
 int device_type;
 long clock_frequency = CLOCK_FREQUENCY;
+int dump_config_data_stream;
 
 static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
@@ -717,7 +718,7 @@ int fpgajtag_finish(int rescan)
 
 int fpgajtag_main(const char *bitstream, const char *serialport,
     int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int interface, int adevice)
+    int askip_idcode, int amatch_any_idcode, int interface, int adevice, int nflag)
 {
     uint32_t ret;
     int rescan = 0;
@@ -728,6 +729,7 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
     skip_idcode = askip_idcode;
     match_any_idcode = amatch_any_idcode;
     device_type = adevice;
+    dump_config_data_stream = nflag;
 
     /*
      * Read input file

@@ -657,19 +657,85 @@ uint32_t read_inputfile(const char *filename)
      * Step 5: Check Device ID
      */
     /*** Read device id from file to be programmed           ***/
-    uint32_t tempidcode = 0xffffffff;
-    //memcpy(&tempidcode, input_fileptr+0x80, sizeof(tempidcode));
-    //tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
     // scan configuration commands, looking for IDCODE write
-    int foundIdcode = 0;
-    for (int i= 0; i < 0x100; i+= 4) {
-        memcpy(&tempidcode, input_fileptr+i, sizeof(tempidcode));
-        tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
-        if (foundIdcode)
-            break;
-        foundIdcode = (tempidcode ==  CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1));
+    uint32_t tempdata = 0xffffffff;
+    int scanLength = input_filesize;
+    if (!dump_config_data_stream)
+        scanLength = 0x100;
+    for (int offset= 0; offset < scanLength; ) {
+        memcpy(&tempdata, input_fileptr+offset, sizeof(tempdata));
+        tempdata = (M(tempdata) << 24) | (M(tempdata >> 8) << 16) | (M(tempdata >> 16) << 8) | M(tempdata >> 24);
+        offset += sizeof(tempdata);
+        if (dump_config_data_stream)
+            printf("  %08x ", tempdata);
+        if (tempdata == 0xffffffff) {
+            if (dump_config_data_stream)
+                printf("    DUMMY\n");
+        }
+        else if (tempdata == 0x000000bb) {
+            if (dump_config_data_stream)
+                printf("    BUS_WIDTH_SYNC\n");
+        }
+        else if (tempdata == 0x11220044) {
+            if (dump_config_data_stream)
+                printf("    BUS_WIDTH_DETECT\n");
+        }
+        else if (tempdata == 0xaa995566) {
+            if (dump_config_data_stream)
+                printf("    SYNC\n");
+        }
+        else {
+            int ctype = tempdata >> CONFIG_TYPE_SHIFT;
+            switch (ctype) {
+            case 1: {            // Type 1 Packet
+                int len = tempdata & CONFIG_TYPE1_WORDCNT_MASK;
+                int op = (tempdata >> CONFIG_TYPE1_OPCODE_SHIFT) & CONFIG_TYPE1_OPCODE_MASK;
+                const char *opcode;
+                int regarg = (tempdata >> CONFIG_TYPE1_REG_SHIFT) & CONFIG_TYPE1_REG_MASK;
+                switch (op) {
+                    case 0: opcode = "NOP"; break;
+                    case 1: opcode = "READ"; break;
+                    case 2: opcode = "WRITE"; break;
+                    case 3: opcode = "RESERVED3"; break;
+                }
+                if (dump_config_data_stream) {
+                    if (op == 0)
+                        printf("    TYPE1 op %s", opcode);
+                    else
+                        printf("    TYPE1 op %s reg %2x:", opcode, regarg);
+                }
+                for (int alen = 0; alen < len; alen++ ) {
+                    uint32_t adata;
+                    memcpy(&adata, input_fileptr+offset, sizeof(adata));
+                    adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
+                    if (dump_config_data_stream)
+                        printf(" %08x", adata);
+                    else if (tempdata == CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1))
+                        return adata;
+                    offset += sizeof(tempdata);
+                }
+                if (dump_config_data_stream)
+                    printf("\n");
+                break;
+                }
+            case 2: {            // Type 2 Packet
+                int len = tempdata & CONFIG_TYPE2_WORDCNT_MASK;
+                if (dump_config_data_stream)
+                    printf("    TYPE2 len %x:\n", len);
+                offset += len * sizeof(tempdata);
+                break;
+                }
+            default:
+                if (dump_config_data_stream)
+                    printf("    UNKNOWN TYPE %x\n", ctype);
+                break;
+            }
+        }
     }
-    return tempidcode;
+    if (dump_config_data_stream)
+        exit(0);
+    printf("fpgajtag: could not find IDCODE in input file\n");
+    return tempdata;
 badlen:
     printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", (long)sizeof(filebuf));
     exit(-1);

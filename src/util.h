@@ -76,6 +76,7 @@ extern uint8_t *input_fileptr;
 extern int input_filesize;
 extern struct ftdi_context *global_ftdi;
 extern int device_type;
+extern int dump_config_data_stream;
 
 int min(int a, int b);
 USB_INFO *fpgausb_init(void);

@@ -32,12 +32,12 @@
 
 int main(int argc, char **argv)
 {
-    int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0;
+    int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0, nflag = 0;
     int skip_idcode = 0, match_any_idcode = 0, interface = 0, adevice = 0;
     const char *serialno = NULL;
     fpgajtag_logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxlms:ci:I:d:")) != -1)
+    while ((i = getopt (argc, argv, "atrxlms:ci:I:d:n")) != -1)
         switch (i) {
         case 'a':
 	    match_any_idcode = 1;
@@ -75,13 +75,16 @@ int main(int argc, char **argv)
             else 
                 goto usage;
             break;
+        case 'n':
+            nflag = 1;
+            break;
         default:
             goto usage;
         }
 
     if (optind != argc - 1 && !cflag && !lflag) {
 usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] [ -c <commandfile> ] [ -d <device_type> ] <filename>\n", argv[0]);
+        fprintf(stderr, "Usage %s [ -a ] [ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] [ -c <commandfile> ] [ -d <device_type> ] [ -n ] <filename>\n", argv[0]);
 	fprintf(stderr, "\n"
 		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
                         "\n"
@@ -111,10 +114,11 @@ usage:
                         "  -c <commandfile> Direct setting/reading of IR and DR registers\n"
                         "  -d <device_type> to specify programmed device name\n"
                         "                 Supported names: MIMAS_A7\n"
+                        "  -n             Dump configuration packets from input file\n"
                         "  -t             Trace usb programming traffic\n");
         exit(1);
     }
     const char *filename = lflag ? NULL : argv[argc - 1];
-    return fpgajtag_main(filename, serialno, rflag, mflag, cflag, xflag, skip_idcode, match_any_idcode, interface, adevice);
+    return fpgajtag_main(filename, serialno, rflag, mflag, cflag, xflag, skip_idcode, match_any_idcode, interface, adevice, nflag);
 }
 

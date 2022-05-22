@@ -29,7 +29,7 @@ extern FILE *fpgajtag_logfile;
 
 int fpgajtag_main(const char *bitstream, const char *serialport,
     int rflag, int mflag, int cflag, int xflag,
-    int askip_idcode, int amatch_any_idcode, int interface, int adevice);
+    int askip_idcode, int amatch_any_idcode, int interface, int adevice, int nflag);
 int init_fpgajtag(const char *serialno, int read_idcode_only, uint32_t file_idcode, int interface);
 int fpgajtag_finish(int rescan);
 void fpgajtag_write_ir(int t);

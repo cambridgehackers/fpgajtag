@@ -32,6 +32,7 @@
 #include <inttypes.h>
 #include "util.h"
 #include "fpgajtag.h"
+#include "fpga.h"     // for CONFIG_REG_IDCODE
 #include "elfdef.h"
 #ifdef __arm__
 #define NO_LIBUSB
@@ -656,9 +657,18 @@ uint32_t read_inputfile(const char *filename)
      * Step 5: Check Device ID
      */
     /*** Read device id from file to be programmed           ***/
-    uint32_t tempidcode;
-    memcpy(&tempidcode, input_fileptr+0x80, sizeof(tempidcode));
-    tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
+    uint32_t tempidcode = 0xffffffff;
+    //memcpy(&tempidcode, input_fileptr+0x80, sizeof(tempidcode));
+    //tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
+    // scan configuration commands, looking for IDCODE write
+    int foundIdcode = 0;
+    for (int i= 0; i < 0x100; i+= 4) {
+        memcpy(&tempidcode, input_fileptr+i, sizeof(tempidcode));
+        tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
+        if (foundIdcode)
+            break;
+        foundIdcode = (tempidcode ==  CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1));
+    }
     return tempidcode;
 badlen:
     printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", (long)sizeof(filebuf));

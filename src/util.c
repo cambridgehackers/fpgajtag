@@ -659,6 +659,7 @@ uint32_t read_inputfile(const char *filename)
     /*** Read device id from file to be programmed           ***/
     // scan configuration commands, looking for IDCODE write
     uint32_t tempdata = 0xffffffff;
+    uint32_t fileIdcode = 0xffffffff;
     int scanLength = input_filesize;
     if (!dump_config_data_stream)
         scanLength = 0x100;
@@ -699,10 +700,9 @@ uint32_t read_inputfile(const char *filename)
                     case 3: opcode = "RESERVED3"; break;
                 }
                 if (dump_config_data_stream) {
-                    if (op == 0)
-                        printf("    TYPE1 op %s", opcode);
-                    else
-                        printf("    TYPE1 op %s reg %2x:", opcode, regarg);
+                    printf("    %s", opcode);
+                    if (op != 0)
+                        printf(" %2x:", regarg);
                 }
                 for (int alen = 0; alen < len; alen++ ) {
                     uint32_t adata;
@@ -710,8 +710,11 @@ uint32_t read_inputfile(const char *filename)
                     adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
                     if (dump_config_data_stream)
                         printf(" %08x", adata);
-                    else if (tempdata == CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1))
-                        return adata;
+                    if (tempdata == CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1)) {
+                        fileIdcode = adata;
+                        if (!dump_config_data_stream)
+                            return adata;
+                    }
                     offset += sizeof(tempdata);
                 }
                 if (dump_config_data_stream)
@@ -720,9 +723,45 @@ uint32_t read_inputfile(const char *filename)
                 }
             case 2: {            // Type 2 Packet
                 int len = tempdata & CONFIG_TYPE2_WORDCNT_MASK;
+                int idcodeVersion = (fileIdcode >> 28) & 0xf;
+                int idcodeFamily = (fileIdcode >> 21) & 0x7f;
+                int idcodePart = (fileIdcode >> 12) & 0x1ff;
+                int idcodeManuf = (fileIdcode >> 1) & 0x7ff;
+                int packetIndex = 0;
+                int frameSize = 101;
+                if (idcodeFamily == 0x1b) // Series7 -> 101 words
+                    frameSize = 101;
+                if (idcodeFamily == 0x1c) // UltraScale -> 123 words
+                    frameSize = 123;
+                if (idcodeFamily == 0x23) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x24) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x25) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x26) // Versal ACAP -> 93 words
+                    frameSize = 93;
+                if (dump_config_data_stream) {
+                    printf("    TYPE2 len 0x%x %d.:", len, len);
+                    int remainder = len / frameSize;
+                    remainder = len - frameSize * remainder;
+//printf(" ver %x family %x part %x manuf %x frameremainder %d\n", idcodeVersion, idcodeFamily, idcodePart, idcodeManuf, remainder);
+                }
+                for (int alen = 0; alen < len; alen++ ) {
+                    uint32_t adata;
+                    memcpy(&adata, input_fileptr+offset, sizeof(adata));
+                    adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
+                    if (0 && dump_config_data_stream) {
+                        printf(" %08x", adata);
+                        if (packetIndex++ >= frameSize * sizeof(adata)) {
+                            printf("\n");
+                            packetIndex = 0;
+                        }
+                    }
+                    offset += sizeof(tempdata);
+                }
                 if (dump_config_data_stream)
-                    printf("    TYPE2 len %x:\n", len);
-                offset += len * sizeof(tempdata);
+                    printf("\n");
                 break;
                 }
             default:

@@ -193,6 +193,7 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
 }
 #endif //end if not USE_LIBFTDI
 
+#ifdef USE_LOGGING
 static void dump_bytes(int fd, const char *title, unsigned char *p, int len)
 {
 int i;
@@ -210,6 +211,7 @@ int i;
     }
     fprintf(stderr, "\n");
 }
+#endif
 
 /*
  * Write utility functions
@@ -723,10 +725,10 @@ uint32_t read_inputfile(const char *filename)
                 }
             case 2: {            // Type 2 Packet
                 int len = tempdata & CONFIG_TYPE2_WORDCNT_MASK;
-                int idcodeVersion = (fileIdcode >> 28) & 0xf;
+                //int idcodeVersion = (fileIdcode >> 28) & 0xf;
                 int idcodeFamily = (fileIdcode >> 21) & 0x7f;
-                int idcodePart = (fileIdcode >> 12) & 0x1ff;
-                int idcodeManuf = (fileIdcode >> 1) & 0x7ff;
+                //int idcodePart = (fileIdcode >> 12) & 0x1ff;
+                //int idcodeManuf = (fileIdcode >> 1) & 0x7ff;
                 int packetIndex = 0;
                 int frameSize = 101;
                 if (idcodeFamily == 0x1b) // Series7 -> 101 words

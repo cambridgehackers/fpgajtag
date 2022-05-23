@@ -724,7 +724,6 @@ int fpgajtag_main(const char *bitstream, const char *serialport,
     int rescan = 0;
     const char *serialno = serialport;
     fpgajtag_logfile = stdout;
-    opterr = 0;
     const char *filename = bitstream;
     skip_idcode = askip_idcode;
     match_any_idcode = amatch_any_idcode;

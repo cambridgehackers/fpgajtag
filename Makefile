@@ -1,4 +1,4 @@
-VERSION=18.08.1
+VERSION=22.05.23a
 
 all:
 	$(MAKE) -C src

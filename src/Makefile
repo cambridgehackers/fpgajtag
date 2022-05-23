@@ -1,6 +1,8 @@
 
 OS := $(shell uname)
 
+CFLAGS += --std=c99
+
 #USE_LIBFTDI = 1
 #VARIANT=-DUSE_LOGGING
 ifeq ($(USE_LIBFTDI),1)

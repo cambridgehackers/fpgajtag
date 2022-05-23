@@ -19,9 +19,6 @@ spkg:
 	git clean -fdx
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s' --git-ignore-new -tc -pgpg2 -S
 	git checkout debian
-	sed -i s/trusty/precise/g debian/changelog
-	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -pgpg2 -S
-	git checkout debian
 	sed -i s/trusty/xenial/g debian/changelog
 	gbp buildpackage --git-debian-tag="v%s" --git-upstream-branch=master --git-debian-branch=ubuntu --git-upstream-tag='v%(version)s'  --git-ignore-new -tc -pgpg2 -S
 	git checkout debian

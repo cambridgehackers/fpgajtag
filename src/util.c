@@ -31,6 +31,8 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include "util.h"
+#include "fpgajtag.h"
+#include "fpga.h"     // for CONFIG_REG_IDCODE
 #include "elfdef.h"
 #ifdef __arm__
 #define NO_LIBUSB
@@ -65,7 +67,7 @@ static void openlogfile(void);
 
 #include "dumpdata.h"
 
-FILE *logfile;
+FILE *fpgajtag_logfile;
 int usb_bcddevice;
 uint8_t bitswap[256];
 int last_read_data_length;
@@ -93,15 +95,23 @@ static uint8_t *usbreadbuffer_ptr = usbreadbuffer;
 static int read_size[MAX_ITEM_LENGTH];
 static int read_size_ptr;
 
+int min(int a, int b)
+{
+  if (a < b)
+      return a;
+  else
+      return b;
+}
+
 static void openlogfile(void)
 {
-    if (!logfile)
-        logfile = fopen("/tmp/xx.logfile2", "w");
+    if (!fpgajtag_logfile)
+        fpgajtag_logfile = fopen("/tmp/xx.logfile2", "w");
     if (datafile_fd < 0)
         datafile_fd = creat("/tmp/xx.datafile2", 0666);
 }
 
-void memdump(const uint8_t *p, int len, char *title)
+void memdump(const uint8_t *p, int len, const char *title)
 {
 int i;
 
@@ -128,6 +138,10 @@ static int ftdi_write_data(struct ftdi_context *ftdi, const unsigned char *buf, 
     if (logging)
         formatwrite(1, buf, size, "WRITE");
 #ifndef NO_LIBUSB
+    if (!usbhandle) {
+        printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+        exit(-1);
+    }
     ret = libusb_bulk_transfer(usbhandle, ENDPOINT_IN, (unsigned char *)buf, size, &actual_length, USB_TIMEOUT);
 #endif
     if (ret < 0) {
@@ -147,6 +161,10 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
     do {
         count++;
 #ifndef NO_LIBUSB
+        if (!usbhandle) {
+            printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+            exit(-1);
+        }
         ret = libusb_bulk_transfer (usbhandle, ENDPOINT_OUT, usbreadbuffer, USB_CHUNKSIZE, &actual_length, USB_TIMEOUT);
 #endif
         if (ret < 0) {
@@ -175,18 +193,43 @@ static int ftdi_read_data(struct ftdi_context *ftdi, unsigned char *buf, int siz
 }
 #endif //end if not USE_LIBFTDI
 
+static void dump_bytes(int fd, const char *title, unsigned char *p, int len)
+{
+int i;
+
+    i = 0;
+    while (len > 0) {
+        if (!(i & 0xf)) {
+            if (i > 0)
+                fprintf(stderr, "\n");
+            fprintf(stderr, "%s: ",title);
+        }
+        fprintf(stderr, "%02x ", *p++);
+        i++;
+        len--;
+    }
+    fprintf(stderr, "\n");
+}
+
 /*
  * Write utility functions
  */
 void write_data(uint8_t *buf, int size)
 {
+    ENTER();
+#ifdef USE_LOGGING
+    dump_bytes(0,"write_data()", buf, size);
+#endif
     memcpy(usbreadbuffer_ptr, buf, size);
     usbreadbuffer_ptr += size;
+    EXIT();
 }
 
 void write_item(uint8_t *buf)
 {
+    ENTER();
     write_data(buf+1, buf[0]);
+    EXIT();
 }
 
 int buffer_current_size(void)
@@ -342,8 +385,10 @@ USB_INFO *fpgausb_init(void)
         struct libusb_device_descriptor desc;
         if (libusb_get_device_descriptor(dev, &desc) < 0)
             break;
-        if ( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
-         || desc.idProduct == 0x6011 || desc.idProduct == 0x6014)) { /* Xilinx */
+        if (( desc.idVendor == 0x403 && (desc.idProduct == 0x6001 || desc.idProduct == 0x6010
+           || desc.idProduct == 0x6011 || desc.idProduct == 0x6014))
+         || (desc.idVendor == 0x2a19 && desc.idProduct == 0x1009)
+           ) { /* Xilinx */
             usbinfo_array[usbinfo_array_index].dev = dev;
             usbinfo_array[usbinfo_array_index].idVendor = desc.idVendor;
             usbinfo_array[usbinfo_array_index].idProduct = desc.idProduct;
@@ -377,7 +422,7 @@ USB_INFO *fpgausb_init(void)
     return usbinfo_array;
 }
 
-void fpgausb_open(int device_index, int interface)
+int fpgausb_open(int device_index, int interface)
 {
     int step = 0;
 #ifndef NO_LIBUSB
@@ -387,27 +432,45 @@ void fpgausb_open(int device_index, int interface)
     unsigned long encdiv = (best_divisor >> 3) | (frac_code[best_divisor & 0x7] << 14);
     struct libusb_config_descriptor *config_descrip;
 
+    if (usbinfo_array[device_index].idVendor == 0x2a19 && usbinfo_array[device_index].idProduct == 0x1009) {
+        device_type = DEVICE_MIMAS_A7;
+        interface = 1;
+    }
     ftdi_interface = interface;
     libusb_open(usbinfo_array[device_index].dev, &usbhandle);
-    if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0)
+    if (libusb_get_config_descriptor(usbinfo_array[device_index].dev, 0, &config_descrip) < 0) {
+        printf("%s: error from libusb_get_config_descriptor\n", __FUNCTION__);
         goto error;
+    }
     int configv = config_descrip->bConfigurationValue;
     libusb_free_config_descriptor (config_descrip);
     libusb_detach_kernel_driver(usbhandle, interface);
+    if (!usbhandle) {
+        printf("[%s:%d] usb handle not initialized: %p\n", __FUNCTION__, __LINE__, usbhandle);
+        exit(-1);
+    }
 #define USBCTRL(A,B,C) \
     libusb_control_transfer(usbhandle, (LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT), \
 			    (A), (B), (C) | USB_INDEX, NULL, 0, USB_TIMEOUT)
 
-    if (libusb_get_configuration (usbhandle, &cfg) < 0)
+    if (libusb_get_configuration (usbhandle, &cfg) < 0) {
+        printf("%s: error from libusb_get_configuration\n", __FUNCTION__);
         goto error;
+    }
     step++;
-    if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0))
+    if ((usbinfo_array[device_index].bNumConfigurations > 0 && cfg != configv && libusb_set_configuration(usbhandle, configv) < 0)) {
+        printf("%s: error from libusb_set_configuration\n", __FUNCTION__);
         goto error;
+    }
     step++;
-#ifndef DARWIN // not supported on Mac-OS
-    if (libusb_claim_interface(usbhandle, interface) < 0)
-        goto error;
+    if (libusb_claim_interface(usbhandle, interface) < 0) {
+        printf("%s: error from libusb_claim_interface\n", __FUNCTION__);
+#ifdef DARWIN // Apple driver conflict
+        printf("%s: Probably a conflict with Apple driver.  Please run:\n", __FUNCTION__);
+        printf("%s:     sudo kextunload -b com.apple.driver.AppleUSBFTDI\n", __FUNCTION__);
 #endif
+        goto error;
+    }
     step++;
     if (USBCTRL(USBSIO_RESET, USBSIO_RESET, 0) < 0)
         goto error;
@@ -429,11 +492,11 @@ void fpgausb_open(int device_index, int interface)
     step++;
     if (USBCTRL(USBSIO_RESET, USBSIO_RESET_PURGE_TX, 0) < 0)
         goto error;
-    return;
+    return 0;
 error:
 #endif
     printf("Error opening usb interface: %d\n", step);
-    exit(-1);
+    return -1;
 }
 
 void fpgausb_close(void)
@@ -454,7 +517,7 @@ for (i = 0; i < 100; i++)
 }
 void fpgausb_release(void)
 {
-    fclose(logfile);
+    fclose(fpgajtag_logfile);
     close(datafile_fd);
 #ifndef NO_LIBUSB
     libusb_free_device_list(device_list,1);
@@ -480,13 +543,16 @@ void sync_ftdi(int val)
 /*
  * FTDI generic initialization
  */
-void init_ftdi(int device_index, int interface)
+int init_ftdi(int device_index, int interface)
 {
     static uint8_t illegal_command[] = { 0xaa, SEND_IMMEDIATE };
     global_ftdi = (struct ftdi_context *)illegal_command;
     int i;
 
-    fpgausb_open(device_index, interface);            /*** Open selected USB interface ***/
+    if (fpgausb_open(device_index, interface) < 0) {    /*** Open selected USB interface ***/
+        printf("[%s:%d] error from fpgausb_open\n", __FUNCTION__, __LINE__);
+        return -1;
+    }
 #ifdef USE_LIBFTDI
     global_ftdi = ftdi_new();
     global_ftdi_set_usbdev(ftdi, usbhandle);
@@ -499,6 +565,7 @@ void init_ftdi(int device_index, int interface)
     for (i = 0; i < 4; i++)
         sync_ftdi(0xaa);
     sync_ftdi(0xab);
+    return 0;
 }
 
 /*
@@ -590,10 +657,124 @@ uint32_t read_inputfile(const char *filename)
      * Step 5: Check Device ID
      */
     /*** Read device id from file to be programmed           ***/
-    uint32_t tempidcode;
-    memcpy(&tempidcode, input_fileptr+0x80, sizeof(tempidcode));
-    tempidcode = (M(tempidcode) << 24) | (M(tempidcode >> 8) << 16) | (M(tempidcode >> 16) << 8) | M(tempidcode >> 24);
-    return tempidcode;
+    // scan configuration commands, looking for IDCODE write
+    uint32_t tempdata = 0xffffffff;
+    uint32_t fileIdcode = 0xffffffff;
+    int scanLength = input_filesize;
+    if (!dump_config_data_stream)
+        scanLength = 0x100;
+    for (int offset= 0; offset < scanLength; ) {
+        memcpy(&tempdata, input_fileptr+offset, sizeof(tempdata));
+        tempdata = (M(tempdata) << 24) | (M(tempdata >> 8) << 16) | (M(tempdata >> 16) << 8) | M(tempdata >> 24);
+        offset += sizeof(tempdata);
+        if (dump_config_data_stream)
+            printf("  %08x ", tempdata);
+        if (tempdata == 0xffffffff) {
+            if (dump_config_data_stream)
+                printf("    DUMMY\n");
+        }
+        else if (tempdata == 0x000000bb) {
+            if (dump_config_data_stream)
+                printf("    BUS_WIDTH_SYNC\n");
+        }
+        else if (tempdata == 0x11220044) {
+            if (dump_config_data_stream)
+                printf("    BUS_WIDTH_DETECT\n");
+        }
+        else if (tempdata == 0xaa995566) {
+            if (dump_config_data_stream)
+                printf("    SYNC\n");
+        }
+        else {
+            int ctype = tempdata >> CONFIG_TYPE_SHIFT;
+            switch (ctype) {
+            case 1: {            // Type 1 Packet
+                int len = tempdata & CONFIG_TYPE1_WORDCNT_MASK;
+                int op = (tempdata >> CONFIG_TYPE1_OPCODE_SHIFT) & CONFIG_TYPE1_OPCODE_MASK;
+                const char *opcode;
+                int regarg = (tempdata >> CONFIG_TYPE1_REG_SHIFT) & CONFIG_TYPE1_REG_MASK;
+                switch (op) {
+                    case 0: opcode = "NOP"; break;
+                    case 1: opcode = "READ"; break;
+                    case 2: opcode = "WRITE"; break;
+                    case 3: opcode = "RESERVED3"; break;
+                }
+                if (dump_config_data_stream) {
+                    printf("    %s", opcode);
+                    if (op != 0)
+                        printf(" %2x:", regarg);
+                }
+                for (int alen = 0; alen < len; alen++ ) {
+                    uint32_t adata;
+                    memcpy(&adata, input_fileptr+offset, sizeof(adata));
+                    adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
+                    if (dump_config_data_stream)
+                        printf(" %08x", adata);
+                    if (tempdata == CONFIG_TYPE1_VALUE(CONFIG_OP_WRITE,CONFIG_REG_IDCODE,1)) {
+                        fileIdcode = adata;
+                        if (!dump_config_data_stream)
+                            return adata;
+                    }
+                    offset += sizeof(tempdata);
+                }
+                if (dump_config_data_stream)
+                    printf("\n");
+                break;
+                }
+            case 2: {            // Type 2 Packet
+                int len = tempdata & CONFIG_TYPE2_WORDCNT_MASK;
+                int idcodeVersion = (fileIdcode >> 28) & 0xf;
+                int idcodeFamily = (fileIdcode >> 21) & 0x7f;
+                int idcodePart = (fileIdcode >> 12) & 0x1ff;
+                int idcodeManuf = (fileIdcode >> 1) & 0x7ff;
+                int packetIndex = 0;
+                int frameSize = 101;
+                if (idcodeFamily == 0x1b) // Series7 -> 101 words
+                    frameSize = 101;
+                if (idcodeFamily == 0x1c) // UltraScale -> 123 words
+                    frameSize = 123;
+                if (idcodeFamily == 0x23) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x24) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x25) // UltraScale+ -> 93 words
+                    frameSize = 93;
+                if (idcodeFamily == 0x26) // Versal ACAP -> 93 words
+                    frameSize = 93;
+                if (dump_config_data_stream) {
+                    printf("    TYPE2 len 0x%x %d.:", len, len);
+                    int remainder = len / frameSize;
+                    remainder = len - frameSize * remainder;
+//printf(" ver %x family %x part %x manuf %x frameremainder %d\n", idcodeVersion, idcodeFamily, idcodePart, idcodeManuf, remainder);
+                }
+                for (int alen = 0; alen < len; alen++ ) {
+                    uint32_t adata;
+                    memcpy(&adata, input_fileptr+offset, sizeof(adata));
+                    adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
+                    if (0 && dump_config_data_stream) {
+                        printf(" %08x", adata);
+                        if (packetIndex++ >= frameSize * sizeof(adata)) {
+                            printf("\n");
+                            packetIndex = 0;
+                        }
+                    }
+                    offset += sizeof(tempdata);
+                }
+                if (dump_config_data_stream)
+                    printf("\n");
+                break;
+                }
+            default:
+                if (dump_config_data_stream)
+                    printf("    UNKNOWN TYPE %x\n", ctype);
+                break;
+            }
+        }
+    }
+    if (dump_config_data_stream)
+        exit(0);
+    printf("fpgajtag: could not find IDCODE in input file\n");
+    return tempdata;
 badlen:
     printf("fpgajtag: Input file length exceeds static buffer size %ld.  You must recompile fpgajtag.\n", (long)sizeof(filebuf));
     exit(-1);

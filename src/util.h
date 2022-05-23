@@ -41,19 +41,20 @@
 struct ftdi_context;
 #endif
 
+#ifdef USE_LOGGING
+#define ENTER() fprintf(stderr,"Entering %s()\n",__FUNCTION__)
+#define EXIT() fprintf(stderr,"Exiting %s()\n",__FUNCTION__)
+#define LOGNOTE(M) fprintf(stderr,"%s:%d:%s():%s\n",__FILE__,__LINE__,__FUNCTION__,M);
+#else
+#define ENTER()
+#define EXIT()
+#define LOGNOTE(M)
+#endif
+
 #define M(A)               ((A) & 0xff)
 #define USB_JTAG_ALTERA     0x9fb  /* idVendor */
 
-extern FILE *logfile;
-extern int usb_bcddevice;
-extern uint8_t bitswap[256];
-extern int last_read_data_length;
-extern int trace;
-extern uint8_t *input_fileptr;
-extern int input_filesize;
-extern struct ftdi_context *global_ftdi;
-
-void memdump(const uint8_t *p, int len, char *title);
+#define DEVICE_MIMAS_A7         1
 
 typedef struct {
     void          *dev;
@@ -63,11 +64,26 @@ typedef struct {
     int           bNumConfigurations;
     unsigned char iSerialNumber[64], iManufacturer[64], iProduct[128];
 } USB_INFO;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern int usb_bcddevice;
+extern uint8_t bitswap[256];
+extern int last_read_data_length;
+extern int trace;
+extern uint8_t *input_fileptr;
+extern int input_filesize;
+extern struct ftdi_context *global_ftdi;
+extern int device_type;
+extern int dump_config_data_stream;
+
+int min(int a, int b);
 USB_INFO *fpgausb_init(void);
-void fpgausb_open(int device_index, int interface);
+int fpgausb_open(int device_index, int interface);
 void fpgausb_close(void);
 void fpgausb_release(void);
-void init_ftdi(int device_index, int interface);
+int init_ftdi(int device_index, int interface);
 
 void write_data(uint8_t *buf, int size);
 void write_item(uint8_t *buf);
@@ -80,3 +96,6 @@ void tmsw_delay(int delay_time, int extra);
 void idle_to_shift_dr(int extra);
 uint32_t read_inputfile(const char *filename);
 void sync_ftdi(int val);
+#ifdef __cplusplus
+}
+#endif

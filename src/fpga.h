@@ -75,6 +75,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 #define IRREG_JPROGRAM         0x0b
 #define IRREG_JSTART           0x0c
 #define IRREG_ISC_NOOP         0x14
+#define IRREG_SAMPLE           0x01
 #define IRREG_BYPASS           0x3f // even on PCIE, this has an extra bit
 #define IRREG_BYPASS_EXTEND  0xffff // even on PCIE, this has an extra bit
 
@@ -89,6 +90,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
  *
  * In ug470_7Series_Config.pdf, this is described on pages 89ff.
  */
+#define CONFIG_TYPE_SHIFT               29
 
 // Type 1 Packet, Table 5-17
 #define CONFIG_TYPE_MASK     0xe0000000
@@ -98,8 +100,10 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 #define CONFIG_TYPE1_REG_MASK       0x3fff
 #define CONFIG_TYPE1_WORDCNT_MASK    0x7ff
 
+#define CONFIG_TYPE1_VALUE(OPCODE,REG,COUNT) \
+    (0x20000000 | ((OPCODE) << CONFIG_TYPE1_OPCODE_SHIFT) | ((REG) << CONFIG_TYPE1_REG_SHIFT) | (COUNT))
 #define CONFIG_TYPE1(OPCODE,REG,COUNT) \
-    SINT32(0x20000000 | ((OPCODE) << CONFIG_TYPE1_OPCODE_SHIFT) | ((REG) << CONFIG_TYPE1_REG_SHIFT) | (COUNT))
+    SINT32(CONFIG_TYPE1_VALUE(OPCODE, REG, COUNT))
 
 // Type 1 OPCODE Format, Table 5-18
 #define CONFIG_OP_NOP         0
@@ -147,6 +151,7 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
 
 // Type 2 Packet (must follow a Type 1 packet and is used for long blocks)
 //
+#define CONFIG_TYPE2_WORDCNT_MASK 0x3ffffff
 #define CONFIG_TYPE2_RAW(LEN) (0x40000000 | (LEN))
 #define CONFIG_TYPE2(LEN) SINT32(CONFIG_TYPE2_RAW(LEN))
 
@@ -221,6 +226,9 @@ enum {DEVICE_OTHER=0, DEVICE_AC701=0x03636093, DEVICE_ZC706=0x03731093, DEVICE_Z
     flush_write(NULL); \
     if (tracep) printf
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 void write_irreg(int read, int command, int flip, char tail);
 void write_creg(int regname);
 void cortex_bypass(int cortex_nowait);
@@ -228,12 +236,14 @@ void process_command_list(void);
 void write_bit(int read, int bits, int data, char target_state);
 void write_bytes(uint8_t read_param,
     char target_state, uint8_t *ptrin, int size, int max_frame_size, int opttail, int swapbits, int default_ext);
-void write_tms_transition(char *tail);
+void write_tms_transition(const char *tail);
 void ENTER_TMS_STATE(char required);
 void access_mdm(int version, int pre, int amatch);
 uint32_t fetch_result(int idindex, int command, int resp_len, int fd);
 int write_cbypass(int read, int idindex);
 void write_dirreg(int command, int idindex);
 void read_idcode(int prereset);
-extern int above2, jtag_index, dcount, tracep, found_cortex, idcode_count;
-
+extern int above2, jtag_index, dcount, tracep, found_cortex, found_xilinx, idcode_count;
+#ifdef __cplusplus
+}
+#endif

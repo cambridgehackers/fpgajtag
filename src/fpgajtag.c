@@ -39,8 +39,11 @@
 #include <arpa/inet.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <unistd.h>
+#include <dirent.h>
 #include "util.h"
 #include "fpga.h"
+#include "fpgajtag.h"
 
 #define FILE_READSIZE          6464
 #define MAX_SINGLE_USB_DATA    4046
@@ -48,10 +51,13 @@
 #define SEGMENT_LENGTH   256 /* sizes above 256bytes seem to get more bytes back in response than were requested */
 
 uint8_t *input_fileptr;
-int input_filesize, found_cortex = -1, jtag_index = -1, dcount, idcode_count;
+int input_filesize, found_cortex = -1, found_xilinx = -1, jtag_index = -1, dcount, idcode_count;
 int tracep ;//= 1;
+int device_type;
+long clock_frequency = CLOCK_FREQUENCY;
+int dump_config_data_stream;
 
-static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail, interface;
+static int debug, verbose, skip_idcode, match_any_idcode, trailing_len, first_time_idcode_read = 1, dc2trail;
 static USB_INFO *uinfo;
 static uint32_t idcode_array[IDCODE_ARRAY_SIZE], idcode_len[IDCODE_ARRAY_SIZE];
 static uint8_t *rstatus = DITEM(CONFIG_DUMMY, CONFIG_SYNC, CONFIG_TYPE2(0),
@@ -83,8 +89,8 @@ static void pulse_gpio(int adelay)
 
     ENTER_TMS_STATE('I');
     switch (adelay) {
-    case 1250:  delay = CLOCK_FREQUENCY/800; break;
-    case 12500: delay = CLOCK_FREQUENCY/80; break;
+    case 1250:  delay = clock_frequency/800; break;
+    case 12500: delay = clock_frequency/80; break;
     default:
            printf("pulse_gpio: unsupported time delay %d\n", adelay);
            exit(-1);
@@ -101,19 +107,21 @@ static void pulse_gpio(int adelay)
 }
 static void set_clock_divisor(void)
 {
-    flush_write(DITEM(TCK_DIVISOR, INT16(30000000/CLOCK_FREQUENCY - 1)));
+    flush_write(DITEM(TCK_DIVISOR, INT16(30000000/clock_frequency - 1)));
 }
 
-static char current_state, *lasttail;
+static char current_state;
+static const char *lasttail;
 static int match_state(char req)
 {
     return req == 'X' || !current_state || current_state == req
        || (current_state == 'S' && req == 'D')
        || (current_state == 'D' && req == 'S');
 }
-void write_tms_transition(char *tail)
+void write_tms_transition(const char *tail)
 {
-    char *p = tail+2;
+    ENTER();
+    const char *p = tail+2;
     uint8_t temp[] = {TMSW, 0, 0};
     int len = 0;
 
@@ -128,6 +136,7 @@ void write_tms_transition(char *tail)
     temp[1] = len-1;
     temp[2] >>= 8 - len;
     write_data(temp, sizeof(temp));
+    EXIT();
 }
 void ENTER_TMS_STATE(char required)
 {
@@ -138,7 +147,10 @@ void ENTER_TMS_STATE(char required)
         "SE1",   /* Shift-IR -> Exit1-IR */ "SU11", /* Shift-DR -> Update-DR */
         "UD100", /* Update -> Shift-DR */   "ID100",/* Idle -> Shift-DR */
         "RD0100",/* Reset -> Shift-DR */    "IR111",/* Idle -> Reset */
-        "PR11111",/* Pause -> Reset */      "IS1100", NULL};/* Idle -> Shift-IR */
+        "PR11111",/* Pause -> Reset */      "IS1100",/* Idle -> Shift-IR */
+        "ED1100", /* Exit1-IR ->  -> Shift-DR */
+        NULL};
+
     char **p = tail; 
     while(*p) {
         if (temp == (*p)[0] && required == (*p)[1])
@@ -250,8 +262,11 @@ void idle_to_shift_dr(int idindex)
 }
 static uint8_t *write_pattern(int idindex, uint8_t *req, int target_state)
 {
+    LOGNOTE("Calling idle_to_shift_dr()");
     idle_to_shift_dr(idindex);
+    LOGNOTE("Switched to shift_dr");
     write_bytes(DREAD, target_state, req+1, req[0], SEND_SINGLE_FRAME, 1, 0, 0);
+    LOGNOTE("Wrote bytes. Now reading...");
     return read_data();
 }
 
@@ -291,13 +306,16 @@ static uint8_t idcode_vpattern[] = DITEM(IDCODE_VPAT);
 static uint8_t idcode_vresult[] = DITEM(IDCODE_VPAT); // filled in with idcode
 void read_idcode(int prereset)
 {
+    ENTER();
     int i, offset = 0;
     uint32_t temp[IDCODE_ARRAY_SIZE];
 
     if (prereset)
         write_tms_transition("RR1");
+    LOGNOTE("Checkpoint pre marker_for_reset()");
     marker_for_reset(4);
     uint8_t *rdata = write_pattern(0, idcode_ppattern, 'I');
+    LOGNOTE("Checkpoint post write-pattern");
     if (first_time_idcode_read) {    // only setup idcode patterns on first call!
         first_time_idcode_read = 0;
         memcpy(&idcode_presult[1], idcode_ppattern+1, idcode_ppattern[0]);
@@ -321,23 +339,39 @@ void read_idcode(int prereset)
         }
         else {
             idcode_array[i] &= 0x0fffffff;  /* Xilinx 7 Series: 4 MSB are 'version': UG470, Fig 5-8 */
+            found_xilinx = i;
             idcode_len[i] = XILINX_IR_LENGTH;
         }
     }
+    EXIT();
 }
 
 static void init_device(int extra)
 {
+    ENTER();
+    LOGNOTE("Disable loopback. Disable divide by 5 of master clock.");
     write_item(DITEM(LOOPBACK_END, DIS_DIV_5));
+    LOGNOTE("Set clock divisor");
+#if 0
+    if (device_type == DEVICE_MIMAS_A7)
+        clock_frequency = 30000000;     // in case needs to be decreased
+#endif
     set_clock_divisor();
-    write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
-    if (extra)
-        write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    if (device_type == DEVICE_MIMAS_A7)
+        write_item(DITEM(SET_BITS_LOW, 0x08, 0x4b, SET_BITS_HIGH, 0x20, 0x30));
+    else {
+        write_item(DITEM(SET_BITS_LOW, 0xe8, 0xeb, SET_BITS_HIGH, 0x20, 0x30));
+        if (extra)
+            write_item(DITEM(SET_BITS_HIGH, 0x30, 0x00, SET_BITS_HIGH, 0x00, 0x00));
+    }
+    LOGNOTE("For TAP to reset state.");
     write_tms_transition("XR11111");       /*** Force TAP controller to Reset state ***/
+    EXIT();
 }
-static void get_deviceid(int device_index, int interface)
+static int get_deviceid(int device_index, int interface)
 {
-    init_ftdi(device_index, interface);
+    if (init_ftdi(device_index, interface) < 0)
+        return -1;
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
@@ -346,6 +380,7 @@ static void get_deviceid(int device_index, int interface)
     first_time_idcode_read = 1;
     ENTER_TMS_STATE('R');
     read_idcode(1);
+    return 0;
 }
 /*
  * Functions for setting Instruction Register(IR)
@@ -375,6 +410,21 @@ printf("[%s:%d] read %d command %x idindex %d bef %d aft %d\n", __FUNCTION__, __
     }
     else
         write_bit(read, idcode_len[idindex] - 1, command, tail);
+}
+void fpgajtag_write_ir(int t)
+{
+    t |= (t & 0xe0) << 3;  /* high order byte contains bits 5 and higher */
+    write_irreg(0, t, found_xilinx, 'I');
+    flush_write(NULL);
+}
+uint8_t *fpgajtag_write_dr(uint8_t *tempbuf2, int len)
+{
+    idle_to_shift_dr(0);
+    write_bytes(DREAD, 'E', tempbuf2, len, SEND_SINGLE_FRAME, 1, 0, 1);
+    if (found_cortex != -1)
+         write_tms_transition("EE0101");
+    ENTER_TMS_STATE('I');
+    return read_data();
 }
 static int write_cirreg(int read, int command)
 {
@@ -588,7 +638,7 @@ static void read_config_memory(int fd, uint32_t size)
         CONFIG_TYPE1(CONFIG_OP_NOP, 0, 0)), size, fd);
 }
 
-static void init_fpgajtag(const char *serialno, const char *filename, uint32_t file_idcode)
+int init_fpgajtag(const char *serialno, int read_idcode_only, uint32_t file_idcode, int interface)
 {
     int i, j;
 
@@ -602,13 +652,13 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
     for (i = 0; uinfo[i].dev; i++) {
         fprintf(stderr, "fpgajtag: %s:%s:%s; bcd:%x", uinfo[i].iManufacturer,
             uinfo[i].iProduct, uinfo[i].iSerialNumber, uinfo[i].bcdDevice);
-        if (!filename) {
+        if (read_idcode_only) {
             idcode_count = 0;
             if (uinfo[i].idVendor == USB_JTAG_ALTERA) {
                  printf("Altera device");
             }
-            else
-                get_deviceid(i, interface);  /*** Generic initialization of FTDI chip ***/
+            else if (get_deviceid(i, interface) < 0)  /*** Generic initialization of FTDI chip ***/
+                return -1;
             fpgausb_close();
             if (idcode_count)
                 fprintf(stderr, "; IDCODE:");
@@ -617,8 +667,8 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
         }
         fprintf(stderr, "\n");
     }
-    if (!filename)
-        exit(1);
+    if (read_idcode_only)
+        return -1;
     while (1) {
         if (!uinfo[usb_index].dev) {
             fprintf(stderr, "fpgajtag: Can't find usable usb interface\n");
@@ -634,7 +684,8 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
     /*
      * Set JTAG clock speed and GPIO pins for our i/f
      */
-    get_deviceid(usb_index, interface);          /*** Generic initialization of FTDI chip ***/
+    if (get_deviceid(usb_index, interface) < 0) /*** Generic initialization of FTDI chip ***/
+        return -1;
     for (i = 0; i < idcode_count; i++)       /*** look for device matching file idcode ***/
         if (idcode_array[i] == file_idcode || file_idcode == 0xffffffff || match_any_idcode) {
             jtag_index = i;
@@ -643,94 +694,42 @@ static void init_fpgajtag(const char *serialno, const char *filename, uint32_t f
         }
     if (jtag_index == -1) {
         printf("[%s] id %x from file does not match actual id %x\n", __FUNCTION__, file_idcode, idcode_array[0]);
-        exit(-1);
+        return -1;
     }
+    dcount = idcode_count - (found_cortex != -1) - 1;
+    trailing_len = idcode_count - 1 - jtag_index;
+    dc2trail = dcount == 2 && !trailing_len;
+printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, found_cortex, dcount, trailing_len);
+    return 0;
 }
 
-int min(int a, int b)
+int fpgajtag_finish(int rescan)
 {
-  if (a < b)
-      return a;
-  else
-      return b;
+    flush_write(NULL);
+    fpgausb_close();
+    fpgausb_release();
+    if (rescan) {
+	int rc = execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
+	fprintf(stderr, "fpgajtag: ERROR failed to run pciescanportal: %s\n", strerror(errno));
+	return rc;
+    }
+    return 0;
 }
 
-int main(int argc, char **argv)
+int fpgajtag_main(const char *bitstream, const char *serialport,
+    int rflag, int mflag, int cflag, int xflag,
+    int askip_idcode, int amatch_any_idcode, int interface, int adevice, int nflag)
 {
     uint32_t ret;
-    int i, rflag = 0, lflag = 0, mflag = 0, cflag = 0, xflag = 0, rescan = 0;
-    const char *serialno = NULL;
-    logfile = stdout;
+    int rescan = 0;
+    const char *serialno = serialport;
+    fpgajtag_logfile = stdout;
     opterr = 0;
-    while ((i = getopt (argc, argv, "atrxlms:ci:I:")) != -1)
-        switch (i) {
-        case 'a':
-	    match_any_idcode = 1;
-            break;
-        case 'c':
-            cflag = 1;
-            break;
-        case 'i':
-            skip_idcode = atoi(optarg);
-            break;
-        case 'I':
-            interface = atoi(optarg);
-            break;
-        case 'l':
-            lflag = 1;
-            break;
-        case 'm':
-            mflag = 1;
-            break;
-        case 'r':
-            rflag = 1;
-            break;
-        case 's':
-            serialno = optarg;
-            break;
-        case 't':
-            trace = 1;
-            break;
-        case 'x':
-            xflag = 1;
-            break;
-        default:
-            goto usage;
-        }
-
-    if (optind != argc - 1 && !cflag && !lflag) {
-usage:
-        fprintf(stderr, "Usage %s [ -a ][ -x ] [ -l ] [ -m ] [ -t ] [ -s <serialno> ] [ -i <index> ] [ -I interface ] [ -r ] <filename>\n", argv[0]);
-	fprintf(stderr, "\n"
-		        "Programs Xilinx FPGA from a bitstream. The bitstream may be compressed and it may be contained an ELF executable.\n"
-                        "\n"
-                        "If filename is an ELF executable, reads the data from the fpgajtag section of the file, otherwise it reads the whole file.\n"
-                        "\n"
-                        "If the data is compressed with gzip, it is uncompressed.\n"
-		        "\n"
-                        "If the data has a .bit header, the header is removed.\n"
-                        "\n"
-                        "Unless using /dev/xdevcfg, scans USB for devices whose IDCODE matches the bitstream\n"
-                        "and programs the device whose position matches index. Index defaults to 0.\n"
-                        "\n"
-                        "When using /dev/xdevcfg, programs the device by writing the bitstream to /dev/xdevcfg."
-                        "\n"
-                        "A bitstream may be embedded into ELF executable application.elf via the following command:\n"
-                        "    objcopy --add-section fpgadata=system.bin.gz application.elf\n"
-                        "\n"
-		);
-        fprintf(stderr, "Optional arguments:\n"
-		        "  -a             Match any idcode\n"
-                        "  -x             Write input file to /dev/xdevcfg on Zynq devices\n"
-                        "  -l             Display a list of all FPGA jtag interfaces discovered on USB\n"
-                        "  -m             Use FPGA Manager\n"
-                        "  -s <serialno>  Use the jtag interface with the given serial number\n"
-                        "  -i <index>     Program the 'index' device in the jtag chain that matches the IDCODE in the input file\n"
-		        "  -I <0|1>       Which interface of FT2232 to use\n"
-                        "  -t             Trace usb programming traffic\n");
-        exit(1);
-    }
-    const char *filename = lflag ? NULL : argv[argc - 1];
+    const char *filename = bitstream;
+    skip_idcode = askip_idcode;
+    match_any_idcode = amatch_any_idcode;
+    device_type = adevice;
+    dump_config_data_stream = nflag;
 
     /*
      * Read input file
@@ -790,12 +789,8 @@ usage:
 	}
         exit(0);
     }
-    init_fpgajtag(serialno, filename, cflag ? 0xffffffff : file_idcode);
-
-    dcount = idcode_count - (found_cortex != -1) - 1;
-    trailing_len = idcode_count - 1 - jtag_index;
-    dc2trail = dcount == 2 && !trailing_len;
-printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, found_cortex, dcount, trailing_len);
+    if (init_fpgajtag(serialno, filename == NULL, cflag ? 0xffffffff : file_idcode, interface) < 0)
+        return -1;      // error
 
     /*
      * See if we are reading out data
@@ -818,6 +813,7 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
      */
     if (cflag) {
         process_command_list();
+        flush_write(NULL);
         goto exit_label;
     }
 
@@ -849,7 +845,8 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
     marker_for_reset(0);
     write_cirreg(0, IRREG_JPROGRAM);
     write_cirreg(0, IRREG_ISC_NOOP);
-    pulse_gpio(12500 /*msec*/);
+    if (device_type != DEVICE_MIMAS_A7)
+        pulse_gpio(12500 /*msec*/);
     if ((ret = write_cirreg(DREAD, IRREG_ISC_NOOP)) != INPROGRAMMING)
         printf("[%s:%d] NOOP/INPROGRAMMING mismatch %x\n", __FUNCTION__, __LINE__, ret);
 
@@ -864,7 +861,8 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
     /*
      * Step 8: Startup
      */
-    pulse_gpio(1250 /*msec*/);
+    if (device_type != DEVICE_MIMAS_A7)
+        pulse_gpio(1250 /*msec*/);
     if ((ret = read_config_reg(CONFIG_REG_BOOTSTS)) != (jtag_index ? 0x03000000 : 0x01000000))
         printf("[%s:%d] CONFIG_REG_BOOTSTS mismatch %x\n", __FUNCTION__, __LINE__, ret);
     write_cirreg(0, IRREG_JSTART);
@@ -899,12 +897,5 @@ printf("count %d/%d cortex %d dcount %d trail %d\n", jtag_index, idcode_count, f
      * Cleanup and free USB device
      */
 exit_label:
-    fpgausb_close();
-    fpgausb_release();
-    if (rescan) {
-	int rc = execlp("pciescanportal", "arg", (char *)NULL); /* rescan pci bus to discover device */
-	fprintf(stderr, "fpgajtag: ERROR failed to run pciescanportal: %s\n", strerror(errno));
-	return rc;
-    }
-    return 0;
+    return fpgajtag_finish(rescan);
 }

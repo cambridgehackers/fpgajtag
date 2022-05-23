@@ -26,6 +26,7 @@
 #include <inttypes.h>
 #include "util.h"
 #include "fpga.h"
+#include "fpgajtag.h"
 
 static void loaddr(int aread, uint32_t v, int extra3bits)
 {

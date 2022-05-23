@@ -1,3 +1,9 @@
+fpgajtag (22.05.23-1trusty1) trusty; urgency=medium
+
+  * parse bin file to find idcode
+
+ --  <jamey.hicks@gmail.com>  Mon, 23 May 2022 10:50:38 -0400
+
 fpgajtag (18.08.1-1trusty1) trusty; urgency=medium
 
   * package for bionic

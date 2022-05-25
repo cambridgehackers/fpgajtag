@@ -729,7 +729,6 @@ uint32_t read_inputfile(const char *filename)
                 int idcodeFamily = (fileIdcode >> 21) & 0x7f;
                 //int idcodePart = (fileIdcode >> 12) & 0x1ff;
                 //int idcodeManuf = (fileIdcode >> 1) & 0x7ff;
-                int packetIndex = 0;
                 int frameSize = 101;
                 if (idcodeFamily == 0x1b) // Series7 -> 101 words
                     frameSize = 101;
@@ -743,27 +742,28 @@ uint32_t read_inputfile(const char *filename)
                     frameSize = 93;
                 if (idcodeFamily == 0x26) // Versal ACAP -> 93 words
                     frameSize = 93;
+                int remainder = len / frameSize;
+                remainder = len - frameSize * remainder;
                 if (dump_config_data_stream) {
-                    printf("    TYPE2 len 0x%x %d.:", len, len);
-                    int remainder = len / frameSize;
-                    remainder = len - frameSize * remainder;
+                    printf("    TYPE2 len 0x%x %d. framecount %f\n", len, len, (1.0 * len)/frameSize);
 //printf(" ver %x family %x part %x manuf %x frameremainder %d\n", idcodeVersion, idcodeFamily, idcodePart, idcodeManuf, remainder);
                 }
-                for (int alen = 0; alen < len; alen++ ) {
-                    uint32_t adata;
-                    memcpy(&adata, input_fileptr+offset, sizeof(adata));
-                    adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
-                    if (0 && dump_config_data_stream) {
-                        printf(" %08x", adata);
-                        if (packetIndex++ >= frameSize * sizeof(adata)) {
-                            printf("\n");
-                            packetIndex = 0;
+                for (int frameNumber = 0; frameNumber < len / frameSize; frameNumber++) {
+                    int nonZero = 0;
+                    for (int alen = 0; alen < frameSize && !nonZero; alen++ )
+                        nonZero = input_fileptr[offset+alen] != 0;
+                    if (0 && nonZero && dump_config_data_stream && remainder == 0) {
+                        printf("%6d: ", frameNumber);
+                        for (int alen = 0; alen < frameSize; alen++ ) {
+                            uint32_t adata;
+                            memcpy(&adata, input_fileptr+offset + alen, sizeof(adata));
+                            adata = (M(adata) << 24) | (M(adata >> 8) << 16) | (M(adata >> 16) << 8) | M(adata >> 24);
+                            printf(" %08x", adata);
                         }
+                        printf("\n");
                     }
-                    offset += sizeof(tempdata);
+                    offset += frameSize * sizeof(tempdata);
                 }
-                if (dump_config_data_stream)
-                    printf("\n");
                 break;
                 }
             default:
